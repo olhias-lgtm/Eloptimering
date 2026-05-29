@@ -774,14 +774,27 @@ async function loadPricesData(dateStr) {
 // ---------------------------------------------------------------------------
 function buildPriceMap(pricesArr) {
   // pricesArr: [{time_start:"2025-05-29T00:00:00+02:00", SEK_per_kWh:0.432}, …]
+  // Intervals may be 15-min or 60-min — detect from data and fill 5-min slots accordingly
+  const sorted = [...(pricesArr || [])].sort((a,b) => a.time_start.localeCompare(b.time_start));
+  if (!sorted.length) return {};
+
+  // Detect interval length in minutes
+  let intervalMin = 60;
+  if (sorted.length > 1) {
+    const diff = (new Date(sorted[1].time_start) - new Date(sorted[0].time_start)) / 60000;
+    intervalMin = diff;
+  }
+
   const map = {};
-  for (const p of (pricesArr || [])) {
+  for (const p of sorted) {
     const dt = new Date(p.time_start);
-    const hour = dt.getHours();
+    const startMin = dt.getHours() * 60 + dt.getMinutes();
     const orePerKwh = p.SEK_per_kWh * 100;
-    // Assign to all 5-min slots in this hour
-    for (let m = 0; m < 60; m += 5) {
-      const key = `${String(hour).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+    // Fill every 5-min slot covered by this interval
+    for (let m = startMin; m < startMin + intervalMin; m += 5) {
+      const h = Math.floor(m / 60) % 24;
+      const min = m % 60;
+      const key = `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
       map[key] = orePerKwh;
     }
   }
