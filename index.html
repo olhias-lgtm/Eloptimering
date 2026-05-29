@@ -1108,18 +1108,21 @@ async function loadHistory() {
         if (!byDay[day]) byDay[day] = [];
         byDay[day].push(r);
       }
-      const kwh5 = 5/60;
-      rows = Object.entries(byDay).map(([day, ivs]) => ({
-        day,
-        solar_kwh:    +(ivs.reduce((s,r)=>s+r.solar_kw,0)*kwh5).toFixed(2),
-        load_kwh:     +(ivs.reduce((s,r)=>s+r.load_kw,0)*kwh5).toFixed(2),
-        import_kwh:   +(ivs.reduce((s,r)=>s+r.import_kw,0)*kwh5).toFixed(2),
-        export_kwh:   +(ivs.reduce((s,r)=>s+r.export_kw,0)*kwh5).toFixed(2),
-        charge_kwh:   +(ivs.reduce((s,r)=>s+r.charge_kw,0)*kwh5).toFixed(2),
-        discharge_kwh:+(ivs.reduce((s,r)=>s+r.discharge_kw,0)*kwh5).toFixed(2),
-        is_mock:       ivs.some(r=>r.is_mock),
-        net_kr:        null,
-      }));
+      rows = Object.entries(byDay).map(([day, ivs]) => {
+        // Derive interval length from row count rather than assuming 5-min
+        const kwhFactor = 24 / ivs.length;
+        return {
+          day,
+          solar_kwh:    +(ivs.reduce((s,r)=>s+r.solar_kw,0)*kwhFactor).toFixed(2),
+          load_kwh:     +(ivs.reduce((s,r)=>s+r.load_kw,0)*kwhFactor).toFixed(2),
+          import_kwh:   +(ivs.reduce((s,r)=>s+r.import_kw,0)*kwhFactor).toFixed(2),
+          export_kwh:   +(ivs.reduce((s,r)=>s+r.export_kw,0)*kwhFactor).toFixed(2),
+          charge_kwh:   +(ivs.reduce((s,r)=>s+r.charge_kw,0)*kwhFactor).toFixed(2),
+          discharge_kwh:+(ivs.reduce((s,r)=>s+r.discharge_kw,0)*kwhFactor).toFixed(2),
+          is_mock:       ivs.some(r=>r.is_mock),
+          net_kr:        null,
+        };
+      });
     } else {
       rows = await fetchJSON(`/api/history?days=30&area=${area}`);
     }
