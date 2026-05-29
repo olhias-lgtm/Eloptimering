@@ -1,0 +1,1281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EnergySaver™ — Sparreholmsvagen 6a</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:        #0a0c0f;
+    --surface:   #111418;
+    --border:    #1e2530;
+    --muted:     #2a3140;
+    --text:      #e2e8f0;
+    --dim:       #64748b;
+    --solar:     #f59e0b;
+    --import:    #ef4444;
+    --export:    #22c55e;
+    --load:      #60a5fa;
+    --battery:   #a78bfa;
+    --price:     #fb923c;
+    --accent:    #38bdf8;
+    --positive:  #22c55e;
+    --negative:  #ef4444;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 17px;
+    letter-spacing: -0.5px;
+    color: var(--text);
+  }
+
+  .logo span { color: var(--solar); }
+
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    color: var(--dim);
+    font-size: 11px;
+  }
+
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    display: inline-block;
+    margin-right: 5px;
+    transition: background 0.3s;
+  }
+  .status-dot.ok { background: var(--positive); box-shadow: 0 0 6px var(--positive); }
+  .status-dot.err { background: var(--negative); }
+
+  /* Date nav */
+  .date-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+
+  .date-bar button {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--dim);
+    padding: 5px 12px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    border-radius: 3px;
+    transition: all 0.15s;
+  }
+  .date-bar button:hover { border-color: var(--accent); color: var(--accent); }
+
+  #date-input {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 10px;
+    font-family: inherit;
+    font-size: 12px;
+    border-radius: 3px;
+  }
+
+  .today-btn {
+    background: var(--accent) !important;
+    border-color: var(--accent) !important;
+    color: var(--bg) !important;
+    font-weight: 600 !important;
+  }
+
+  /* Layout */
+  main { padding: 20px 28px; max-width: 1400px; margin: 0 auto; }
+
+  /* KPI row */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .kpi {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .kpi::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+
+  .kpi.solar::before  { background: var(--solar); }
+  .kpi.load::before   { background: var(--load); }
+  .kpi.import::before { background: var(--import); }
+  .kpi.export::before { background: var(--export); }
+  .kpi.cost::before   { background: var(--negative); }
+  .kpi.net::before    { background: var(--accent); }
+
+  .kpi-label {
+    font-size: 10px;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+
+  .kpi-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 3px;
+  }
+
+  .kpi.solar .kpi-value  { color: var(--solar); }
+  .kpi.load .kpi-value   { color: var(--load); }
+  .kpi.import .kpi-value { color: var(--import); }
+  .kpi.export .kpi-value { color: var(--export); }
+  .kpi.cost .kpi-value   { color: var(--negative); }
+  .kpi.net .kpi-value    { color: var(--accent); }
+
+  .kpi-sub { font-size: 10px; color: var(--dim); }
+
+  /* Charts */
+  .chart-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .chart-grid-bottom {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px;
+  }
+
+  .card-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--dim);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .card-title .badge {
+    background: var(--muted);
+    color: var(--dim);
+    padding: 2px 7px;
+    border-radius: 2px;
+    font-size: 9px;
+  }
+
+  .chart-wrap { position: relative; height: 220px; }
+  .chart-wrap-tall { position: relative; height: 280px; }
+
+  /* Cost breakdown table */
+  .breakdown {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .breakdown tr { border-bottom: 1px solid var(--border); }
+  .breakdown tr:last-child { border-bottom: none; }
+  .breakdown td { padding: 8px 4px; }
+  .breakdown td:last-child { text-align: right; font-weight: 600; }
+  .breakdown .total td {
+    color: var(--accent);
+    font-size: 13px;
+    border-top: 1px solid var(--accent);
+    padding-top: 10px;
+  }
+  .breakdown .positive { color: var(--positive); }
+  .breakdown .negative { color: var(--negative); }
+
+  /* Forecast notice */
+  .forecast-notice {
+    background: rgba(56,189,248,0.05);
+    border: 1px solid rgba(56,189,248,0.2);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: var(--accent);
+    margin-bottom: 14px;
+  }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 10px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    color: var(--dim);
+  }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+
+  /* Loading / error states */
+  .loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    color: var(--dim);
+    font-size: 11px;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .spinner {
+    width: 24px; height: 24px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error-msg {
+    color: var(--negative);
+    font-size: 11px;
+    padding: 12px;
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 4px;
+    margin: 8px 0;
+  }
+
+  /* Weather strip */
+  .weather-strip {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 8px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 11px;
+    color: var(--dim);
+    overflow-x: auto;
+  }
+
+  .wx-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+
+  .wx-item strong { color: var(--text); font-weight: 600; }
+  .wx-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; }
+
+  .wx-bar {
+    display: flex;
+    gap: 2px;
+    align-items: flex-end;
+    height: 20px;
+  }
+  .wx-bar-seg {
+    width: 6px;
+    border-radius: 1px 1px 0 0;
+    background: var(--solar);
+    opacity: 0.7;
+    transition: height 0.3s;
+  }
+
+  /* Config panel */
+  .config-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+  }
+
+  .config-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .config-field label { font-size: 10px; color: var(--dim); }
+
+  .config-field input, .config-field select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 10px;
+    font-family: inherit;
+    font-size: 12px;
+    border-radius: 3px;
+    width: 140px;
+  }
+
+  /* Refresh button */
+  .refresh-btn {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 5px 14px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    border-radius: 3px;
+    transition: all 0.15s;
+    align-self: flex-end;
+  }
+  .refresh-btn:hover { background: var(--accent); color: var(--bg); }
+  .refresh-btn:disabled { opacity: 0.4; cursor: default; }
+
+  .last-updated { font-size: 10px; color: var(--dim); align-self: flex-end; }
+
+  @media (max-width: 900px) {
+    .kpi-row { grid-template-columns: repeat(3, 1fr); }
+    .chart-grid { grid-template-columns: 1fr; }
+    .chart-grid-bottom { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">⚡ <span>EnergySaver</span><sup style="font-size:9px;vertical-align:super;color:var(--dim)">TM</sup></div>
+  <div class="header-meta">
+    <div>
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">Connecting…</span>
+    </div>
+    <div id="plant-label" style="color:var(--dim)">—</div>
+  </div>
+</header>
+
+<div class="date-bar">
+  <button onclick="shiftDate(-1)">◀ Prev</button>
+  <input type="date" id="date-input" onchange="loadDate(this.value)">
+  <button onclick="shiftDate(1)">Next ▶</button>
+  <button class="today-btn" onclick="loadToday()">Today</button>
+  <span class="last-updated" id="last-updated"></span>
+</div>
+
+<div class="weather-strip" id="weather-strip">
+  <span style="color:var(--dim);font-size:10px">Loading weather…</span>
+</div>
+
+<main>
+
+  <!-- Config row -->
+  <div class="config-row">
+    <div class="config-field">
+      <label>Price Area</label>
+      <select id="area-select" onchange="refresh()">
+        <option value="SE3" selected>SE3 (Stockholm)</option>
+        <option value="SE1">SE1</option>
+        <option value="SE2">SE2</option>
+        <option value="SE4">SE4</option>
+      </select>
+    </div>
+    <div class="config-field">
+      <label>Ellevio Fast Avgift (kr/mån)</label>
+      <input type="number" id="cfg-fast" value="545" step="1">
+    </div>
+    <div class="config-field">
+      <label>Nätavgift Import (öre/kWh)</label>
+      <input type="number" id="cfg-natavg-in" value="7.5" step="0.1">
+    </div>
+    <div class="config-field">
+      <label>Nätnytta Export (öre/kWh)</label>
+      <input type="number" id="cfg-natnytta" value="8.0" step="0.1">
+    </div>
+    <div class="config-field">
+      <label>Energiskatt (öre/kWh)</label>
+      <input type="number" id="cfg-energiskatt" value="54.875" step="0.001">
+    </div>
+    <div class="config-field">
+      <label>Fortum Påslag (öre/kWh)</label>
+      <input type="number" id="cfg-fortum" value="0" step="0.1">
+    </div>
+    <button class="refresh-btn" id="refresh-btn" onclick="refresh()">↻ Refresh</button>
+  </div>
+
+  <!-- KPI row -->
+  <div class="kpi-row">
+    <div class="kpi solar">
+      <div class="kpi-label">Solar</div>
+      <div class="kpi-value" id="kpi-solar">—</div>
+      <div class="kpi-sub">kWh produced</div>
+    </div>
+    <div class="kpi load">
+      <div class="kpi-label">Load</div>
+      <div class="kpi-value" id="kpi-load">—</div>
+      <div class="kpi-sub">kWh consumed</div>
+    </div>
+    <div class="kpi import">
+      <div class="kpi-label">Import</div>
+      <div class="kpi-value" id="kpi-import">—</div>
+      <div class="kpi-sub">kWh from grid</div>
+    </div>
+    <div class="kpi export">
+      <div class="kpi-label">Export</div>
+      <div class="kpi-value" id="kpi-export">—</div>
+      <div class="kpi-sub">kWh to grid</div>
+    </div>
+    <div class="kpi cost">
+      <div class="kpi-label">Grid Cost</div>
+      <div class="kpi-value" id="kpi-cost">—</div>
+      <div class="kpi-sub">kr inkl. moms</div>
+    </div>
+    <div class="kpi net">
+      <div class="kpi-label">Net</div>
+      <div class="kpi-value" id="kpi-net">—</div>
+      <div class="kpi-sub">kr (earn − cost)</div>
+    </div>
+  </div>
+
+  <!-- Forecast notice -->
+  <div class="forecast-notice" id="forecast-notice" style="display:none">
+    📈 Tomorrow's prices available — forecast shown for rest of today and tomorrow
+  </div>
+
+  <!-- Main chart + breakdown -->
+  <div class="chart-grid">
+    <div class="card">
+      <div class="card-title">
+        Power Flow — 5 min intervals
+        <span class="badge" id="interval-badge">— intervals</span>
+      </div>
+      <div class="chart-wrap-tall">
+        <canvas id="power-chart"></canvas>
+      </div>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--solar)"></div>Solar</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--load)"></div>Load</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--import)"></div>Import</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--export)"></div>Export</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--battery)"></div>Battery net</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Cost Breakdown</div>
+      <div id="breakdown-wrap">
+        <div class="loading"><div class="spinner"></div><span>Loading…</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Price + running cost charts -->
+  <div class="chart-grid-bottom">
+    <div class="card">
+      <div class="card-title">
+        Spot Price SE3
+        <span class="badge">öre/kWh inkl. moms</span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="price-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Running Cost / Earning (kr)</div>
+      <div class="chart-wrap">
+        <canvas id="running-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- History panel -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">
+      30-Day History
+      <span class="badge" id="history-badge">loading…</span>
+    </div>
+    <div class="chart-wrap-tall" id="history-chart-wrap">
+      <canvas id="history-chart"></canvas>
+    </div>
+    <div class="legend" style="margin-bottom:14px">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--solar)"></div>Solar kWh</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--import)"></div>Import kWh</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--export)"></div>Export kWh</div>
+    </div>
+    <div id="history-table-wrap"></div>
+  </div>
+
+</main>
+
+<script>
+// ---------------------------------------------------------------------------
+// Config helpers
+// ---------------------------------------------------------------------------
+const cfg = () => ({
+  fastAvgift:    parseFloat(document.getElementById('cfg-fast').value) || 545,
+  natavgIn:      parseFloat(document.getElementById('cfg-natavg-in').value) || 7.5,
+  natnytta:      parseFloat(document.getElementById('cfg-natnytta').value) || 8.0,
+  energiskatt:   parseFloat(document.getElementById('cfg-energiskatt').value) || 54.875,
+  fortumPaslag:  parseFloat(document.getElementById('cfg-fortum').value) || 0,
+  moms:          1.25,
+  area:          document.getElementById('area-select').value,
+});
+
+// ---------------------------------------------------------------------------
+// Tariff engine
+// ---------------------------------------------------------------------------
+function calcInterval(importKwh, exportKwh, spotOrePerKwh, c) {
+  // Import cost per kWh = (spot + natavg_in + energiskatt + fortum_paslag) × moms
+  const importRateOre = (spotOrePerKwh + c.natavgIn + c.energiskatt + c.fortumPaslag) * c.moms;
+
+  // Export earning per kWh = spot + natnytta (no moms on income)
+  const exportRateOre = spotOrePerKwh + c.natnytta;
+
+  const costKr    = (importKwh * importRateOre) / 100;
+  const earningKr = (exportKwh * exportRateOre) / 100;
+
+  return { costKr, earningKr, importRateOre, exportRateOre };
+}
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let state = {
+  energyData:  null,
+  pricesData:  null,
+  currentDate: todayStr(),
+  charts:      {},
+};
+
+function todayStr() {
+  return new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD in Swedish locale
+}
+
+// ---------------------------------------------------------------------------
+// Static mode — true when running without the local proxy (e.g. on the web)
+// ---------------------------------------------------------------------------
+const SUPABASE_URL  = 'https://yiqmtsczgshfltcutuhq.supabase.co';
+const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpcW10c2N6Z3NoZmx0Y3V0dWhxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4OTg1ODQsImV4cCI6MjA5NTQ3NDU4NH0.ZQhMdu5SBKEemfLESdqoWvZ9xZsaVNQOlGvwn_NINOs';
+
+let STATIC_MODE = false;
+
+async function detectMode() {
+  try {
+    const r = await fetch('/api/status', { signal: AbortSignal.timeout(1500) });
+    STATIC_MODE = !r.ok;
+  } catch {
+    STATIC_MODE = true;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mock energy data generator (JS port of Python version)
+// ---------------------------------------------------------------------------
+function bell(t, peak, width, height) {
+  return height * Math.exp(-Math.pow(t - peak, 2) / (2 * width * width));
+}
+
+function generateMockEnergy() {
+  const chart = {};
+  for (let slot = 0; slot < 288; slot++) {
+    const h = Math.floor(slot * 5 / 60);
+    const m = (slot * 5) % 60;
+    const t = slot * 5 / 60;
+    const label = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+
+    let solar = Math.max(0,
+      bell(t,10.0,1.6,9.8) + bell(t,17.2,0.4,2.8) + (t>6.5&&t<19.0 ? 0.3 : 0)
+    );
+    if (solar > 0.1) solar *= (0.92 + 0.08 * Math.sin(slot * 0.7));
+    solar = Math.max(0, (t>6.3&&t<19.2) ? solar : 0);
+
+    const load     = Math.max(0.4, 0.85 + bell(t,7.5,0.3,0.9) + bell(t,19.5,0.5,1.2));
+    const charge   = Math.max(0, bell(t,10.0,0.8,8.8));
+    const discharge= Math.max(0, bell(t,18.0,0.8,3.5) + (t<6.0 ? bell(t,1.5,2.5,1.2) : 0));
+    const surplus  = solar - load - charge + discharge;
+    const exp      = Math.max(0, surplus);
+    const imp      = solar > 1.0 ? 0 : Math.max(0, load - solar - discharge + charge);
+
+    chart[label] = {
+      ppv: +solar.toFixed(3), sysOut: +load.toFixed(3),
+      pacToUser: +imp.toFixed(3), pacToGrid: +exp.toFixed(3),
+      pdischarge: +discharge.toFixed(3),
+    };
+  }
+  return { obj: { chartData: chart }, mock: true };
+}
+
+// ---------------------------------------------------------------------------
+// Data fetching
+// ---------------------------------------------------------------------------
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status} from ${url}`);
+  return r.json();
+}
+
+async function loadStatus() {
+  const dot   = document.getElementById('status-dot');
+  const txt   = document.getElementById('status-text');
+  const plant = document.getElementById('plant-label');
+
+  if (STATIC_MODE) {
+    dot.className = 'status-dot ok';
+    txt.textContent = 'Demo mode — mock data';
+    plant.textContent = 'Sparreholmsvagen 6a';
+    return;
+  }
+
+  try {
+    const s = await fetchJSON('/api/status');
+    if (s.env_ok) {
+      dot.className = 'status-dot ok';
+      txt.textContent = s.logged_in ? `Connected · ${s.username}` : `Authenticating…`;
+      plant.textContent = `plant: ${s.plant_id || '…'} · mix: ${s.mix_serial || '…'}`;
+    } else {
+      dot.className = 'status-dot err';
+      txt.textContent = '.env not configured';
+    }
+  } catch(e) {
+    dot.className = 'status-dot err';
+    txt.textContent = 'Proxy not running';
+  }
+}
+
+function _markMock() {
+  const badge = document.getElementById('interval-badge');
+  badge.textContent = 'MOCK DATA';
+  badge.style.background = 'rgba(251,146,60,0.2)';
+  badge.style.color = 'var(--price)';
+}
+
+function _parseEnergyRaw(raw) {
+  if (raw.mock) _markMock();
+  const chart = raw.obj?.chartData || raw.chartData || raw.data?.chartData || {};
+  if (!chart || Object.keys(chart).length === 0) return null;
+  const rows = [];
+  for (const [timeStr, v] of Object.entries(chart)) {
+    const [h, m] = timeStr.split(':').map(Number);
+    rows.push({
+      time:         timeStr,
+      minutes:      h * 60 + m,
+      solar_kw:     parseFloat(v.ppv        || v.solar     || 0),
+      load_kw:      parseFloat(v.sysOut     || v.load      || 0),
+      import_kw:    parseFloat(v.pacToUser  || v.toUser    || 0),
+      export_kw:    parseFloat(v.pacToGrid  || v.toGrid    || 0),
+      discharge_kw: parseFloat(v.pdischarge || v.discharge || 0),
+    });
+  }
+  rows.sort((a,b) => a.minutes - b.minutes);
+  rows.forEach(r => {
+    r.charge_kw = Math.max(0, r.solar_kw + r.import_kw - r.load_kw - r.export_kw + r.discharge_kw);
+  });
+  return rows;
+}
+
+async function loadEnergyData(dateStr) {
+  if (STATIC_MODE) return _parseEnergyRaw(generateMockEnergy());
+  const raw = await fetchJSON(`/api/energy?date=${dateStr}`);
+  return _parseEnergyRaw(raw);
+}
+
+async function loadPricesData(dateStr) {
+  if (STATIC_MODE) {
+    // Call elprisetjustnu.se directly — supports CORS
+    const area = cfg().area;
+    const [y, mo, d] = dateStr.split('-');
+    const base = `https://www.elprisetjustnu.se/api/v1/prices/${y}/${mo}-${d}_${area}.json`;
+    const tomorrowDate = new Date(dateStr);
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+    const td = tomorrowDate.toLocaleDateString('sv-SE').split('-');
+    const tmrBase = `https://www.elprisetjustnu.se/api/v1/prices/${td[0]}/${td[1]}-${td[2]}_${area}.json`;
+    const [today, tomorrow] = await Promise.all([
+      fetch(base).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(tmrBase).then(r => r.ok ? r.json() : []).catch(() => []),
+    ]);
+    return { today, tomorrow };
+  }
+  return fetchJSON(`/api/prices?date=${dateStr}&area=${cfg().area}`);
+}
+
+// ---------------------------------------------------------------------------
+// Price interpolation (hourly → 5-min)
+// ---------------------------------------------------------------------------
+function buildPriceMap(pricesArr) {
+  // pricesArr: [{time_start:"2025-05-29T00:00:00+02:00", SEK_per_kWh:0.432}, …]
+  const map = {};
+  for (const p of (pricesArr || [])) {
+    const dt = new Date(p.time_start);
+    const hour = dt.getHours();
+    const orePerKwh = p.SEK_per_kWh * 100;
+    // Assign to all 5-min slots in this hour
+    for (let m = 0; m < 60; m += 5) {
+      const key = `${String(hour).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+      map[key] = orePerKwh;
+    }
+  }
+  return map;
+}
+
+function priceAt(map, timeStr) {
+  return map[timeStr] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+function kwhFromRows(rows, field) {
+  return rows.reduce((s,r) => s + r[field], 0) * (5/60);
+}
+
+function renderKPIs(rows, priceMap, c) {
+  const solar  = kwhFromRows(rows, 'solar_kw');
+  const load   = kwhFromRows(rows, 'load_kw');
+  const imp    = kwhFromRows(rows, 'import_kw');
+  const exp    = kwhFromRows(rows, 'export_kw');
+
+  let totalCost = 0, totalEarn = 0;
+  let hasPrices = false;
+
+  rows.forEach(r => {
+    const spot = priceAt(priceMap, r.time);
+    if (spot === null) return;
+    hasPrices = true;
+    const kwh5 = 5/60;
+    const { costKr, earningKr } = calcInterval(
+      r.import_kw * kwh5, r.export_kw * kwh5, spot, c
+    );
+    totalCost += costKr;
+    totalEarn += earningKr;
+  });
+
+  // Add monthly fixed fee (prorated to the day)
+  const fixedDay = (c.fastAvgift * c.moms) / 30;
+  totalCost += fixedDay;
+
+  const net = totalEarn - totalCost;
+
+  set('kpi-solar',  solar.toFixed(2));
+  set('kpi-load',   load.toFixed(2));
+  set('kpi-import', imp.toFixed(2));
+  set('kpi-export', exp.toFixed(2));
+  set('kpi-cost',   hasPrices ? totalCost.toFixed(2) : '—');
+  set('kpi-net',    hasPrices ? net.toFixed(2) : '—');
+
+  const netEl = document.getElementById('kpi-net');
+  netEl.style.color = net >= 0 ? 'var(--positive)' : 'var(--negative)';
+
+  return { totalCost, totalEarn, net, fixedDay, hasPrices };
+}
+
+function renderBreakdown(rows, priceMap, c) {
+  const kwh5 = 5/60;
+  let energyCost = 0, natavgCost = 0, energiskattCost = 0;
+  let exportEarn = 0, hasPrices = false;
+
+  rows.forEach(r => {
+    const spot = priceAt(priceMap, r.time);
+    if (spot === null) return;
+    hasPrices = true;
+    const imp = r.import_kw * kwh5;
+    const exp = r.export_kw * kwh5;
+
+    energyCost     += imp * (spot + c.fortumPaslag) * c.moms / 100;
+    natavgCost     += imp * c.natavgIn * c.moms / 100;
+    energiskattCost+= imp * c.energiskatt * c.moms / 100;
+    exportEarn     += exp * (spot + c.natnytta) / 100;
+  });
+
+  const fixedDay = (c.fastAvgift * c.moms) / 30;
+  const totalCost = energyCost + natavgCost + energiskattCost + fixedDay;
+  const net = exportEarn - totalCost;
+
+  const rows_html = hasPrices ? `
+    <tr><td>Spotpris + Fortum</td><td class="negative">−${energyCost.toFixed(2)} kr</td></tr>
+    <tr><td>Nätavgift import</td><td class="negative">−${natavgCost.toFixed(2)} kr</td></tr>
+    <tr><td>Energiskatt</td><td class="negative">−${energiskattCost.toFixed(2)} kr</td></tr>
+    <tr><td>Fast avgift (dag)</td><td class="negative">−${fixedDay.toFixed(2)} kr</td></tr>
+    <tr><td>Export earning</td><td class="positive">+${exportEarn.toFixed(2)} kr</td></tr>
+    <tr class="total">
+      <td>NET</td>
+      <td class="${net >= 0 ? 'positive' : 'negative'}">${net >= 0 ? '+' : ''}${net.toFixed(2)} kr</td>
+    </tr>
+  ` : `<tr><td colspan="2" style="color:var(--dim);padding:12px 0">No price data for this date</td></tr>`;
+
+  document.getElementById('breakdown-wrap').innerHTML = `
+    <table class="breakdown">
+      <tbody>${rows_html}</tbody>
+    </table>
+    <div style="margin-top:14px;font-size:10px;color:var(--dim);line-height:1.6">
+      Alla priser inkl. 25% moms.<br>
+      Fast avgift prorateras per dag (${c.fastAvgift} kr/mån ÷ 30).
+    </div>
+  `;
+}
+
+function renderPowerChart(rows) {
+  const labels = rows.map(r => r.time);
+  const datasets = [
+    { label:'Solar',        data: rows.map(r=>r.solar_kw),    borderColor:'var(--solar)',   backgroundColor:'rgba(245,158,11,0.08)',  tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5 },
+    { label:'Load',         data: rows.map(r=>r.load_kw),     borderColor:'var(--load)',    backgroundColor:'rgba(96,165,250,0.08)',  tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5 },
+    { label:'Import',       data: rows.map(r=>r.import_kw),   borderColor:'var(--import)',  backgroundColor:'rgba(239,68,68,0.06)',   tension:0.3, fill:false, pointRadius:0, borderWidth:1.5 },
+    { label:'Export',       data: rows.map(r=>r.export_kw),   borderColor:'var(--export)',  backgroundColor:'rgba(34,197,94,0.06)',   tension:0.3, fill:false, pointRadius:0, borderWidth:1.5 },
+    { label:'Battery net',  data: rows.map(r=>r.discharge_kw - r.charge_kw),
+                                                               borderColor:'var(--battery)', backgroundColor:'rgba(167,139,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1, borderDash:[3,3] },
+  ];
+  upsertChart('power-chart', 'power', {
+    type:'line', data:{ labels, datasets },
+    options: chartOpts('kW', true),
+  });
+  document.getElementById('interval-badge').textContent = `${rows.length} intervals`;
+}
+
+function renderPriceChart(priceMap, rows, tomorrowMap) {
+  const allTimes = rows.map(r=>r.time);
+  // Add tomorrow's slots if available
+  const tomorrowSlots = tomorrowMap ? Object.keys(tomorrowMap).sort() : [];
+  const tomorrowLabels = tomorrowSlots.map(t => `+${t}`);
+
+  const labels = [...allTimes, ...tomorrowLabels];
+  const todayPrices = allTimes.map(t => {
+    const p = priceAt(priceMap, t);
+    return p !== null ? p * 1.25 : null; // display incl moms
+  });
+  const tmrPrices = tomorrowSlots.map(t => (tomorrowMap[t] || 0) * 1.25);
+
+  const datasets = [
+    {
+      label: 'Today',
+      data: todayPrices,
+      borderColor: 'var(--price)',
+      backgroundColor: 'rgba(251,146,60,0.1)',
+      tension: 0.2, fill:true, pointRadius:0, borderWidth:1.5,
+    },
+  ];
+  if (tmrPrices.length) {
+    datasets.push({
+      label: 'Tomorrow (forecast)',
+      data: [...Array(allTimes.length).fill(null), ...tmrPrices],
+      borderColor: 'rgba(251,146,60,0.4)',
+      borderDash: [4,4],
+      tension: 0.2, fill:false, pointRadius:0, borderWidth:1.5,
+    });
+    document.getElementById('forecast-notice').style.display = 'block';
+  }
+
+  upsertChart('price-chart', 'price', {
+    type:'line', data:{ labels, datasets },
+    options: chartOpts('öre/kWh', false),
+  });
+}
+
+function renderRunningChart(rows, priceMap, c) {
+  const kwh5 = 5/60;
+  let runCost = 0, runEarn = 0;
+  const labels = [], costLine = [], earnLine = [], netLine = [];
+
+  rows.forEach(r => {
+    const spot = priceAt(priceMap, r.time);
+    if (spot !== null) {
+      const { costKr, earningKr } = calcInterval(
+        r.import_kw * kwh5, r.export_kw * kwh5, spot, c
+      );
+      runCost += costKr;
+      runEarn += earningKr;
+    }
+    labels.push(r.time);
+    costLine.push(runCost.toFixed(3));
+    earnLine.push(runEarn.toFixed(3));
+    netLine.push((runEarn - runCost).toFixed(3));
+  });
+
+  upsertChart('running-chart', 'running', {
+    type:'line', data:{
+      labels,
+      datasets:[
+        { label:'Cumulative cost',    data:costLine, borderColor:'var(--import)', pointRadius:0, borderWidth:1.5, tension:0.2 },
+        { label:'Cumulative earning', data:earnLine, borderColor:'var(--export)', pointRadius:0, borderWidth:1.5, tension:0.2 },
+        { label:'Net',                data:netLine,  borderColor:'var(--accent)', pointRadius:0, borderWidth:2,   tension:0.2 },
+      ],
+    },
+    options: chartOpts('kr', false),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Chart helpers
+// ---------------------------------------------------------------------------
+function chartOpts(yLabel, stacked) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode:'index', intersect:false },
+    plugins: {
+      legend: { display:false },
+      tooltip: {
+        backgroundColor:'#1e2530',
+        titleColor:'#94a3b8',
+        bodyColor:'#e2e8f0',
+        borderColor:'#2a3140',
+        borderWidth:1,
+        callbacks: {
+          label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(3)} ${yLabel}`,
+        },
+      },
+    },
+    scales: {
+      x: {
+        ticks: { color:'#64748b', font:{family:'JetBrains Mono', size:9}, maxTicksLimit:12 },
+        grid:  { color:'#1e2530' },
+      },
+      y: {
+        stacked: !!stacked,
+        ticks: { color:'#64748b', font:{family:'JetBrains Mono', size:9} },
+        grid:  { color:'#1e2530' },
+        title: { display:true, text:yLabel, color:'#64748b', font:{size:9} },
+      },
+    },
+  };
+}
+
+function upsertChart(canvasId, key, config) {
+  if (state.charts[key]) state.charts[key].destroy();
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  state.charts[key] = new Chart(ctx, config);
+}
+
+// ---------------------------------------------------------------------------
+// Main load / refresh
+// ---------------------------------------------------------------------------
+async function refresh() {
+  const dateStr = state.currentDate;
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  btn.textContent = '↻ Loading…';
+
+  try {
+    await loadStatus();
+
+    const [energyRaw, pricesRaw] = await Promise.all([
+      loadEnergyData(dateStr).catch(e => { console.error('Energy:', e); return null; }),
+      loadPricesData(dateStr).catch(e => { console.error('Prices:', e); return null; }),
+    ]);
+
+    const c = cfg();
+
+    const priceMap = buildPriceMap(pricesRaw?.today || []);
+    const tomorrowMap = buildPriceMap(pricesRaw?.tomorrow || []);
+
+    if (!energyRaw || energyRaw.length === 0) {
+      showEnergyError('No energy data returned. Check proxy logs and Growatt credentials.');
+      return;
+    }
+
+    state.energyData = energyRaw;
+    state.pricesData = pricesRaw;
+
+    renderKPIs(energyRaw, priceMap, c);
+    renderBreakdown(energyRaw, priceMap, c);
+    renderPowerChart(energyRaw);
+    renderPriceChart(priceMap, energyRaw, tomorrowMap);
+    renderRunningChart(energyRaw, priceMap, c);
+
+    document.getElementById('last-updated').textContent =
+      `Updated ${new Date().toLocaleTimeString('sv-SE')}`;
+
+  } catch(e) {
+    showEnergyError(`Error: ${e.message}`);
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↻ Refresh';
+  }
+}
+
+function showEnergyError(msg) {
+  document.getElementById('breakdown-wrap').innerHTML =
+    `<div class="error-msg">⚠ ${msg}</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Date navigation
+// ---------------------------------------------------------------------------
+function loadDate(dateStr) {
+  state.currentDate = dateStr;
+  document.getElementById('date-input').value = dateStr;
+  document.getElementById('forecast-notice').style.display = 'none';
+  refresh();
+}
+
+function shiftDate(delta) {
+  const d = new Date(state.currentDate);
+  d.setDate(d.getDate() + delta);
+  loadDate(d.toLocaleDateString('sv-SE'));
+}
+
+function loadToday() { loadDate(todayStr()); }
+
+function set(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+// ---------------------------------------------------------------------------
+// History panel
+// ---------------------------------------------------------------------------
+async function loadHistory() {
+  const area = cfg().area;
+  try {
+    let rows;
+    if (STATIC_MODE) {
+      const url = `${SUPABASE_URL}/rest/v1/energy_intervals?select=ts,solar_kw,load_kw,import_kw,export_kw,charge_kw,discharge_kw,is_mock&order=ts.asc&limit=8640`;
+      const resp = await fetch(url, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+      const intervals = resp.ok ? await resp.json() : [];
+      const byDay = {};
+      for (const r of intervals) {
+        const day = r.ts.slice(0,10);
+        if (!byDay[day]) byDay[day] = [];
+        byDay[day].push(r);
+      }
+      const kwh5 = 5/60;
+      rows = Object.entries(byDay).map(([day, ivs]) => ({
+        day,
+        solar_kwh:    +(ivs.reduce((s,r)=>s+r.solar_kw,0)*kwh5).toFixed(2),
+        load_kwh:     +(ivs.reduce((s,r)=>s+r.load_kw,0)*kwh5).toFixed(2),
+        import_kwh:   +(ivs.reduce((s,r)=>s+r.import_kw,0)*kwh5).toFixed(2),
+        export_kwh:   +(ivs.reduce((s,r)=>s+r.export_kw,0)*kwh5).toFixed(2),
+        charge_kwh:   +(ivs.reduce((s,r)=>s+r.charge_kw,0)*kwh5).toFixed(2),
+        discharge_kwh:+(ivs.reduce((s,r)=>s+r.discharge_kw,0)*kwh5).toFixed(2),
+        is_mock:       ivs.some(r=>r.is_mock),
+        net_kr:        null,
+      }));
+    } else {
+      rows = await fetchJSON(`/api/history?days=30&area=${area}`);
+    }
+    if (!rows || rows.length === 0) {
+      document.getElementById('history-badge').textContent = 'no data';
+      return;
+    }
+
+    const sorted = [...rows].sort((a,b) => a.day.localeCompare(b.day));
+    const labels = sorted.map(r => r.day.slice(5)); // MM-DD
+
+    upsertChart('history-chart', 'history', {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label:'Solar kWh',  data: sorted.map(r=>r.solar_kwh),  backgroundColor:'rgba(245,158,11,0.7)',  borderRadius:2 },
+          { label:'Import kWh', data: sorted.map(r=>r.import_kwh), backgroundColor:'rgba(239,68,68,0.6)',   borderRadius:2 },
+          { label:'Export kWh', data: sorted.map(r=>r.export_kwh), backgroundColor:'rgba(34,197,94,0.6)',   borderRadius:2 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode:'index', intersect:false },
+        plugins: {
+          legend: { display:false },
+          tooltip: {
+            backgroundColor:'#1e2530', titleColor:'#94a3b8',
+            bodyColor:'#e2e8f0', borderColor:'#2a3140', borderWidth:1,
+          },
+        },
+        scales: {
+          x: { ticks:{ color:'#64748b', font:{family:'JetBrains Mono',size:9}, maxTicksLimit:15 }, grid:{color:'#1e2530'} },
+          y: { ticks:{ color:'#64748b', font:{family:'JetBrains Mono',size:9} }, grid:{color:'#1e2530'}, title:{display:true,text:'kWh',color:'#64748b',font:{size:9}} },
+        },
+      },
+    });
+
+    document.getElementById('history-badge').textContent = `${rows.length} days`;
+
+    // Summary table — most recent first
+    const tableRows = [...rows].sort((a,b) => b.day.localeCompare(a.day)).map(r => {
+      const net    = r.net_kr != null ? r.net_kr : '—';
+      const netVal = parseFloat(net);
+      const netCls = isNaN(netVal) ? '' : netVal >= 0 ? 'positive' : 'negative';
+      const mock   = r.is_mock ? ' <span style="opacity:0.4;font-size:9px">mock</span>' : '';
+      return `<tr>
+        <td>${r.day}${mock}</td>
+        <td style="color:var(--solar)">${(r.solar_kwh||0).toFixed(1)}</td>
+        <td style="color:var(--import)">${(r.import_kwh||0).toFixed(1)}</td>
+        <td style="color:var(--export)">${(r.export_kwh||0).toFixed(1)}</td>
+        <td style="color:var(--load)">${(r.load_kwh||0).toFixed(1)}</td>
+        <td class="${netCls}">${isNaN(netVal) ? '—' : (netVal >= 0 ? '+' : '') + netVal.toFixed(2) + ' kr'}</td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('history-table-wrap').innerHTML = `
+      <table class="breakdown" style="font-size:11px;margin-top:12px">
+        <thead>
+          <tr style="color:var(--dim);font-size:9px;text-transform:uppercase;letter-spacing:1px">
+            <td>Date</td><td style="color:var(--solar)">Solar</td>
+            <td style="color:var(--import)">Import</td><td style="color:var(--export)">Export</td>
+            <td style="color:var(--load)">Load</td><td>Net</td>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>`;
+  } catch(e) {
+    console.warn('History failed:', e);
+    document.getElementById('history-badge').textContent = 'unavailable';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Weather strip
+// ---------------------------------------------------------------------------
+function wxIcon(cloudcover) {
+  if (cloudcover < 20) return '☀️';
+  if (cloudcover < 50) return '⛅';
+  if (cloudcover < 85) return '🌥';
+  return '☁️';
+}
+
+const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast?latitude=59.28&longitude=18.00&hourly=temperature_2m,cloudcover,windspeed_10m,shortwave_radiation&daily=sunrise,sunset&timezone=Europe%2FStockholm&forecast_days=2';
+
+async function loadWeather() {
+  try {
+    const w = STATIC_MODE ? await fetchJSON(WEATHER_URL) : await fetchJSON('/api/weather');
+    const hourly = w.hourly;
+    const daily  = w.daily;
+    if (!hourly) return;
+
+    const now = new Date();
+    const nowH = now.getHours();
+
+    // Find current hour index
+    const idx = hourly.time.findIndex(t => {
+      const h = new Date(t).getHours();
+      const d = new Date(t).toDateString();
+      return d === now.toDateString() && h === nowH;
+    });
+    if (idx < 0) return;
+
+    const temp    = hourly.temperature_2m[idx];
+    const cloud   = hourly.cloudcover[idx];
+    const wind    = hourly.windspeed_10m[idx];
+    const rad     = hourly.shortwave_radiation[idx];
+    const sunrise = daily?.sunrise?.[0] ? new Date(daily.sunrise[0]).toLocaleTimeString('sv-SE', {hour:'2-digit',minute:'2-digit'}) : '—';
+    const sunset  = daily?.sunset?.[0]  ? new Date(daily.sunset[0]).toLocaleTimeString('sv-SE',  {hour:'2-digit',minute:'2-digit'}) : '—';
+
+    // Next 8 hours of solar radiation for mini-bar
+    const radSlice = hourly.shortwave_radiation.slice(idx, idx + 8);
+    const maxRad   = Math.max(...radSlice, 1);
+    const bars     = radSlice.map(r => {
+      const h = Math.round((r / maxRad) * 20);
+      return `<div class="wx-bar-seg" style="height:${Math.max(h,2)}px" title="${Math.round(r)} W/m²"></div>`;
+    }).join('');
+
+    document.getElementById('weather-strip').innerHTML = `
+      <div class="wx-item">
+        <span style="font-size:18px;line-height:1">${wxIcon(cloud)}</span>
+        <div>
+          <div><strong>${temp}°C</strong></div>
+          <div class="wx-label">Temp</div>
+        </div>
+      </div>
+      <div class="wx-item">
+        <div>
+          <div><strong>${cloud}%</strong></div>
+          <div class="wx-label">Cloud cover</div>
+        </div>
+      </div>
+      <div class="wx-item">
+        <div>
+          <div><strong>${wind} km/h</strong></div>
+          <div class="wx-label">Wind</div>
+        </div>
+      </div>
+      <div class="wx-item">
+        <div>
+          <div><strong>${Math.round(rad)} W/m²</strong></div>
+          <div class="wx-label">Solar irr.</div>
+        </div>
+      </div>
+      <div class="wx-item">
+        <div class="wx-bar">${bars}</div>
+        <div class="wx-label" style="margin-left:4px">Next 8h solar</div>
+      </div>
+      <div class="wx-item" style="margin-left:auto">
+        <div>
+          <div><strong>↑ ${sunrise} ↓ ${sunset}</strong></div>
+          <div class="wx-label">Sunrise / Sunset</div>
+        </div>
+      </div>
+    `;
+  } catch(e) {
+    console.warn('Weather failed:', e);
+    document.getElementById('weather-strip').innerHTML =
+      '<span style="color:var(--dim);font-size:10px">Weather unavailable</span>';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+document.getElementById('date-input').value = state.currentDate;
+detectMode().then(() => {
+  loadDate(state.currentDate);
+  loadWeather();
+  loadHistory();
+  setInterval(loadWeather, 30 * 60 * 1000);
+});
+
+// Auto-refresh every 5 minutes
+setInterval(() => {
+  if (state.currentDate === todayStr()) refresh();
+}, 5 * 60 * 1000);
+</script>
+</body>
+</html>
