@@ -560,6 +560,26 @@
 
 <script>
 // ---------------------------------------------------------------------------
+// Tariff schedule — rates change by date
+// ---------------------------------------------------------------------------
+const TARIFF_SCHEDULE = [
+  { from: '2026-06-01', fastAvgift: 590, natavgIn: 26.0 },
+  { from: '2000-01-01', fastAvgift: 545, natavgIn: 7.5  },  // baseline
+];
+
+function tariffsForDate(dateStr) {
+  // Pick the most recent schedule entry that is <= dateStr
+  const match = TARIFF_SCHEDULE.find(t => t.from <= dateStr);
+  return match || TARIFF_SCHEDULE[TARIFF_SCHEDULE.length - 1];
+}
+
+function applyTariffDefaults(dateStr) {
+  const t = tariffsForDate(dateStr);
+  document.getElementById('cfg-fast').value     = t.fastAvgift;
+  document.getElementById('cfg-natavg-in').value = t.natavgIn;
+}
+
+// ---------------------------------------------------------------------------
 // Config helpers
 // ---------------------------------------------------------------------------
 const cfg = () => ({
@@ -1054,6 +1074,7 @@ function loadDate(dateStr) {
   state.currentDate = dateStr;
   document.getElementById('date-input').value = dateStr;
   document.getElementById('forecast-notice').style.display = 'none';
+  applyTariffDefaults(dateStr);
   refresh();
 }
 
