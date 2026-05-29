@@ -30,6 +30,7 @@ load_dotenv(pathlib.Path(__file__).parent / ".env")
 
 PORT = 8080
 GROWATT_BASE = "https://server.growatt.com"
+GROWATT_API  = "https://openapi.growatt.com"
 
 # ---------------------------------------------------------------------------
 # Growatt MD5 password hashing
@@ -37,17 +38,13 @@ GROWATT_BASE = "https://server.growatt.com"
 # ---------------------------------------------------------------------------
 
 def _growatt_hash(password: str) -> str:
-    raw = hashlib.md5(password.encode("utf-8")).hexdigest()
-    result = []
-    i = 0
-    while i < len(raw):
-        pair = raw[i:i+2]
-        if pair in ("00", "c8", "c0", "1d"):
-            result.append("c" + pair)
-        else:
-            result.append(pair)
-        i += 2
-    return "".join(result)
+    # At every even index, replace a '0' character with 'c'
+    h = hashlib.md5(password.encode("utf-8")).hexdigest()
+    h = list(h)
+    for i in range(0, len(h), 2):
+        if h[i] == "0":
+            h[i] = "c"
+    return "".join(h)
 
 
 # ---------------------------------------------------------------------------
@@ -67,13 +64,25 @@ class GrowattSession:
             urllib.request.HTTPCookieProcessor(self._jar)
         )
 
-    def _post(self, path: str, params: dict) -> dict:
-        url  = GROWATT_BASE + path
+    def _post(self, path: str, params: dict, base: str = None) -> dict:
+        url  = (base or GROWATT_BASE) + path
         body = urllib.parse.urlencode(params).encode()
         req  = urllib.request.Request(
             url, data=body,
             headers={"Content-Type": "application/x-www-form-urlencoded",
                      "User-Agent": "ElstromDashboard/1.0"},
+        )
+        with self._opener.open(req, timeout=15) as resp:
+            raw = resp.read().decode("utf-8")
+        return json.loads(raw)
+
+    def _post_qs(self, path: str, params: dict, base: str = None) -> dict:
+        """POST with params as query string — mirrors requests.post(url, params=...)."""
+        url = (base or GROWATT_API) + path + "?" + urllib.parse.urlencode(params)
+        req = urllib.request.Request(
+            url, data=b"",
+            headers={"Content-Type": "application/x-www-form-urlencoded",
+                     "User-Agent":   "ElstromDashboard/1.0"},
         )
         with self._opener.open(req, timeout=15) as resp:
             raw = resp.read().decode("utf-8")
@@ -88,21 +97,27 @@ class GrowattSession:
         hashed = _growatt_hash(password)
         print(f"[Growatt] Logging in as {username} (hash={hashed[:8]}…)")
 
+        # Login on openapi host so session cookie works for API calls there
         resp = self._post("/newTwoLoginAPI.do", {
             "userName": username,
             "password": hashed,
-        })
-        print(f"[Growatt] Login response: {json.dumps(resp)[:300]}")
+        }, base=GROWATT_API)
+        print(f"[Growatt] Login response: {json.dumps(resp)[:400]}")
 
-        # Success when result code is "1" or back dict has a user object
-        result = resp.get("result") or resp.get("back", {}).get("success")
-        user   = resp.get("user") or resp.get("back", {}).get("user") or {}
-
-        if str(result) != "1" and not user:
+        back = resp.get("back", {})
+        if not back.get("success"):
             raise RuntimeError(f"Login failed: {resp}")
 
-        self.user_id   = str(user.get("id") or user.get("userId") or "")
+        user = back.get("user") or {}
+        self.user_id  = str(user.get("id") or user.get("userId") or "")
         self.logged_in = True
+
+        # Plant list is embedded in the login response — grab it now
+        plant_list = back.get("data") or []
+        if plant_list:
+            self.plant_id = str(plant_list[0].get("plantId") or "")
+            print(f"[Growatt] Plant from login: {self.plant_id} ({plant_list[0].get('plantName','')})")
+
         print(f"[Growatt] Logged in. User ID: {self.user_id}")
         return resp
 
@@ -110,48 +125,37 @@ class GrowattSession:
         if not self.logged_in:
             self.login()
 
-        # Plant list
-        plants_resp = self._post("/newTwoPlantAPI.do", {
-            "op":     "getAllPlantList",
-            "userId": self.user_id,
-        })
-        print(f"[Growatt] Plants resp: {json.dumps(plants_resp)[:300]}")
-
-        plant_list = (
-            plants_resp.get("back", {}).get("data")
-            or plants_resp.get("data")
-            or plants_resp.get("plant")
-            or []
-        )
-        if plant_list:
-            p = plant_list[0]
-            self.plant_id = str(p.get("plantId") or p.get("id") or "")
-            print(f"[Growatt] Plant ID: {self.plant_id}")
-
-        # Device list
-        if self.plant_id:
-            dev_resp = self._post("/newTwoPlantAPI.do", {
-                "op":      "getDevicesByPlantList",
-                "plantId": self.plant_id,
-                "currPage": "1",
-            })
-            print(f"[Growatt] Devices resp: {json.dumps(dev_resp)[:400]}")
-
-            dev_list = (
-                dev_resp.get("back", {}).get("data")
-                or dev_resp.get("data")
-                or []
-            )
-            for dev in dev_list:
-                dtype = (dev.get("deviceType") or dev.get("type") or "").lower()
-                sn    = dev.get("deviceSn") or dev.get("sn") or ""
-                print(f"[Growatt]   device type={dtype} sn={sn}")
-                if dtype in ("mix", "storage") or sn == "KJN6EXV00L":
-                    self.mix_serial = sn
+        # Try device list endpoint — use the known serial as fallback
+        for op in ("getDevicesByPlantList", "getMixList", "getStorageList"):
+            try:
+                dev_resp = self._post("/newTwoPlantAPI.do", {
+                    "op":      op,
+                    "plantId": self.plant_id,
+                    "currPage": "1",
+                }, base=GROWATT_API)
+                print(f"[Growatt] {op} resp: {json.dumps(dev_resp)[:400]}")
+                dev_list = (
+                    dev_resp.get("back", {}).get("data")
+                    or dev_resp.get("obj", {}).get("datas")
+                    or dev_resp.get("data")
+                    or []
+                )
+                for dev in dev_list:
+                    dtype = (dev.get("deviceType") or dev.get("type") or "").lower()
+                    sn    = dev.get("deviceSn") or dev.get("sn") or dev.get("mixSn") or ""
+                    print(f"[Growatt]   {op} device type={dtype} sn={sn}")
+                    if dtype in ("mix", "storage") or sn == "KJN6EXV00L":
+                        self.mix_serial = sn
+                        break
+                if self.mix_serial:
                     break
-            if not self.mix_serial and dev_list:
-                d = dev_list[0]
-                self.mix_serial = d.get("deviceSn") or d.get("sn") or ""
+            except Exception as e:
+                print(f"[Growatt] {op} failed: {e}")
+
+        # Hard fallback to known serial from ShinePhone
+        if not self.mix_serial:
+            self.mix_serial = "KJN6EXV00L"
+            print("[Growatt] Using known Mix serial from ShinePhone as fallback")
 
         print(f"[Growatt] Discovery — plant: {self.plant_id}, mix: {self.mix_serial}")
 
@@ -164,11 +168,12 @@ class GrowattSession:
 
     def get_energy(self, target_date: str) -> dict:
         self.ensure_ready()
-        # Format: YYYY-MM-DD
-        resp = self._post("/newTwoPlantAPI.do", {
-            "op":      "getStorageTotalData",
-            "mixSn":   self.mix_serial,
+        # Mirror growattServer.mix_detail: GET with query params on openapi host
+        resp = self._post_qs("/newMixApi.do", {
+            "op":      "getEnergyProdAndCons_KW",
             "plantId": self.plant_id,
+            "mixId":   self.mix_serial,
+            "type":    "1",        # 1 = day
             "date":    target_date,
         })
         return resp
