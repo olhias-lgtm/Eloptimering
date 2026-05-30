@@ -236,6 +236,14 @@ class GrowattSession:
                 "pdischarge": _v(pdis, i),
             }
 
+        # Pad with empty slots to end of day so the chart always shows a full axis
+        empty = {"ppv": 0.0, "sysOut": 0.0, "pacToUser": 0.0, "pacToGrid": 0.0, "pdischarge": 0.0}
+        total_slots = (18 * 60) // minutes  # 00:00 → 18:00 CEST
+        for j in range(total_slots):
+            label = f"{(j * minutes) // 60:02d}:{(j * minutes) % 60:02d}"
+            if label not in time_cd:
+                time_cd[label] = empty.copy()
+
         obj["chartData"] = time_cd
         data["obj"] = obj
         return data
