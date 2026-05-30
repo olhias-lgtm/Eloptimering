@@ -141,8 +141,11 @@ class GrowattSession:
             params={"op": "getTlxDetailData", "id": self.mix_serial},
             timeout=10,
         )
-        print(f"[live] detail status={detail_resp.status_code} body={detail_resp.text[:120]!r}")
-        detail = detail_resp.json().get("data", {}) or {}
+        print(f"[live] detail status={detail_resp.status_code} body={detail_resp.text[:200]!r}")
+        try:
+            detail = detail_resp.json().get("data", {}) or {}
+        except Exception as e:
+            raise RuntimeError(f"detail parse failed ({detail_resp.status_code}): {detail_resp.text[:300]!r}") from e
 
         status_resp = self._s.post(
             GROWATT_API + "/newTlxApi.do",
@@ -150,8 +153,11 @@ class GrowattSession:
             data={"plantId": self.plant_id, "id": self.mix_serial},
             timeout=10,
         )
-        print(f"[live] status status={status_resp.status_code} body={status_resp.text[:120]!r}")
-        status = status_resp.json().get("obj", {}) or {}
+        print(f"[live] sysStatus={status_resp.status_code} body={status_resp.text[:200]!r}")
+        try:
+            status = status_resp.json().get("obj", {}) or {}
+        except Exception as e:
+            raise RuntimeError(f"status parse failed ({status_resp.status_code}): {status_resp.text[:300]!r}") from e
 
         overview_resp = self._s.post(
             GROWATT_API + "/newTlxApi.do",
@@ -159,8 +165,11 @@ class GrowattSession:
             data={"plantId": self.plant_id, "id": self.mix_serial},
             timeout=10,
         )
-        print(f"[live] overview status={overview_resp.status_code} body={overview_resp.text[:120]!r}")
-        overview = overview_resp.json().get("obj", {}) or {}
+        print(f"[live] overview={overview_resp.status_code} body={overview_resp.text[:200]!r}")
+        try:
+            overview = overview_resp.json().get("obj", {}) or {}
+        except Exception as e:
+            raise RuntimeError(f"overview parse failed ({overview_resp.status_code}): {overview_resp.text[:300]!r}") from e
 
         def _w(d, k):
             try: return round(float(d.get(k, 0) or 0) / 1000, 3)
