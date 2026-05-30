@@ -1,4 +1,6 @@
 .env
+.growatt_cookies
 __pycache__/
 *.pyc
 .DS_Store
+.vercel

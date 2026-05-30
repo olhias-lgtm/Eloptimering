@@ -302,6 +302,101 @@
     margin: 8px 0;
   }
 
+  /* Live strip */
+  .live-strip {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 0 28px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(56,189,248,0.03);
+    font-size: 11px;
+    color: var(--dim);
+    overflow-x: auto;
+    min-height: 36px;
+    transition: opacity 0.3s;
+  }
+
+  .live-strip.hidden { display: none; }
+
+  .live-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--positive);
+    padding-right: 16px;
+    margin-right: 16px;
+    border-right: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  .live-pulse {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--positive);
+    box-shadow: 0 0 0 0 rgba(34,197,94,0.6);
+    animation: pulse 2s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.6); }
+    50%  { box-shadow: 0 0 0 5px rgba(34,197,94,0); }
+    100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+  }
+
+  .live-metric {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    padding: 0 14px;
+    border-right: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .live-metric:last-child { border-right: none; }
+
+  .live-metric-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--dim);
+  }
+
+  .live-metric-val {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    line-height: 1;
+  }
+
+  .live-metric-unit { font-size: 9px; color: var(--dim); }
+
+  .live-divider {
+    width: 1px; height: 20px;
+    background: var(--border);
+    margin: 0 6px;
+    flex-shrink: 0;
+  }
+
+  .live-today {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding-left: 16px;
+    margin-left: 6px;
+    border-left: 1px solid var(--border);
+    font-size: 10px;
+    color: var(--dim);
+    white-space: nowrap;
+  }
+
+  .live-today-item { display: flex; align-items: baseline; gap: 3px; }
+  .live-today-item .val { color: var(--text); font-weight: 600; }
+
   /* Weather strip */
   .weather-strip {
     display: flex;
@@ -415,6 +510,46 @@
 
 <div class="weather-strip" id="weather-strip">
   <span style="color:var(--dim);font-size:10px">Loading weather…</span>
+</div>
+
+<div class="live-strip hidden" id="live-strip">
+  <div class="live-badge">
+    <div class="live-pulse"></div>
+    Live
+  </div>
+  <div class="live-metric">
+    <span class="live-metric-label">☀ Solar</span>
+    <span class="live-metric-val" id="live-ppv" style="color:var(--solar)">—</span>
+    <span class="live-metric-unit">kW</span>
+  </div>
+  <div class="live-metric">
+    <span class="live-metric-label">🏠 Load</span>
+    <span class="live-metric-val" id="live-load" style="color:var(--load)">—</span>
+    <span class="live-metric-unit">kW</span>
+  </div>
+  <div class="live-metric" id="live-batt-metric">
+    <span class="live-metric-label" id="live-batt-label">🔋 Batt</span>
+    <span class="live-metric-val" id="live-batt" style="color:var(--battery)">—</span>
+    <span class="live-metric-unit">kW</span>
+  </div>
+  <div class="live-metric">
+    <span class="live-metric-label">↑ Export</span>
+    <span class="live-metric-val" id="live-export" style="color:var(--export)">—</span>
+    <span class="live-metric-unit">kW</span>
+  </div>
+  <div class="live-metric">
+    <span class="live-metric-label">↓ Import</span>
+    <span class="live-metric-val" id="live-import" style="color:var(--import)">—</span>
+    <span class="live-metric-unit">kW</span>
+  </div>
+  <div class="live-today" id="live-today">
+    <span style="font-size:9px;text-transform:uppercase;letter-spacing:0.8px;margin-right:2px">Today</span>
+    <div class="live-today-item"><span style="color:var(--solar)">☀</span><span class="val" id="live-epv-today">—</span><span>kWh</span></div>
+    <div class="live-today-item"><span>load</span><span class="val" id="live-eload-today">—</span><span>kWh</span></div>
+    <div class="live-today-item"><span style="color:var(--battery)">↓dis</span><span class="val" id="live-edis-today">—</span><span>kWh</span></div>
+    <div class="live-today-item"><span style="color:var(--export)">↑exp</span><span class="val" id="live-eexp-today">—</span><span>kWh</span></div>
+    <div class="live-today-item"><span style="color:var(--import)">↓imp</span><span class="val" id="live-eimp-today">—</span><span>kWh</span></div>
+  </div>
 </div>
 
 <main>
@@ -1088,6 +1223,16 @@ function loadDate(dateStr) {
   document.getElementById('date-input').value = dateStr;
   document.getElementById('forecast-notice').style.display = 'none';
   applyTariffDefaults(dateStr);
+  // Show/hide live strip depending on whether we're viewing today
+  const strip = document.getElementById('live-strip');
+  if (strip) {
+    if (!STATIC_MODE && dateStr === todayStr()) {
+      strip.classList.remove('hidden');
+      loadLive();
+    } else {
+      strip.classList.add('hidden');
+    }
+  }
   refresh();
 }
 
@@ -1299,6 +1444,57 @@ async function loadWeather() {
 }
 
 // ---------------------------------------------------------------------------
+// Live strip
+// ---------------------------------------------------------------------------
+let _liveTimer = null;
+
+async function loadLive() {
+  const strip = document.getElementById('live-strip');
+  // Only show when viewing today and connected to proxy
+  if (STATIC_MODE || state.currentDate !== todayStr()) {
+    strip.classList.add('hidden');
+    return;
+  }
+  strip.classList.remove('hidden');
+
+  try {
+    const d = await fetchJSON('/api/live');
+
+    const fmt = v => v.toFixed(2);
+
+    // Battery: show charge or discharge with label
+    const charging    = (d.charge_kw || 0) > 0.05;
+    const discharging = (d.discharge_kw || 0) > 0.05;
+    let battVal = '0.00', battLabel = '🔋 Batt';
+    if (charging)    { battVal = fmt(d.charge_kw);    battLabel = '🔋 Charging'; }
+    if (discharging) { battVal = fmt(d.discharge_kw); battLabel = '🔋 Discharging'; }
+
+    document.getElementById('live-ppv').textContent    = fmt(d.ppv_kw);
+    document.getElementById('live-load').textContent   = fmt(d.load_kw);
+    document.getElementById('live-batt').textContent   = battVal;
+    document.getElementById('live-batt-label').textContent = battLabel;
+    document.getElementById('live-export').textContent = fmt(d.export_kw);
+    document.getElementById('live-import').textContent = fmt(d.import_kw);
+
+    // Today totals
+    document.getElementById('live-epv-today').textContent  = (d.epv_today  || 0).toFixed(1);
+    document.getElementById('live-eload-today').textContent= (d.eload_today|| 0).toFixed(1);
+    document.getElementById('live-edis-today').textContent = (d.edischarge_today || 0).toFixed(1);
+    document.getElementById('live-eexp-today').textContent = (d.export_today|| 0).toFixed(1);
+    document.getElementById('live-eimp-today').textContent = (d.import_today|| 0).toFixed(1);
+
+  } catch(e) {
+    console.warn('[Live]', e.message);
+  }
+}
+
+function startLivePolling() {
+  if (_liveTimer) clearInterval(_liveTimer);
+  loadLive();
+  _liveTimer = setInterval(loadLive, 60 * 1000);
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 document.getElementById('date-input').value = state.currentDate;
@@ -1306,6 +1502,7 @@ detectMode().then(() => {
   loadDate(state.currentDate);
   loadWeather();
   loadHistory();
+  startLivePolling();
   setInterval(loadWeather, 30 * 60 * 1000);
 });
 
