@@ -218,7 +218,7 @@ class GrowattSession:
         time_cd = {}
 
         def _v(arr, idx):
-            try: return round(float(arr[idx]) / 12.5, 2)
+            try: return round(float(arr[idx]) / 10.0, 2)
             except: return 0.0
 
         for i in range(n):
