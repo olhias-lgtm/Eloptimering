@@ -550,6 +550,10 @@
     <div class="live-today-item"><span style="color:var(--export)">↑exp</span><span class="val" id="live-eexp-today">—</span><span>kWh</span></div>
     <div class="live-today-item"><span style="color:var(--import)">↓imp</span><span class="val" id="live-eimp-today">—</span><span>kWh</span></div>
   </div>
+  <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:2px;padding-left:12px">
+    <span id="live-clock" style="font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);letter-spacing:1px">—</span>
+    <span id="live-fetched" style="font-size:9px;color:var(--dim)">—</span>
+  </div>
 </div>
 
 <main>
@@ -1483,6 +1487,10 @@ async function loadLive() {
     document.getElementById('live-eexp-today').textContent = (d.export_today|| 0).toFixed(1);
     document.getElementById('live-eimp-today').textContent = (d.import_today|| 0).toFixed(1);
 
+    // Stamp fetch time
+    document.getElementById('live-fetched').textContent =
+      'fetched ' + new Date().toLocaleTimeString('sv-SE', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+
   } catch(e) {
     console.warn('[Live]', e.message);
   }
@@ -1493,6 +1501,14 @@ function startLivePolling() {
   loadLive();
   _liveTimer = setInterval(loadLive, 60 * 1000);
 }
+
+// Ticking clock
+function tickClock() {
+  const el = document.getElementById('live-clock');
+  if (el) el.textContent = new Date().toLocaleTimeString('sv-SE', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+tickClock();
+setInterval(tickClock, 1000);
 
 // ---------------------------------------------------------------------------
 // Init
