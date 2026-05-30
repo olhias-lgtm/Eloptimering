@@ -17,7 +17,10 @@ class handler(BaseHTTPRequestHandler):
             y, mo, day = d.split("-")
             url = f"{ELPRISET_BASE}/{y}/{mo}-{day}_{area}.json"
             try:
-                with urllib.request.urlopen(url, timeout=8) as r:
+                req = urllib.request.Request(url, headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; electricity-dashboard/1.0)"
+                })
+                with urllib.request.urlopen(req, timeout=8) as r:
                     return json.loads(r.read())
             except Exception:
                 return []
