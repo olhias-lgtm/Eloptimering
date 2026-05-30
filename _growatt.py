@@ -64,30 +64,30 @@ class GrowattSession:
         print(f"[Growatt] Logged in as {GROWATT_USER}, plant={self.plant_id}")
 
     def discover(self):
-        resp = self._s.post(
-            GROWATT_API + "/newTlxApi.do",
-            params={"op": "getTlxListByPlant"},
-            data={"plantId": self.plant_id or "", "currPage": "1"},
-            timeout=15,
-        )
-        data = resp.json()
-        # Try to extract plant_id from plant list if not already set
-        if not self.plant_id:
-            plant_resp = self._s.post(
-                GROWATT_API + "/newTwoLoginAPI.do",
-                params={"op": "getAllPlantList"},
-                data={"userId": self.user_id},
-                timeout=15,
-            )
-            plants = plant_resp.json().get("back", {}).get("data", []) or []
-            if plants:
-                self.plant_id = str(plants[0].get("plantId") or plants[0].get("id", ""))
-
-        # Fallback to known values from local proxy
+        # Use known-good fallback values first so we never block on a failed API call
         if not self.plant_id:
             self.plant_id = "10119069"
         if not self.mix_serial:
             self.mix_serial = "KJN6EXV00L"
+
+        # Try to get the real serial from the device list (best-effort)
+        try:
+            resp = self._s.post(
+                GROWATT_API + "/newTlxApi.do",
+                params={"op": "getTlxListByPlant"},
+                data={"plantId": self.plant_id, "currPage": "1"},
+                timeout=10,
+            )
+            data = resp.json() if resp.text.strip() else {}
+            devices = (data.get("obj") or {}).get("datas") or []
+            for d in devices:
+                sn = d.get("tlxSn") or d.get("sn") or d.get("deviceSn")
+                if sn:
+                    self.mix_serial = sn
+                    break
+        except Exception as e:
+            print(f"[Growatt] discover fallback (using hardcoded serial): {e}")
+
         print(f"[Growatt] plant={self.plant_id} serial={self.mix_serial}")
 
     def ensure_ready(self):
