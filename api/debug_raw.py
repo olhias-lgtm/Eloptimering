@@ -25,17 +25,13 @@ class handler(BaseHTTPRequestHandler):
             obj = data.get("obj", {})
             cd  = obj.get("chartData", {})
             # Show first few and last few values from each array
-            summary = {}
-            for key in ["sysOut", "acCharge", "pacToGrid", "epv3", "echarge", "epv1", "epv2"]:
+            # Return full arrays for all keys so we can compute totals
+            full = {}
+            for key in cd:
                 arr = cd.get(key) or []
-                if arr:
-                    summary[key] = {
-                        "len": len(arr),
-                        "first5": arr[:5],
-                        "last5":  arr[-5:],
-                        "max":    max(float(x) for x in arr if x is not None),
-                    }
-            self._send({"n_keys": len(cd), "all_keys": list(cd.keys()), "arrays": summary})
+                if isinstance(arr, list):
+                    full[key] = arr
+            self._send({"n_keys": len(cd), "all_keys": list(cd.keys()), "arrays": full})
         except Exception as e:
             self._send({"error": str(e)}, 500)
 
