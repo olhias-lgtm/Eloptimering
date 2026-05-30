@@ -134,11 +134,14 @@ class GrowattSession:
 
     def get_live(self) -> dict:
         self.ensure_ready()
+        print(f"[live] plant={self.plant_id} serial={self.mix_serial}")
+
         detail_resp = self._s.get(
             GROWATT_API + "/newTlxApi.do",
             params={"op": "getTlxDetailData", "id": self.mix_serial},
             timeout=10,
         )
+        print(f"[live] detail status={detail_resp.status_code} body={detail_resp.text[:120]!r}")
         detail = detail_resp.json().get("data", {}) or {}
 
         status_resp = self._s.post(
@@ -147,6 +150,7 @@ class GrowattSession:
             data={"plantId": self.plant_id, "id": self.mix_serial},
             timeout=10,
         )
+        print(f"[live] status status={status_resp.status_code} body={status_resp.text[:120]!r}")
         status = status_resp.json().get("obj", {}) or {}
 
         overview_resp = self._s.post(
@@ -155,6 +159,7 @@ class GrowattSession:
             data={"plantId": self.plant_id, "id": self.mix_serial},
             timeout=10,
         )
+        print(f"[live] overview status={overview_resp.status_code} body={overview_resp.text[:120]!r}")
         overview = overview_resp.json().get("obj", {}) or {}
 
         def _w(d, k):
