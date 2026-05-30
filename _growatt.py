@@ -214,7 +214,7 @@ class GrowattSession:
             return data
 
         minutes          = 5 if n > 48 else 30
-        CEST_OFFSET_MIN  = 0   # Growatt returns data already in local (Stockholm) time
+        CEST_OFFSET_MIN  = 60  # Growatt uses CET (UTC+1); add 1h for CEST (UTC+2) in summer
         time_cd = {}
 
         def _v(arr, idx):
