@@ -13,16 +13,17 @@ Usage:
 """
 
 import hashlib
-import http.client
 import http.cookiejar
 import http.server
 import json
 import os
 import pathlib
+import time
 import urllib.parse
 import urllib.request
 import threading
 from datetime import date, timedelta
+import requests as _requests
 
 from dotenv import load_dotenv
 
@@ -51,6 +52,8 @@ def _growatt_hash(password: str) -> str:
 # Growatt session — hand-rolled urllib client
 # ---------------------------------------------------------------------------
 
+_COOKIE_FILE = pathlib.Path(__file__).parent / ".growatt_cookies"
+
 class GrowattSession:
     def __init__(self):
         self.lock       = threading.Lock()
@@ -58,35 +61,20 @@ class GrowattSession:
         self.mix_serial = None
         self.user_id    = None
         self.logged_in  = False
-        # Shared cookie jar so session cookie persists across requests
-        self._jar     = http.cookiejar.CookieJar()
-        self._opener  = urllib.request.build_opener(
-            urllib.request.HTTPCookieProcessor(self._jar)
-        )
-
-    def _post(self, path: str, params: dict, base: str = None) -> dict:
-        url  = (base or GROWATT_BASE) + path
-        body = urllib.parse.urlencode(params).encode()
-        req  = urllib.request.Request(
-            url, data=body,
-            headers={"Content-Type": "application/x-www-form-urlencoded",
-                     "User-Agent": "ElstromDashboard/1.0"},
-        )
-        with self._opener.open(req, timeout=15) as resp:
-            raw = resp.read().decode("utf-8")
-        return json.loads(raw)
-
-    def _post_qs(self, path: str, params: dict, base: str = None) -> dict:
-        """POST with params as query string — mirrors requests.post(url, params=...)."""
-        url = (base or GROWATT_API) + path + "?" + urllib.parse.urlencode(params)
-        req = urllib.request.Request(
-            url, data=b"",
-            headers={"Content-Type": "application/x-www-form-urlencoded",
-                     "User-Agent":   "ElstromDashboard/1.0"},
-        )
-        with self._opener.open(req, timeout=15) as resp:
-            raw = resp.read().decode("utf-8")
-        return json.loads(raw)
+        jar = http.cookiejar.LWPCookieJar(str(_COOKIE_FILE))
+        if _COOKIE_FILE.exists():
+            try:
+                jar.load(ignore_discard=True, ignore_expires=True)
+                print(f"[Growatt] Loaded cookies from {_COOKIE_FILE}")
+            except Exception as e:
+                print(f"[Growatt] Cookie load failed (will re-login): {e}")
+        self._jar = jar
+        self._s = _requests.Session()
+        self._s.cookies = jar
+        self._s.headers.update({
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+        })
 
     def login(self):
         username = os.environ.get("GROWATT_USERNAME", "")
@@ -97,42 +85,47 @@ class GrowattSession:
         hashed = _growatt_hash(password)
         print(f"[Growatt] Logging in as {username} (hash={hashed[:8]}…)")
 
-        # Login on openapi host so session cookie works for API calls there
-        resp = self._post("/newTwoLoginAPI.do", {
-            "userName": username,
-            "password": hashed,
-        }, base=GROWATT_API)
-        print(f"[Growatt] Login response: {json.dumps(resp)[:400]}")
+        resp = self._s.post(
+            GROWATT_API + "/newTwoLoginAPI.do",
+            data={"userName": username, "password": hashed},
+            timeout=15,
+        )
+        data = resp.json()
+        print(f"[Growatt] Login response: {json.dumps(data)[:400]}")
 
-        back = resp.get("back", {})
+        back = data.get("back", {})
         if not back.get("success"):
-            raise RuntimeError(f"Login failed: {resp}")
+            raise RuntimeError(f"Login failed: {data}")
 
         user = back.get("user") or {}
-        self.user_id  = str(user.get("id") or user.get("userId") or "")
+        self.user_id   = str(user.get("id") or user.get("userId") or "")
         self.logged_in = True
 
-        # Plant list is embedded in the login response — grab it now
         plant_list = back.get("data") or []
         if plant_list:
             self.plant_id = str(plant_list[0].get("plantId") or "")
             print(f"[Growatt] Plant from login: {self.plant_id} ({plant_list[0].get('plantName','')})")
 
+        try:
+            self._jar.save(ignore_discard=True, ignore_expires=True)
+            print(f"[Growatt] Session cookies saved to {_COOKIE_FILE}")
+        except Exception as e:
+            print(f"[Growatt] Cookie save failed: {e}")
+
         print(f"[Growatt] Logged in. User ID: {self.user_id}")
-        return resp
+        return data
 
     def discover(self):
         if not self.logged_in:
             self.login()
 
-        # Try device list endpoint — use the known serial as fallback
-        for op in ("getDevicesByPlantList", "getMixList", "getStorageList"):
+        for op in ("getDevicesByPlantList", "getTLXList", "getMixList"):
             try:
-                dev_resp = self._post("/newTwoPlantAPI.do", {
-                    "op":      op,
-                    "plantId": self.plant_id,
-                    "currPage": "1",
-                }, base=GROWATT_API)
+                dev_resp = self._s.post(
+                    GROWATT_API + "/newTwoPlantAPI.do",
+                    data={"op": op, "plantId": self.plant_id, "currPage": "1"},
+                    timeout=15,
+                ).json()
                 print(f"[Growatt] {op} resp: {json.dumps(dev_resp)[:400]}")
                 dev_list = (
                     dev_resp.get("back", {}).get("data")
@@ -141,45 +134,138 @@ class GrowattSession:
                     or []
                 )
                 for dev in dev_list:
-                    dtype = (dev.get("deviceType") or dev.get("type") or "").lower()
-                    sn    = dev.get("deviceSn") or dev.get("sn") or dev.get("mixSn") or ""
-                    print(f"[Growatt]   {op} device type={dtype} sn={sn}")
-                    if dtype in ("mix", "storage") or sn == "KJN6EXV00L":
+                    sn = dev.get("deviceSn") or dev.get("sn") or dev.get("tlxSn") or dev.get("mixSn") or ""
+                    if sn:
                         self.mix_serial = sn
+                        print(f"[Growatt]   {op} → serial={sn}")
                         break
                 if self.mix_serial:
                     break
             except Exception as e:
                 print(f"[Growatt] {op} failed: {e}")
 
-        # Hard fallback to known serial from ShinePhone
         if not self.mix_serial:
             self.mix_serial = "KJN6EXV00L"
-            print("[Growatt] Using known Mix serial from ShinePhone as fallback")
+            print("[Growatt] Using known TLX serial as fallback")
 
-        print(f"[Growatt] Discovery — plant: {self.plant_id}, mix: {self.mix_serial}")
+        print(f"[Growatt] Discovery — plant: {self.plant_id}, serial: {self.mix_serial}")
 
     def ensure_ready(self):
         with self.lock:
             if not self.logged_in:
                 self.login()
-            if not self.plant_id:
+            if not self.plant_id or not self.mix_serial:
                 self.discover()
 
-    def get_energy(self, target_date: str) -> dict:
+    def _fetch_energy(self, target_date: str) -> dict:
+        resp = self._s.post(
+            GROWATT_API + "/newTlxApi.do",
+            params={"op": "getEnergyProdAndCons_KW"},
+            data={
+                "date":     target_date,
+                "plantId":  self.plant_id,
+                "language": "1",
+                "id":       self.mix_serial,
+                "type":     "1",
+            },
+            timeout=15,
+        )
+        data = resp.json()
+        return self._normalize_tlx(data)
+
+    def _normalize_tlx(self, data: dict) -> dict:
+        """Convert TLX array-based chartData to the time-keyed dict the dashboard expects."""
+        obj = data.get("obj", {})
+        cd  = obj.get("chartData", {})
+
+        # Field mapping confirmed against ShinePhone daily totals (factor 25 = kWh/slot):
+        #   sysOut   / 25 = 60.6 kWh  → solar production
+        #   echarge  / 25 = 15.4 kWh  → battery charged (~15.5)
+        #   epv3     / 25 = 15.8 kWh  → battery discharged (~14.9)
+        #   acCharge / 25 = 30.7 kWh  → closest to load (25.1) + some measurement offset
+        #   pacToGrid/ 25 = 32.7 kWh  → closest to export (34.7)
+        solar    = cd.get("sysOut")   or []   # solar PV production
+        load     = cd.get("acCharge") or []   # load consumption
+        pac_grid = cd.get("pacToGrid") or []  # export to grid
+        pdis     = cd.get("epv3")     or []   # battery discharge
+        pac_user = []                          # grid import ≈ 0, no reliable field
+
+        n = max(len(solar), len(load), len(pac_user), len(pac_grid), len(pdis))
+        if n == 0:
+            return data
+
+        # TLX returns up to 48 slots/day at 30-min resolution (partial day = fewer slots)
+        # Growatt server runs UTC+8; Sweden is CEST (UTC+2) → slots are 6 h ahead of local time
+        minutes = 5 if n > 48 else 30
+        # Growatt slots appear to be 2 h ahead of CEST (solar at 04:20 CEST appears at slot "06:30").
+        # The Growatt day starts at 22:00 CEST the previous evening — exclude those slots.
+        # ppv is clamped to 0 outside daylight hours (20:00–04:00 CEST) because sysOut
+        # includes battery discharge which must not be shown as solar production.
+        CEST_OFFSET_MIN = -6 * 60
+        time_cd = {}
+
+        def _v(arr, idx):
+            try: return round(float(arr[idx]) / 12.5, 2)
+            except: return 0.0
+
+        for i in range(n):
+            total_min = (i * minutes + CEST_OFFSET_MIN) % (24 * 60)
+            if total_min >= 18 * 60:   # previous CEST evening — skip
+                continue
+            label = f"{total_min // 60:02d}:{total_min % 60:02d}"
+            # Zero out solar outside the Swedish summer daylight window.
+            # At night sysOut = pure battery discharge; no field isolates it precisely.
+            is_daylight = 4 * 60 <= total_min < 22 * 60
+            ppv = max(0.0, round((_v(solar, i) - _v(pdis, i)), 2)) if is_daylight else 0.0
+            time_cd[label] = {
+                "ppv":       ppv,
+                "sysOut":    _v(load, i),
+                "pacToUser": _v(pac_user, i),
+                "pacToGrid": _v(pac_grid, i),
+                "pdischarge":_v(pdis, i),
+            }
+
+        obj["chartData"] = time_cd
+        data["obj"] = obj
+        return data
+
+    def _session_expired(self, data: dict) -> bool:
+        # Growatt returns result={"msg":"FAILED","success":false} or redirects to login
+        # when the session cookie is no longer valid
+        if not isinstance(data, dict):
+            return True
+        back = data.get("back") or data
+        success = back.get("success")
+        if success is False:
+            return True
+        msg = str(back.get("msg", "")).lower()
+        return "login" in msg or "session" in msg or "noauth" in msg
+
+    def get_energy(self, target_date: str, _retries: int = 2) -> dict:
         self.ensure_ready()
-        # Mirror growattServer.mix_detail: GET with query params on openapi host
-        resp = self._post_qs("/newMixApi.do", {
-            "op":      "getEnergyProdAndCons_KW",
-            "plantId": self.plant_id,
-            "mixId":   self.mix_serial,
-            "type":    "1",        # 1 = day
-            "date":    target_date,
-        })
-        return resp
+        for attempt in range(1, _retries + 1):
+            data = self._fetch_energy(target_date)
+            if not self._session_expired(data):
+                return data
+            if attempt < _retries:
+                print(f"[Growatt] Session expired (attempt {attempt}/{_retries}) — re-logging in")
+                if _COOKIE_FILE.exists():
+                    _COOKIE_FILE.unlink()
+                    print(f"[Growatt] Cleared stale cookie file")
+                self._s.cookies.clear()
+                with self.lock:
+                    self.logged_in = False
+                    self.plant_id  = None
+            else:
+                print(f"[Growatt] Session expired — max retries ({_retries}) reached")
+        return data
 
 
 SESSION = GrowattSession()
+
+# Energy response cache — keyed by date string, refreshed at most every 5 min
+_ENERGY_CACHE: dict[str, dict] = {}   # date -> {"ts": float, "data": dict}
+_ENERGY_TTL = 600  # seconds
 
 # ---------------------------------------------------------------------------
 # Supabase REST helper
@@ -421,6 +507,45 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json(generate_mock_energy())
             return
 
+        # Raw TLX chartData arrays for field analysis (no normalization, no cache)
+        if path == "/api/energy/raw":
+            target = params.get("date", date.today().isoformat())
+            dtype  = params.get("type", "1")   # 0=hour, 1=day (default matches main endpoint)
+            try:
+                SESSION.ensure_ready()
+                resp = SESSION._s.post(
+                    GROWATT_API + "/newTlxApi.do",
+                    params={"op": "getEnergyProdAndCons_KW"},
+                    data={
+                        "date":     target,
+                        "plantId":  SESSION.plant_id,
+                        "language": "1",
+                        "id":       SESSION.mix_serial,
+                        "type":     dtype,
+                    },
+                    timeout=15,
+                )
+                print(f"[Raw] status={resp.status_code} body_start={resp.text[:200]!r}")
+                raw = resp.json()
+                if raw is None:
+                    self.send_error_json("Growatt returned null")
+                    return
+                cd  = raw.get("obj", {}).get("chartData", {})
+                # Return field names, lengths, and slot-by-slot table
+                fields = {k: v for k, v in cd.items() if isinstance(v, list)}
+                n = max((len(v) for v in fields.values()), default=0)
+                table = []
+                for i in range(n):
+                    row = {"slot": i}
+                    for k, arr in fields.items():
+                        try: row[k] = arr[i]
+                        except: row[k] = None
+                    table.append(row)
+                self.send_json({"fields": list(fields.keys()), "n": n, "table": table})
+            except Exception as e:
+                self.send_error_json(str(e))
+            return
+
         # Energy data (falls back to mock if not logged in)
         if path == "/api/energy":
             target = params.get("date", date.today().isoformat())
@@ -429,10 +554,90 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 data["mock"] = True
                 self.send_json(data)
                 return
+            cached = _ENERGY_CACHE.get(target)
+            if cached and (time.monotonic() - cached["ts"]) < _ENERGY_TTL:
+                self.send_json(cached["data"])
+                return
             try:
                 raw = SESSION.get_energy(target)
+                _ENERGY_CACHE[target] = {"ts": time.monotonic(), "data": raw}
                 self.send_json(raw)
             except Exception as e:
+                print(f"[Energy] fetch failed: {e}")
+                if cached:
+                    self.send_json(cached["data"])  # serve stale, no error
+                else:
+                    self.send_error_json(str(e))
+            return
+
+        # Real-time live reading from getTlxDetailData + getSystemStatus_KW
+        if path == "/api/live":
+            try:
+                SESSION.ensure_ready()
+                # getTlxDetailData — contains ppv (actual PV power), pac, pself,
+                # pacToGridTotal, pacToUserTotal, pacToLocalLoad, edischargeToday, echargeToday
+                detail_resp = SESSION._s.get(
+                    GROWATT_API + "/newTlxApi.do",
+                    params={"op": "getTlxDetailData", "id": SESSION.mix_serial},
+                    timeout=10,
+                )
+                detail = detail_resp.json().get("data", {}) or {}
+
+                # getSystemStatus_KW — contains pdisCharge (kW discharge) and chargePower (kW charge)
+                status_resp = SESSION._s.post(
+                    GROWATT_API + "/newTlxApi.do",
+                    params={"op": "getSystemStatus_KW"},
+                    data={"plantId": SESSION.plant_id, "id": SESSION.mix_serial},
+                    timeout=10,
+                )
+                status = status_resp.json().get("obj", {}) or {}
+
+                # getEnergyOverview — provides epvToday (solar PV energy today)
+                overview_resp = SESSION._s.post(
+                    GROWATT_API + "/newTlxApi.do",
+                    params={"op": "getEnergyOverview"},
+                    data={"plantId": SESSION.plant_id, "id": SESSION.mix_serial},
+                    timeout=10,
+                )
+                overview = overview_resp.json().get("obj", {}) or {}
+
+                def _w(d, key):
+                    """Field is in Watts from getTlxDetailData — convert to kW."""
+                    try: return round(float(d.get(key, 0) or 0) / 1000, 3)
+                    except: return 0.0
+
+                def _kwh(d, key):
+                    """Field is already in kWh."""
+                    try: return round(float(d.get(key, 0) or 0), 2)
+                    except: return 0.0
+
+                live = {
+                    # Power (kW) — detail fields are in Watts
+                    "ppv_kw":        _w(detail, "ppv"),           # actual solar PV
+                    "ppv1_kw":       _w(detail, "ppv1"),
+                    "ppv2_kw":       _w(detail, "ppv2"),
+                    "pac_kw":        _w(detail, "pac"),            # total AC output
+                    "load_kw":       _w(detail, "pacToLocalLoad"),
+                    "export_kw":     _w(detail, "pacToGridTotal"),
+                    "import_kw":     _w(detail, "pacToUserTotal"),
+                    "self_kw":       _w(detail, "pself"),
+                    # system_status fields are already in kW
+                    "discharge_kw":  _kwh(status, "pdisCharge"),
+                    "charge_kw":     _kwh(status, "chargePower"),
+                    # Energy today (kWh)
+                    "epv_today":     _kwh(overview, "epvToday"),   # solar PV total today
+                    "eac_today":     _kwh(detail, "eacToday"),     # AC output today
+                    "echarge_today": _kwh(detail, "echargeToday"),
+                    "edischarge_today": _kwh(detail, "edischargeToday"),
+                    "eload_today":   _kwh(detail, "elocalLoadToday"),
+                    "export_today":  _kwh(detail, "etoGridToday"),
+                    "import_today":  _kwh(detail, "etoUserToday"),
+                }
+                print(f"[Live] ppv={live['ppv_kw']}kW  pac={live['pac_kw']}kW  "
+                      f"discharge={live['discharge_kw']}kW  load={live['load_kw']}kW")
+                self.send_json(live)
+            except Exception as e:
+                print(f"[Live] fetch failed: {e}")
                 self.send_error_json(str(e))
             return
 
