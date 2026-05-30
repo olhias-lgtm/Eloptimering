@@ -1,6 +1,6 @@
 import json
 from http.server import BaseHTTPRequestHandler
-from api._growatt import get_session
+from _growatt import get_session
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):

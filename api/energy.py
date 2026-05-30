@@ -2,7 +2,7 @@ import json
 import urllib.parse
 from datetime import date
 from http.server import BaseHTTPRequestHandler
-from api._growatt import get_session
+from _growatt import get_session
 
 _CACHE: dict = {}
 _TTL  = 600  # 10 minutes
