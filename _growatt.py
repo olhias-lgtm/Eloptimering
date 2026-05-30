@@ -214,7 +214,7 @@ class GrowattSession:
             return data
 
         minutes          = 5 if n > 48 else 30
-        CEST_OFFSET_MIN  = -6 * 60
+        CEST_OFFSET_MIN  = 0   # Growatt returns data already in local (Stockholm) time
         time_cd = {}
 
         def _v(arr, idx):
@@ -223,8 +223,6 @@ class GrowattSession:
 
         for i in range(n):
             total_min  = (i * minutes + CEST_OFFSET_MIN) % (24 * 60)
-            if total_min >= 18 * 60:
-                continue
             label      = f"{total_min // 60:02d}:{total_min % 60:02d}"
             is_daylight = 4 * 60 <= total_min < 22 * 60
             ppv = max(0.0, round(_v(solar, i) - _v(pdis, i), 2)) if is_daylight else 0.0
@@ -238,7 +236,7 @@ class GrowattSession:
 
         # Pad with empty slots to end of day so the chart always shows a full axis
         empty = {"ppv": 0.0, "sysOut": 0.0, "pacToUser": 0.0, "pacToGrid": 0.0, "pdischarge": 0.0}
-        total_slots = (18 * 60) // minutes  # 00:00 → 18:00 CEST
+        total_slots = (24 * 60) // minutes  # 00:00 → 23:30
         for j in range(total_slots):
             label = f"{(j * minutes) // 60:02d}:{(j * minutes) % 60:02d}"
             if label not in time_cd:
