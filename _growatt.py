@@ -10,8 +10,18 @@ import time
 import requests
 
 GROWATT_API  = "https://openapi.growatt.com"
-GROWATT_USER = os.environ.get("GROWATT_USER", "")
-GROWATT_PASS = os.environ.get("GROWATT_PASS", "")  # plain password — Growatt hashes internally
+GROWATT_USER = os.environ.get("GROWATT_USER") or os.environ.get("GROWATT_USERNAME", "")
+GROWATT_PASS = os.environ.get("GROWATT_PASS") or os.environ.get("GROWATT_PASSWORD", "")
+
+
+def _growatt_hash(password: str) -> str:
+    """Growatt's custom MD5: replace '0' with 'c' at every even index."""
+    import hashlib
+    h = list(hashlib.md5(password.encode("utf-8")).hexdigest())
+    for i in range(0, len(h), 2):
+        if h[i] == "0":
+            h[i] = "c"
+    return "".join(h)
 
 _lock    = threading.Lock()
 _session = None   # module-level singleton
@@ -34,8 +44,7 @@ class GrowattSession:
         })
 
     def login(self):
-        import hashlib
-        pw_hash = hashlib.md5(GROWATT_PASS.encode()).hexdigest()
+        pw_hash = _growatt_hash(GROWATT_PASS)
         resp = self._s.post(
             GROWATT_API + "/newTwoLoginAPI.do",
             data={"userName": GROWATT_USER, "password": pw_hash},
@@ -44,10 +53,15 @@ class GrowattSession:
         data = resp.json()
         back = data.get("back", {})
         if not back.get("success"):
-            raise RuntimeError(f"Growatt login failed: {back.get('msg','unknown')}")
-        self.user_id   = back.get("user", {}).get("id")
+            raise RuntimeError(f"Growatt login failed: {back.get('msg','unknown')} | {data}")
+        user           = back.get("user") or {}
+        self.user_id   = str(user.get("id") or user.get("userId") or "")
         self.logged_in = True
-        print(f"[Growatt] Logged in as {GROWATT_USER}")
+        # Grab plant_id from login response if available
+        plant_list = back.get("data") or []
+        if plant_list:
+            self.plant_id = str(plant_list[0].get("plantId") or "")
+        print(f"[Growatt] Logged in as {GROWATT_USER}, plant={self.plant_id}")
 
     def discover(self):
         resp = self._s.post(
