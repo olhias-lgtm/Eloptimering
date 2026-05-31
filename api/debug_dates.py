@@ -10,10 +10,26 @@ class handler(BaseHTTPRequestHandler):
             s.ensure_ready()
             results = {}
             # Past date in multiple formats
+            # Also try alternate ops that might support historical dates
+            alt_ops = [
+                ("getTlxEnergyDayChart", {"date": "2026-05-29"}),
+                ("getTlxEnergyData",     {"date": "2026-05-29", "type": "1"}),
+                ("getEnergyProdAndCons", {"date": "2026-05-29", "type": "1"}),
+                ("getTlxEnergyInfo",     {"date": "2026-05-29"}),
+            ]
+            for op, extra in alt_ops:
+                try:
+                    r2 = s._s.post(GROWATT_API + "/newTlxApi.do",
+                        params={"op": op},
+                        data={"plantId": s.plant_id, "id": s.mix_serial, **extra},
+                        timeout=10)
+                    body = r2.text.strip()[:120] if r2.text.strip() else "(empty)"
+                    results[f"op:{op}"] = {"status": r2.status_code, "preview": body}
+                except Exception as ex:
+                    results[f"op:{op}"] = {"error": str(ex)}
+
             for label, params in {
                 "YYYY-MM-DD": {"date": "2026-05-29", "type": "1"},
-                "YYYYMMDD":   {"date": "20260529",   "type": "1"},
-                "type0":      {"date": "2026-05-29", "type": "0"},
                 "type2":      {"date": "2026-05-29", "type": "2"},
             }.items():
                 resp = s._s.post(
