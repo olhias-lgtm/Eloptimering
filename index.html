@@ -885,7 +885,16 @@ function _parseEnergyRaw(raw) {
 
 async function loadEnergyData(dateStr) {
   if (STATIC_MODE) return _parseEnergyRaw(generateMockEnergy());
-  const raw = await fetchJSON(`/api/energy?date=${dateStr}`);
+  const resp = await fetch(`/api/energy?date=${dateStr}`);
+  if (resp.status === 404) {
+    const today = todayStr();
+    if (dateStr < today) {
+      throw new Error(`No historical data stored for ${dateStr}. Data is saved daily going forward.`);
+    }
+    throw new Error(`No data available for ${dateStr}`);
+  }
+  const raw = await resp.json();
+  if (raw.error) throw new Error(raw.error);
   return _parseEnergyRaw(raw);
 }
 
