@@ -1161,6 +1161,7 @@ function chartOpts(yLabel, stacked) {
       },
       y: {
         stacked: !!stacked,
+        min: 0,
         ticks: { color:'#64748b', font:{family:'JetBrains Mono', size:9} },
         grid:  { color:'#1e2530' },
         title: { display:true, text:yLabel, color:'#64748b', font:{size:9} },
