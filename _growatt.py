@@ -225,7 +225,9 @@ class GrowattSession:
             total_min  = (i * minutes + CEST_OFFSET_MIN) % (24 * 60)
             label      = f"{total_min // 60:02d}:{total_min % 60:02d}"
             is_daylight = 4 * 60 <= total_min < 22 * 60
-            ppv = max(0.0, round(_v(solar, i) - _v(pdis, i), 2)) if is_daylight else 0.0
+            # sysOut = total DC input to inverter (solar); use it directly for ppv.
+            # epv3 is NOT battery discharge — subtracting it was incorrectly deflating solar.
+            ppv = _v(solar, i) if is_daylight else 0.0
             time_cd[label] = {
                 "ppv":        ppv,
                 "sysOut":     _v(load, i),
