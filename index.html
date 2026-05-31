@@ -1047,13 +1047,21 @@ function renderBreakdown(rows, priceMap, c) {
 
 function renderPowerChart(rows) {
   const labels = rows.map(r => r.time);
+  const cs = getComputedStyle(document.documentElement);
+  const C  = {
+    solar:   cs.getPropertyValue('--solar').trim(),
+    load:    cs.getPropertyValue('--load').trim(),
+    imp:     cs.getPropertyValue('--import').trim(),
+    exp:     cs.getPropertyValue('--export').trim(),
+    battery: cs.getPropertyValue('--battery').trim(),
+  };
   const datasets = [
-    { label:'Solar',        data: rows.map(r=>r.solar_kw),    borderColor:'var(--solar)',   backgroundColor:'rgba(245,158,11,0.08)',  tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5 },
-    { label:'Load',         data: rows.map(r=>r.load_kw),     borderColor:'var(--load)',    backgroundColor:'rgba(96,165,250,0.08)',  tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5 },
-    { label:'Import',       data: rows.map(r=>r.import_kw),   borderColor:'var(--import)',  backgroundColor:'rgba(239,68,68,0.06)',   tension:0.3, fill:false, pointRadius:0, borderWidth:1.5 },
-    { label:'Export',       data: rows.map(r=>r.export_kw),   borderColor:'var(--export)',  backgroundColor:'rgba(34,197,94,0.06)',   tension:0.3, fill:false, pointRadius:0, borderWidth:1.5 },
+    { label:'Solar',        data: rows.map(r=>r.solar_kw),    borderColor:C.solar,   backgroundColor:'rgba(245,158,11,0.08)',  tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5 },
+    { label:'Load',         data: rows.map(r=>r.load_kw),     borderColor:C.load,    backgroundColor:'rgba(96,165,250,0.08)',  tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5 },
+    { label:'Import',       data: rows.map(r=>r.import_kw),   borderColor:C.imp,     backgroundColor:'rgba(239,68,68,0.06)',   tension:0.3, fill:false, pointRadius:0, borderWidth:1.5 },
+    { label:'Export',       data: rows.map(r=>r.export_kw),   borderColor:C.exp,     backgroundColor:'rgba(34,197,94,0.06)',   tension:0.3, fill:false, pointRadius:0, borderWidth:1.5 },
     { label:'Battery net',  data: rows.map(r=>Math.abs(r.discharge_kw - r.charge_kw)),
-                                                               borderColor:'var(--battery)', backgroundColor:'rgba(167,139,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1, borderDash:[3,3] },
+                                                               borderColor:C.battery, backgroundColor:'rgba(167,139,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1, borderDash:[3,3] },
   ];
   upsertChart('power-chart', 'power', {
     type:'line', data:{ labels, datasets },
@@ -1125,9 +1133,9 @@ function renderRunningChart(rows, priceMap, c) {
     type:'line', data:{
       labels,
       datasets:[
-        { label:'Cumulative cost',    data:costLine, borderColor:'var(--import)', pointRadius:0, borderWidth:1.5, tension:0.2 },
-        { label:'Cumulative earning', data:earnLine, borderColor:'var(--export)', pointRadius:0, borderWidth:1.5, tension:0.2 },
-        { label:'Net',                data:netLine,  borderColor:'var(--accent)', pointRadius:0, borderWidth:2,   tension:0.2 },
+        { label:'Cumulative cost',    data:costLine, borderColor:getComputedStyle(document.documentElement).getPropertyValue('--import').trim(), pointRadius:0, borderWidth:1.5, tension:0.2 },
+        { label:'Cumulative earning', data:earnLine, borderColor:getComputedStyle(document.documentElement).getPropertyValue('--export').trim(), pointRadius:0, borderWidth:1.5, tension:0.2 },
+        { label:'Net',                data:netLine,  borderColor:getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),  pointRadius:0, borderWidth:2,   tension:0.2 },
       ],
     },
     options: chartOpts('kr', false),
