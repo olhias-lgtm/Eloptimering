@@ -583,8 +583,12 @@
       <input type="number" id="cfg-natavg-in" value="7.5" step="0.1">
     </div>
     <div class="config-field">
-      <label>Nätnytta Export (öre/kWh)</label>
-      <input type="number" id="cfg-natnytta" value="8.0" step="0.1">
+      <label>Nätnytta Höglast (öre/kWh) <span style="font-size:9px;color:var(--dim)">Mån–Fre 06–22, Nov–Mar</span></label>
+      <input type="number" id="cfg-natnytta-high" value="5.50" step="0.01">
+    </div>
+    <div class="config-field">
+      <label>Nätnytta Låglast (öre/kWh) <span style="font-size:9px;color:var(--dim)">Övrig tid</span></label>
+      <input type="number" id="cfg-natnytta-low" value="4.12" step="0.01">
     </div>
     <div class="config-field">
       <label>Energiskatt (öre/kWh)</label>
@@ -734,7 +738,8 @@ function applyTariffDefaults(dateStr) {
 const cfg = () => ({
   fastAvgift:    parseFloat(document.getElementById('cfg-fast').value) || 545,
   natavgIn:      parseFloat(document.getElementById('cfg-natavg-in').value) || 7.5,
-  natnytta:      parseFloat(document.getElementById('cfg-natnytta').value) || 8.0,
+  natnyttaHigh:  parseFloat(document.getElementById('cfg-natnytta-high').value) || 5.50,
+  natnyttaLow:   parseFloat(document.getElementById('cfg-natnytta-low').value)  || 4.12,
   energiskatt:   parseFloat(document.getElementById('cfg-energiskatt').value) || 54.875,
   fortumPaslag:  parseFloat(document.getElementById('cfg-fortum').value) || 0,
   moms:          1.25,
@@ -744,12 +749,29 @@ const cfg = () => ({
 // ---------------------------------------------------------------------------
 // Tariff engine
 // ---------------------------------------------------------------------------
-function calcInterval(importKwh, exportKwh, spotOrePerKwh, c) {
+
+/**
+ * Nätnytta rate is time-of-use:
+ * Höglast (high load): Mon–Fri, 06:00–22:00, November–March → natnyttaHigh (5.50 öre)
+ * Låglast (low load):  all other times                      → natnyttaLow  (4.12 öre)
+ */
+function natnyttaAt(timeStr, dateStr, c) {
+  const date = dateStr ? new Date(dateStr + 'T12:00:00') : new Date();
+  const [h]  = timeStr.split(':').map(Number);
+  const dow   = date.getDay();        // 0=Sun … 6=Sat
+  const month = date.getMonth() + 1;  // 1-based
+  const isWeekday    = dow >= 1 && dow <= 5;
+  const isHighSeason = month >= 11 || month <= 3;  // Nov–Mar incl
+  const isDaytime    = h >= 6 && h < 22;
+  return (isWeekday && isHighSeason && isDaytime) ? c.natnyttaHigh : c.natnyttaLow;
+}
+
+function calcInterval(importKwh, exportKwh, spotOrePerKwh, c, timeStr, dateStr) {
   // Import cost per kWh = (spot + natavg_in + energiskatt + fortum_paslag) × moms
   const importRateOre = (spotOrePerKwh + c.natavgIn + c.energiskatt + c.fortumPaslag) * c.moms;
 
-  // Export earning per kWh = spot + natnytta (no moms on income)
-  const exportRateOre = spotOrePerKwh + c.natnytta;
+  // Export earning per kWh = spot + natnytta (no moms on income, rate depends on ToU)
+  const exportRateOre = spotOrePerKwh + natnyttaAt(timeStr || '12:00', dateStr, c);
 
   const costKr    = (importKwh * importRateOre) / 100;
   const earningKr = (exportKwh * exportRateOre) / 100;
@@ -971,7 +993,7 @@ function kwhFromRows(rows, field) {
   return rows.reduce((s,r) => s + r[field], 0) * (5/60);
 }
 
-function renderKPIs(rows, priceMap, c) {
+function renderKPIs(rows, priceMap, c, dateStr) {
   const solar  = kwhFromRows(rows, 'solar_kw');
   const load   = kwhFromRows(rows, 'load_kw');
   const imp    = kwhFromRows(rows, 'import_kw');
@@ -986,7 +1008,7 @@ function renderKPIs(rows, priceMap, c) {
     hasPrices = true;
     const kwh5 = 5/60;
     const { costKr, earningKr } = calcInterval(
-      r.import_kw * kwh5, r.export_kw * kwh5, spot, c
+      r.import_kw * kwh5, r.export_kw * kwh5, spot, c, r.time, dateStr
     );
     totalCost += costKr;
     totalEarn += earningKr;
@@ -1011,7 +1033,7 @@ function renderKPIs(rows, priceMap, c) {
   return { totalCost, totalEarn, net, fixedDay, hasPrices };
 }
 
-function renderBreakdown(rows, priceMap, c) {
+function renderBreakdown(rows, priceMap, c, dateStr) {
   const kwh5 = 5/60;
   let energyCost = 0, natavgCost = 0, energiskattCost = 0;
   let exportEarn = 0, hasPrices = false;
@@ -1026,7 +1048,7 @@ function renderBreakdown(rows, priceMap, c) {
     energyCost     += imp * (spot + c.fortumPaslag) * c.moms / 100;
     natavgCost     += imp * c.natavgIn * c.moms / 100;
     energiskattCost+= imp * c.energiskatt * c.moms / 100;
-    exportEarn     += exp * (spot + c.natnytta) / 100;
+    exportEarn     += exp * (spot + natnyttaAt(r.time, dateStr, c)) / 100;
   });
 
   const fixedDay = (c.fastAvgift * c.moms) / 30;
@@ -1172,7 +1194,7 @@ function renderPriceChart(priceMap, rows, tomorrowMap) {
   });
 }
 
-function renderRunningChart(rows, priceMap, c) {
+function renderRunningChart(rows, priceMap, c, dateStr) {
   const kwh5 = 5/60;
   let runCost = 0, runEarn = 0;
   const labels = [], costLine = [], earnLine = [], netLine = [];
@@ -1181,7 +1203,7 @@ function renderRunningChart(rows, priceMap, c) {
     const spot = priceAt(priceMap, r.time);
     if (spot !== null) {
       const { costKr, earningKr } = calcInterval(
-        r.import_kw * kwh5, r.export_kw * kwh5, spot, c
+        r.import_kw * kwh5, r.export_kw * kwh5, spot, c, r.time, dateStr
       );
       runCost += costKr;
       runEarn += earningKr;
@@ -1277,11 +1299,11 @@ async function refresh() {
     state.energyData = energyRaw;
     state.pricesData = pricesRaw;
 
-    renderKPIs(energyRaw, priceMap, c);
-    renderBreakdown(energyRaw, priceMap, c);
+    renderKPIs(energyRaw, priceMap, c, dateStr);
+    renderBreakdown(energyRaw, priceMap, c, dateStr);
     renderPowerChart(energyRaw);
     renderPriceChart(priceMap, energyRaw, tomorrowMap);
-    renderRunningChart(energyRaw, priceMap, c);
+    renderRunningChart(energyRaw, priceMap, c, dateStr);
 
     document.getElementById('last-updated').textContent =
       `Updated ${new Date().toLocaleTimeString('sv-SE')}`;
