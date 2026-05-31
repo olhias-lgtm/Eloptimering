@@ -109,6 +109,7 @@ class GrowattSession:
         return False
 
     def get_energy(self, target_date: str) -> dict:
+        from datetime import date as _date, datetime as _dt, timezone as _tz, timedelta as _td
         self.ensure_ready()
         for attempt in range(2):
             resp = self._s.post(
@@ -125,7 +126,21 @@ class GrowattSession:
             )
             data = resp.json()
             if not self._session_expired(data):
-                return self._normalize_tlx(data)
+                result = self._normalize_tlx(data)
+                # Growatt often returns the last complete production day rather than
+                # today-so-far. Truncate any slots beyond the current CEST time so the
+                # chart never shows "future" data when viewing today.
+                if target_date == _date.today().isoformat():
+                    cest_now = _dt.now(_tz.utc) + _td(hours=2)
+                    cutoff   = cest_now.hour * 60 + cest_now.minute + 30  # 30-min grace
+                    cd = (result.get("obj") or {}).get("chartData") or {}
+                    empty = {"ppv": 0.0, "sysOut": 0.0, "pacToUser": 0.0,
+                             "pacToGrid": 0.0, "pdischarge": 0.0}
+                    for label in list(cd.keys()):
+                        h, m = map(int, label.split(":"))
+                        if h * 60 + m > cutoff:
+                            cd[label] = empty.copy()
+                return result
             if attempt == 0:
                 print("[Growatt] Session expired — re-logging in")
                 self.logged_in = False
