@@ -136,10 +136,25 @@ class GrowattSession:
                     cd = (result.get("obj") or {}).get("chartData") or {}
                     empty = {"ppv": 0.0, "sysOut": 0.0, "pacToUser": 0.0,
                              "pacToGrid": 0.0, "pdischarge": 0.0}
-                    for label in list(cd.keys()):
-                        h, m = map(int, label.split(":"))
-                        if h * 60 + m > cutoff:
+
+                    # Detect stale data: Growatt often serves yesterday's complete day
+                    # in the morning. If any slot before 05:00 CEST shows ppv > 1 kW
+                    # the data is from a previous day — wipe it all.
+                    stale = any(
+                        v.get("ppv", 0) > 1.0
+                        for label, v in cd.items()
+                        if int(label.split(":")[0]) * 60 + int(label.split(":")[1]) < 5 * 60
+                    )
+                    if stale:
+                        print("[Growatt] Stale data detected (yesterday's day) — returning empty chart")
+                        for label in cd:
                             cd[label] = empty.copy()
+                    else:
+                        # Truncate future slots
+                        for label in list(cd.keys()):
+                            h, m = map(int, label.split(":"))
+                            if h * 60 + m > cutoff:
+                                cd[label] = empty.copy()
                 return result
             if attempt == 0:
                 print("[Growatt] Session expired — re-logging in")
