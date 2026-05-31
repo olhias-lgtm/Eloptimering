@@ -1100,68 +1100,67 @@ function renderPowerChart(rows) {
 
 function renderPriceChart(priceMap, rows, tomorrowMap) {
   const c = cfg();
-  const allTimes = rows.map(r=>r.time);
-  // Add tomorrow's slots if available
-  const tomorrowSlots = tomorrowMap ? Object.keys(tomorrowMap).sort() : [];
-  const tomorrowLabels = tomorrowSlots.map(t => `+${t}`);
 
-  const labels = [...allTimes, ...tomorrowLabels];
+  // Build 24 hourly labels from the priceMap (independent of energy rows)
+  const todayHours = Array.from({length: 24}, (_, h) =>
+    `${String(h).padStart(2,'0')}:00`
+  ).filter(t => priceMap[t] != null);
 
-  // Buy price: spot + grid-in + energiskatt + fortum, all incl. moms
-  const buyToday  = allTimes.map(t => {
-    const p = priceAt(priceMap, t);
-    return p !== null ? Math.round((p + c.natavgIn + c.energiskatt + c.fortumPaslag) * c.moms) : null;
-  });
-  const buyTmr = tomorrowSlots.map(t => {
-    const p = tomorrowMap[t] || 0;
-    return Math.round((p + c.natavgIn + c.energiskatt + c.fortumPaslag) * c.moms);
-  });
+  const tomorrowHours = tomorrowMap
+    ? Array.from({length: 24}, (_, h) => `${String(h).padStart(2,'0')}:00`)
+        .filter(t => tomorrowMap[t] != null)
+    : [];
 
-  // Sell price: spot + natnytta, excl. moms
-  const sellToday = allTimes.map(t => {
-    const p = priceAt(priceMap, t);
-    return p !== null ? Math.round(p + c.natnytta) : null;
-  });
-  const sellTmr = tomorrowSlots.map(t => {
-    const p = tomorrowMap[t] || 0;
-    return Math.round(p + c.natnytta);
-  });
+  const labels = [
+    ...todayHours,
+    ...tomorrowHours.map(t => `+${t}`),
+  ];
+
+  function buyPrice(spotOre) {
+    return Math.round((spotOre + c.natavgIn + c.energiskatt + c.fortumPaslag) * c.moms);
+  }
+  function sellPrice(spotOre) {
+    return Math.round(spotOre + c.natnytta);
+  }
+
+  const buyToday  = todayHours.map(t => buyPrice(priceMap[t]));
+  const sellToday = todayHours.map(t => sellPrice(priceMap[t]));
+  const buyTmr    = tomorrowHours.map(t => buyPrice(tomorrowMap[t]));
+  const sellTmr   = tomorrowHours.map(t => sellPrice(tomorrowMap[t]));
 
   const cs = getComputedStyle(document.documentElement);
   const priceColor  = cs.getPropertyValue('--price').trim();
   const exportColor = cs.getPropertyValue('--export').trim();
 
-  const pad = Array(allTimes.length).fill(null);
+  const pad = Array(todayHours.length).fill(null);
   const datasets = [
     {
       label: 'Buy (incl. moms)',
-      data: [...buyToday, ...buyTmr],
+      data: [...buyToday, ...buyTmr.map(() => null)],  // today only on solid line
       borderColor: priceColor,
       backgroundColor: 'rgba(251,146,60,0.08)',
-      tension: 0.2, fill:true, pointRadius:0, borderWidth:1.5,
+      stepped: true, fill: true, pointRadius: 0, borderWidth: 1.5,
     },
     {
       label: 'Sell (excl. moms)',
-      data: [...sellToday, ...sellTmr],
+      data: [...sellToday, ...sellTmr.map(() => null)],
       borderColor: exportColor,
       backgroundColor: 'rgba(34,197,94,0.05)',
-      tension: 0.2, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[3,3],
+      stepped: true, fill: false, pointRadius: 0, borderWidth: 1.5, borderDash: [3,3],
     },
   ];
-  if (tomorrowSlots.length) {
+  if (tomorrowHours.length) {
     datasets.push({
       label: 'Buy tomorrow (forecast)',
       data: [...pad, ...buyTmr],
       borderColor: 'rgba(251,146,60,0.4)',
-      borderDash: [4,4],
-      tension: 0.2, fill:false, pointRadius:0, borderWidth:1.5,
+      stepped: true, fill: false, pointRadius: 0, borderWidth: 1.5, borderDash: [4,4],
     });
     datasets.push({
       label: 'Sell tomorrow (forecast)',
       data: [...pad, ...sellTmr],
       borderColor: 'rgba(34,197,94,0.3)',
-      borderDash: [4,4],
-      tension: 0.2, fill:false, pointRadius:0, borderWidth:1.5,
+      stepped: true, fill: false, pointRadius: 0, borderWidth: 1.5, borderDash: [4,4],
     });
     document.getElementById('forecast-notice').style.display = 'block';
   }
