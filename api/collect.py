@@ -33,6 +33,7 @@ def _sb_insert(data: dict):
         "eload_today":      data.get("eload_today"),
         "export_today":     data.get("export_today"),
         "import_today":     data.get("import_today"),
+        "soc_pct":          data.get("soc_pct"),
     }).encode()
     req = urllib.request.Request(
         f"{SUPABASE_URL}/rest/v1/energy_readings",

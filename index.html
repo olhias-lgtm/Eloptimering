@@ -533,6 +533,11 @@
     <span class="live-metric-unit">kW</span>
   </div>
   <div class="live-metric">
+    <span class="live-metric-label">🔋 SoC</span>
+    <span class="live-metric-val" id="live-soc" style="color:var(--battery)">—</span>
+    <span class="live-metric-unit">%</span>
+  </div>
+  <div class="live-metric">
     <span class="live-metric-label">↑ Export</span>
     <span class="live-metric-val" id="live-export" style="color:var(--export)">—</span>
     <span class="live-metric-unit">kW</span>
@@ -1532,6 +1537,7 @@ async function loadLive() {
     document.getElementById('live-batt-label').textContent = battLabel;
     document.getElementById('live-export').textContent = fmt(d.export_kw);
     document.getElementById('live-import').textContent = fmt(d.import_kw);
+    document.getElementById('live-soc').textContent    = d.soc_pct != null ? d.soc_pct : '—';
 
     // Today totals
     document.getElementById('live-epv-today').textContent  = (d.epv_today  || 0).toFixed(1);

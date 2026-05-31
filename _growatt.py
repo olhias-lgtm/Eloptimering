@@ -227,20 +227,7 @@ class GrowattSession:
             "eload_today":      _kwh(detail, "elocalLoadToday"),
             "export_today":     _kwh(detail, "etoGridToday"),
             "import_today":     _kwh(detail, "etoUserToday"),
-            # SOC probe — check every plausible field name across all three responses
-            "_soc_probe": {
-                "detail_soc":        detail.get("soc"),
-                "detail_SOC":        detail.get("SOC"),
-                "detail_batSoc":     detail.get("batSoc"),
-                "detail_bmsSoc":     detail.get("bmsSoc"),
-                "detail_capacity":   detail.get("capacity"),
-                "status_SOC":        status.get("SOC"),
-                "status_soc":        status.get("soc"),
-                "status_batCapcity": status.get("batCapcity"),
-                "status_capacity":   status.get("capacity"),
-                "overview_soc":      overview.get("soc"),
-                "overview_SOC":      overview.get("SOC"),
-            },
+            "soc_pct":          int(detail.get("bmsSoc") or 0) or None,
         }
 
     def _normalize_tlx(self, data: dict) -> dict:
