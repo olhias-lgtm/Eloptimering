@@ -1071,32 +1071,67 @@ function renderPowerChart(rows) {
 }
 
 function renderPriceChart(priceMap, rows, tomorrowMap) {
+  const c = cfg();
   const allTimes = rows.map(r=>r.time);
   // Add tomorrow's slots if available
   const tomorrowSlots = tomorrowMap ? Object.keys(tomorrowMap).sort() : [];
   const tomorrowLabels = tomorrowSlots.map(t => `+${t}`);
 
   const labels = [...allTimes, ...tomorrowLabels];
-  const todayPrices = allTimes.map(t => {
-    const p = priceAt(priceMap, t);
-    return p !== null ? p * 1.25 : null; // display incl moms
-  });
-  const tmrPrices = tomorrowSlots.map(t => (tomorrowMap[t] || 0) * 1.25);
 
+  // Buy price: spot + grid-in + energiskatt + fortum, all incl. moms
+  const buyToday  = allTimes.map(t => {
+    const p = priceAt(priceMap, t);
+    return p !== null ? Math.round((p + c.natavgIn + c.energiskatt + c.fortumPaslag) * c.moms) : null;
+  });
+  const buyTmr = tomorrowSlots.map(t => {
+    const p = tomorrowMap[t] || 0;
+    return Math.round((p + c.natavgIn + c.energiskatt + c.fortumPaslag) * c.moms);
+  });
+
+  // Sell price: spot + natnytta, excl. moms
+  const sellToday = allTimes.map(t => {
+    const p = priceAt(priceMap, t);
+    return p !== null ? Math.round(p + c.natnytta) : null;
+  });
+  const sellTmr = tomorrowSlots.map(t => {
+    const p = tomorrowMap[t] || 0;
+    return Math.round(p + c.natnytta);
+  });
+
+  const cs = getComputedStyle(document.documentElement);
+  const priceColor  = cs.getPropertyValue('--price').trim();
+  const exportColor = cs.getPropertyValue('--export').trim();
+
+  const pad = Array(allTimes.length).fill(null);
   const datasets = [
     {
-      label: 'Today',
-      data: todayPrices,
-      borderColor: 'var(--price)',
-      backgroundColor: 'rgba(251,146,60,0.1)',
+      label: 'Buy (incl. moms)',
+      data: [...buyToday, ...buyTmr],
+      borderColor: priceColor,
+      backgroundColor: 'rgba(251,146,60,0.08)',
       tension: 0.2, fill:true, pointRadius:0, borderWidth:1.5,
     },
+    {
+      label: 'Sell (excl. moms)',
+      data: [...sellToday, ...sellTmr],
+      borderColor: exportColor,
+      backgroundColor: 'rgba(34,197,94,0.05)',
+      tension: 0.2, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[3,3],
+    },
   ];
-  if (tmrPrices.length) {
+  if (tomorrowSlots.length) {
     datasets.push({
-      label: 'Tomorrow (forecast)',
-      data: [...Array(allTimes.length).fill(null), ...tmrPrices],
+      label: 'Buy tomorrow (forecast)',
+      data: [...pad, ...buyTmr],
       borderColor: 'rgba(251,146,60,0.4)',
+      borderDash: [4,4],
+      tension: 0.2, fill:false, pointRadius:0, borderWidth:1.5,
+    });
+    datasets.push({
+      label: 'Sell tomorrow (forecast)',
+      data: [...pad, ...sellTmr],
+      borderColor: 'rgba(34,197,94,0.3)',
       borderDash: [4,4],
       tension: 0.2, fill:false, pointRadius:0, borderWidth:1.5,
     });
