@@ -1065,7 +1065,7 @@ function renderPowerChart(rows) {
   ];
   upsertChart('power-chart', 'power', {
     type:'line', data:{ labels, datasets },
-    options: chartOpts('kW', true),
+    options: chartOpts('kW', false),
   });
   document.getElementById('interval-badge').textContent = `${rows.length} intervals`;
 }
