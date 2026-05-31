@@ -23,7 +23,15 @@ class handler(BaseHTTPRequestHandler):
                           "id": s.mix_serial, **params},
                     timeout=15,
                 )
-                obj = resp.json().get("obj", {})
+                if not resp.text.strip():
+                    results[label] = {"error": "empty response"}
+                    continue
+                try:
+                    rj = resp.json()
+                except Exception:
+                    results[label] = {"error": f"non-JSON: {resp.text[:100]!r}"}
+                    continue
+                obj = rj.get("obj", {})
                 cd  = obj.get("chartData", {})
                 # Find total non-zero slots and last non-zero time
                 if isinstance(cd, dict):
