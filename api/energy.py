@@ -36,7 +36,7 @@ def _fetch_readings(date_str: str) -> list:
             f"?ts=gte.{urllib.parse.quote(start)}"
             f"&ts=lte.{urllib.parse.quote(end)}"
             f"&order=ts.asc"
-            f"&select=ts,ppv_kw,load_kw,export_kw,import_kw,charge_kw,discharge_kw"
+            f"&select=ts,ppv_kw,load_kw,export_kw,import_kw,charge_kw,discharge_kw,soc_pct"
         )
         req = urllib.request.Request(url, headers=_sb_headers())
         with urllib.request.urlopen(req, timeout=8) as r:
@@ -56,7 +56,7 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
     total_slots = (24 * 60) // SLOT_MIN  # 288
 
     empty = lambda: {"ppv": 0.0, "load": 0.0, "export": 0.0,
-                     "import": 0.0, "charge": 0.0, "discharge": 0.0}
+                     "import": 0.0, "charge": 0.0, "discharge": 0.0, "soc": None}
 
     buckets = {}
     counts  = {}
@@ -86,6 +86,9 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
         b["import"]    += float(row.get("import_kw")   or 0)
         b["charge"]    += float(row.get("charge_kw")   or 0)
         b["discharge"] += float(row.get("discharge_kw") or 0)
+        soc = row.get("soc_pct")
+        if soc is not None:
+            b["soc"] = (b["soc"] or 0) + float(soc)
         counts[label]  += 1
 
     # Average each bucket
@@ -94,11 +97,17 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
         if n > 1:
             b = buckets[label]
             for k in b:
-                b[k] = round(b[k] / n, 3)
+                if k == "soc":
+                    b[k] = round(b[k] / n, 1) if b[k] is not None else None
+                else:
+                    b[k] = round(b[k] / n, 3)
         elif n == 1:
             b = buckets[label]
             for k in b:
-                b[k] = round(b[k], 3)
+                if k == "soc":
+                    b[k] = round(b[k], 1) if b[k] is not None else None
+                else:
+                    b[k] = round(b[k], 3)
 
     # Truncate future slots when viewing today
     today_str = date.today().isoformat()

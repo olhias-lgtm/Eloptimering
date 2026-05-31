@@ -879,6 +879,7 @@ function _parseEnergyRaw(raw) {
       import_kw:    parseFloat(v.pacToUser  || v.toUser    || v.import   || 0),
       export_kw:    parseFloat(v.pacToGrid  || v.toGrid    || v.export   || 0),
       discharge_kw: parseFloat(v.pdischarge || v.discharge || 0),
+      soc_pct:      v.soc != null ? parseFloat(v.soc) : null,
     });
   }
   rows.sort((a,b) => a.minutes - b.minutes);
@@ -1066,11 +1067,32 @@ function renderPowerChart(rows) {
     { label:'Import',       data: rows.map(r=>r.import_kw),   borderColor:C.imp,     backgroundColor:'rgba(239,68,68,0.06)',   tension:0.3, fill:false, pointRadius:0, borderWidth:1.5 },
     { label:'Export',       data: rows.map(r=>r.export_kw),   borderColor:C.exp,     backgroundColor:'rgba(34,197,94,0.06)',   tension:0.3, fill:false, pointRadius:0, borderWidth:1.5 },
     { label:'Battery net',  data: rows.map(r=>Math.abs(r.discharge_kw - r.charge_kw)),
-                                                               borderColor:C.battery, backgroundColor:'rgba(167,139,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1, borderDash:[3,3] },
+                                                               borderColor:C.battery, backgroundColor:'rgba(167,139,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1,   borderDash:[3,3], yAxisID:'y' },
+    { label:'SoC %',        data: rows.map(r=>r.soc_pct),
+                                                               borderColor:'rgba(167,139,250,0.7)',                              backgroundColor:'transparent',                            tension:0.4, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[6,3], yAxisID:'y2' },
   ];
+
+  // Scale y2 (0–100%) to align visually with y (kW) by matching proportions
+  const maxKw = Math.max(...rows.map(r => r.solar_kw), 1);
+  const y2Max = Math.ceil((100 / maxKw) * maxKw / 10) * 10 * (100 / maxKw);
+
+  const opts = chartOpts('kW', false);
+  opts.scales.y2 = {
+    position: 'right',
+    min: 0,
+    max: 100,
+    ticks: {
+      color: 'rgba(167,139,250,0.7)',
+      font: { family:'JetBrains Mono', size:9 },
+      callback: v => v + '%',
+    },
+    grid: { drawOnChartArea: false },
+    title: { display:true, text:'SoC %', color:'rgba(167,139,250,0.7)', font:{size:9} },
+  };
+
   upsertChart('power-chart', 'power', {
     type:'line', data:{ labels, datasets },
-    options: chartOpts('kW', false),
+    options: opts,
   });
   document.getElementById('interval-badge').textContent = `${rows.length} intervals`;
 }
