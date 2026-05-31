@@ -595,8 +595,12 @@
       <input type="number" id="cfg-energiskatt" value="54.875" step="0.001">
     </div>
     <div class="config-field">
-      <label>Fortum Påslag (öre/kWh)</label>
-      <input type="number" id="cfg-fortum" value="0" step="0.1">
+      <label>Fortum Påslag (öre/kWh) <span style="font-size:9px;color:var(--dim)">cert+påslag1+påslag2, excl moms</span></label>
+      <input type="number" id="cfg-fortum" value="6.96" step="0.01">
+    </div>
+    <div class="config-field">
+      <label>Fortum Fast avgift (kr/mån) <span style="font-size:9px;color:var(--dim)">excl moms</span></label>
+      <input type="number" id="cfg-fortum-fast" value="55.20" step="0.01">
     </div>
     <button class="refresh-btn" id="refresh-btn" onclick="refresh()">↻ Refresh</button>
   </div>
@@ -741,7 +745,8 @@ const cfg = () => ({
   natnyttaHigh:  parseFloat(document.getElementById('cfg-natnytta-high').value) || 5.50,
   natnyttaLow:   parseFloat(document.getElementById('cfg-natnytta-low').value)  || 4.12,
   energiskatt:   parseFloat(document.getElementById('cfg-energiskatt').value) || 54.875,
-  fortumPaslag:  parseFloat(document.getElementById('cfg-fortum').value) || 0,
+  fortumPaslag:  parseFloat(document.getElementById('cfg-fortum').value)      || 6.96,
+  fortumFast:    parseFloat(document.getElementById('cfg-fortum-fast').value) || 55.20,
   moms:          1.25,
   area:          document.getElementById('area-select').value,
 });
@@ -1015,7 +1020,7 @@ function renderKPIs(rows, priceMap, c, dateStr) {
   });
 
   // Add monthly fixed fee (prorated to the day)
-  const fixedDay = (c.fastAvgift * c.moms) / 30;
+  const fixedDay = ((c.fastAvgift + c.fortumFast) * c.moms) / 30;
   totalCost += fixedDay;
 
   const net = totalEarn - totalCost;
@@ -1051,7 +1056,7 @@ function renderBreakdown(rows, priceMap, c, dateStr) {
     exportEarn     += exp * (spot + natnyttaAt(r.time, dateStr, c)) / 100;
   });
 
-  const fixedDay = (c.fastAvgift * c.moms) / 30;
+  const fixedDay = ((c.fastAvgift + c.fortumFast) * c.moms) / 30;
   const totalCost = energyCost + natavgCost + energiskattCost + fixedDay;
   const net = exportEarn - totalCost;
 
@@ -1073,7 +1078,7 @@ function renderBreakdown(rows, priceMap, c, dateStr) {
     </table>
     <div style="margin-top:14px;font-size:10px;color:var(--dim);line-height:1.6">
       Alla priser inkl. 25% moms.<br>
-      Fast avgift prorateras per dag (${c.fastAvgift} kr/mån ÷ 30).
+      Fast avgift prorateras per dag (nät ${c.fastAvgift} + Fortum ${c.fortumFast} kr/mån ÷ 30).
     </div>
   `;
 }
