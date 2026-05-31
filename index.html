@@ -669,7 +669,11 @@
     <div class="card">
       <div class="card-title">
         Spot Price SE3
-        <span class="badge">öre/kWh inkl. moms</span>
+        <span class="badge">öre/kWh</span>
+      </div>
+      <div class="legend" style="margin-bottom:8px">
+        <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>Spot incl. moms</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#22c55e;border:1px dashed #22c55e;box-sizing:border-box"></div>Spot excl. moms</div>
       </div>
       <div class="chart-wrap">
         <canvas id="price-chart"></canvas>
@@ -1116,17 +1120,14 @@ function renderPriceChart(priceMap, rows, tomorrowMap) {
     ...tomorrowHours.map(t => `+${t}`),
   ];
 
-  function buyPrice(spotOre) {
-    return Math.round((spotOre + c.natavgIn + c.energiskatt + c.fortumPaslag) * c.moms);
-  }
-  function sellPrice(spotOre) {
-    return Math.round(spotOre + c.natnytta);
-  }
-
-  const buyToday  = todayHours.map(t => buyPrice(priceMap[t]));
-  const sellToday = todayHours.map(t => sellPrice(priceMap[t]));
-  const buyTmr    = tomorrowHours.map(t => buyPrice(tomorrowMap[t]));
-  const sellTmr   = tomorrowHours.map(t => sellPrice(tomorrowMap[t]));
+  // Price chart shows the raw spot price in two forms:
+  //   incl. moms = spot × 1.25  (what buyers pay for the energy commodity)
+  //   excl. moms = spot          (what sellers receive)
+  // Full effective buy cost (incl. grid fees + energiskatt) is used in KPI/cost calcs.
+  const inclMomsToday = todayHours.map(t => Math.round(priceMap[t] * c.moms));
+  const exclMomsToday = todayHours.map(t => Math.round(priceMap[t]));
+  const inclMomsTmr   = tomorrowHours.map(t => Math.round(tomorrowMap[t] * c.moms));
+  const exclMomsTmr   = tomorrowHours.map(t => Math.round(tomorrowMap[t]));
 
   const cs = getComputedStyle(document.documentElement);
   const priceColor  = cs.getPropertyValue('--price').trim();
@@ -1135,15 +1136,15 @@ function renderPriceChart(priceMap, rows, tomorrowMap) {
   const pad = Array(todayHours.length).fill(null);
   const datasets = [
     {
-      label: 'Buy (incl. moms)',
-      data: [...buyToday, ...buyTmr.map(() => null)],  // today only on solid line
+      label: 'Spot incl. moms',
+      data: [...inclMomsToday, ...inclMomsTmr.map(() => null)],
       borderColor: priceColor,
       backgroundColor: 'rgba(251,146,60,0.08)',
       stepped: true, fill: true, pointRadius: 0, borderWidth: 1.5,
     },
     {
-      label: 'Sell (excl. moms)',
-      data: [...sellToday, ...sellTmr.map(() => null)],
+      label: 'Spot excl. moms',
+      data: [...exclMomsToday, ...exclMomsTmr.map(() => null)],
       borderColor: exportColor,
       backgroundColor: 'rgba(34,197,94,0.05)',
       stepped: true, fill: false, pointRadius: 0, borderWidth: 1.5, borderDash: [3,3],
@@ -1152,13 +1153,13 @@ function renderPriceChart(priceMap, rows, tomorrowMap) {
   if (tomorrowHours.length) {
     datasets.push({
       label: 'Buy tomorrow (forecast)',
-      data: [...pad, ...buyTmr],
+      data: [...pad, ...inclMomsTmr],
       borderColor: 'rgba(251,146,60,0.4)',
       stepped: true, fill: false, pointRadius: 0, borderWidth: 1.5, borderDash: [4,4],
     });
     datasets.push({
-      label: 'Sell tomorrow (forecast)',
-      data: [...pad, ...sellTmr],
+      label: 'Spot excl. moms (tomorrow)',
+      data: [...pad, ...exclMomsTmr],
       borderColor: 'rgba(34,197,94,0.3)',
       stepped: true, fill: false, pointRadius: 0, borderWidth: 1.5, borderDash: [4,4],
     });
