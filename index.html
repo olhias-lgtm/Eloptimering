@@ -992,8 +992,12 @@
     <div class="card-title">
       Batteri-schema (TOU)
       <span id="tou-badge" class="badge" style="background:var(--muted);color:var(--dim);padding:2px 7px;border-radius:2px;font-size:9px;text-transform:uppercase;letter-spacing:.5px"></span>
+      <button onclick="loadTou(true)"
+        style="font-size:11px;padding:3px 8px;border-radius:3px;border:1px solid var(--border);background:var(--muted);color:var(--text-muted);cursor:pointer;margin-left:auto">
+        ↻
+      </button>
       <button id="tou-reset-btn" onclick="resetTouToDefault()"
-        style="font-size:11px;padding:3px 10px;border-radius:3px;border:1px solid #7f1d1d;background:rgba(127,29,29,0.15);color:#fca5a5;cursor:pointer;margin-left:auto">
+        style="font-size:11px;padding:3px 10px;border-radius:3px;border:1px solid #7f1d1d;background:rgba(127,29,29,0.15);color:#fca5a5;cursor:pointer">
         Återställ
       </button>
     </div>
@@ -3475,12 +3479,16 @@ async function resetTouToDefault() {
   }
 }
 
-async function loadTou() {
+async function loadTou(forceRefresh = false) {
+  const url = forceRefresh ? '/api/growatt_tou?action=refresh' : '/api/growatt_tou';
   try {
-    const resp = await fetch('/api/growatt_tou');
+    const resp = await fetch(url);
     const data = await resp.json();
     if (data.ok && data.segments && data.segments.length) {
       renderTouTable(data.segments);
+      // Show subtle source badge so user knows if data came from cache or live
+      const badge = document.getElementById('tou-badge');
+      if (badge) badge.textContent = data.source === 'growatt' ? 'live' : 'cache';
     } else {
       const msg = data.error || data.note || 'okänt fel';
       const isPaused = msg.toLowerCase().includes('paused') || msg.toLowerCase().includes('paus');

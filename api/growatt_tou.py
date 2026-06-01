@@ -159,11 +159,78 @@ def _clear_failures(ip: str):
 
 
 # ---------------------------------------------------------------------------
+# TOU read cache (Supabase tou_cache — single row, public read, service write)
+# Keeps the last-known TOU segments so page loads never touch Growatt.
+# Cache is invalidated (refreshed from Growatt) only when:
+#   • It doesn't exist yet
+#   • It is older than TOU_CACHE_MAX_AGE_MIN
+#   • A write or reset succeeds (cache updated immediately with new values)
+# ---------------------------------------------------------------------------
+
+TOU_CACHE_MAX_AGE_MIN = 60  # treat cache as stale after 60 minutes
+
+
+def _load_tou_cache() -> dict | None:
+    """Return cached segments if they exist and are fresh, else None."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return None
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/tou_cache?id=eq.1&select=segments,saved_at"
+        req = urllib.request.Request(url, headers=_sb_headers(service=False))
+        with urllib.request.urlopen(req, timeout=5) as r:
+            rows = json.loads(r.read())
+        if not rows:
+            return None
+        row = rows[0]
+        saved_at = datetime.fromisoformat(row["saved_at"].replace("Z", "+00:00"))
+        age_min  = (datetime.now(timezone.utc) - saved_at).total_seconds() / 60
+        if age_min > TOU_CACHE_MAX_AGE_MIN:
+            print(f"[tou_cache] stale ({age_min:.0f} min old) — will refresh from Growatt")
+            return None
+        print(f"[tou_cache] hit ({age_min:.1f} min old)")
+        return {"ok": True, "segments": row["segments"], "source": "cache"}
+    except Exception as e:
+        print(f"[tou_cache] load error: {e}")
+        return None
+
+
+def _save_tou_cache(segments: list) -> None:
+    """Upsert current segments into tou_cache."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE:
+        return
+    try:
+        body = json.dumps({
+            "id":       1,
+            "segments": segments,
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+        }).encode()
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/tou_cache",
+            data=body, method="POST",
+            headers={**_sb_headers(service=True), "Prefer": "resolution=merge-duplicates"},
+        )
+        urllib.request.urlopen(req, timeout=5).read()
+        print(f"[tou_cache] saved {len(segments)} segments")
+    except Exception as e:
+        print(f"[tou_cache] save error: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Read current TOU settings
 # ---------------------------------------------------------------------------
 
-def _read_tou() -> dict:
-    """Return raw getTlxSetData response + normalised segment list if parseable."""
+def _read_tou(force_refresh: bool = False) -> dict:
+    """Return normalised segment list.
+
+    Serves from the Supabase tou_cache when available and fresh.
+    Only calls Growatt when the cache is missing, stale, or force_refresh=True.
+    """
+    if not force_refresh:
+        cached = _load_tou_cache()
+        if cached:
+            return cached
+
+    # Cache miss or forced refresh — fetch live from Growatt
     sess = get_session()
     sess.ensure_ready()
     r = sess._s.post(
@@ -204,7 +271,10 @@ def _read_tou() -> dict:
                 "enabled":     bool(int(en)) if en is not None else None,
             })
 
-    return {"ok": True, "raw": data, "segments": segments}
+    result = {"ok": True, "raw": data, "segments": segments, "source": "growatt"}
+    # Persist for future requests
+    _save_tou_cache(segments)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -689,8 +759,8 @@ def _send_email(subject: str, body: str):
 
 
 def _notify_if_active() -> dict:
-    """Read current TOU, send reminder email if any segment is enabled."""
-    tou = _read_tou()
+    """Read current TOU (cache preferred), send reminder email if any segment is enabled."""
+    tou = _read_tou()  # uses cache if fresh — avoids a Growatt call for the nightly check
     if not tou.get("ok"):
         return {"ok": False, "error": "Could not read TOU from inverter"}
 
@@ -733,8 +803,10 @@ class handler(BaseHTTPRequestHandler):
             self._send(_load_suggestion(date.today()))
             return
 
+        # ?action=refresh forces a live read from Growatt, bypassing the cache
+        force = (action == "refresh")
         try:
-            self._send(_read_tou())
+            self._send(_read_tou(force_refresh=force))
         except Exception as e:
             print(f"[growatt_tou GET] {e}")
             self._send({"ok": False, "error": str(e)}, 500)
@@ -800,6 +872,12 @@ class handler(BaseHTTPRequestHandler):
             if action == "reset":
                 results = _reset_to_default()
                 all_ok  = all(r.get("success") for r in results)
+                if all_ok:
+                    # Refresh cache to reflect the new default state
+                    try:
+                        _read_tou(force_refresh=True)
+                    except Exception:
+                        pass
                 self._send({"ok": all_ok, "results": results})
                 return
 
@@ -807,6 +885,11 @@ class handler(BaseHTTPRequestHandler):
             # Multiple segments
             if "segments" in body:
                 results = _write_many(body["segments"])
+                # Refresh cache after bulk write
+                try:
+                    _read_tou(force_refresh=True)
+                except Exception:
+                    pass
                 self._send({"ok": True, "results": results})
                 return
 
@@ -820,6 +903,12 @@ class handler(BaseHTTPRequestHandler):
                 end_min    = int(body.get("end_min",    0)),
                 enabled    = bool(body.get("enabled", True)),
             )
+            if res.get("success"):
+                # Refresh cache to confirm the write landed
+                try:
+                    _read_tou(force_refresh=True)
+                except Exception:
+                    pass
             self._send({"ok": True, **res})
 
         except Exception as e:
