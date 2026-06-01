@@ -1017,6 +1017,7 @@
     <div id="suggest-wrap">
       <p style="color:var(--text-muted);font-size:12px">Laddar förslag…</p>
     </div>
+    <div id="suggest-sim-kpis" style="display:none;margin-top:12px;border-top:1px solid var(--border);padding-top:10px"></div>
     <div id="suggest-reasoning" style="display:none;margin-top:10px;font-size:11px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px"></div>
   </div>
 
@@ -3469,6 +3470,42 @@ function renderTouSuggestion(data) {
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+
+  // Simulated KPI totals
+  const simEl = document.getElementById('suggest-sim-kpis');
+  const k = data.sim_kpis;
+  if (simEl && k) {
+    const fmt  = (v, d=2) => v != null ? v.toFixed(d) : '—';
+    const col  = (v, pos, neg) => v == null ? '' : `color:${v >= 0 ? pos : neg}`;
+    simEl.innerHTML = `
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:8px">
+        Simulerad dagsprognos
+        <span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:.6">(SoC start ${fmt(k.soc_start*100,0)} %)</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--text-muted)">Kostnad</div>
+          <div style="font-size:15px;font-weight:600;color:#f87171">−${fmt(k.cost_kr)} kr</div>
+          <div style="font-size:10px;color:var(--dim)">${fmt(k.import_kwh,3)} kWh import</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--text-muted)">Exportintäkt</div>
+          <div style="font-size:15px;font-weight:600;color:#34d399">+${fmt(k.earn_kr)} kr</div>
+          <div style="font-size:10px;color:var(--dim)">${fmt(k.export_kwh,3)} kWh export</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--text-muted)">Besparing</div>
+          <div style="font-size:15px;font-weight:600;color:#34d399">+${fmt(k.saved_kr)} kr</div>
+          <div style="font-size:10px;color:var(--dim)">egenanvändning</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--text-muted)">Netto</div>
+          <div style="font-size:15px;font-weight:600;${col(k.net_kr,'#34d399','#f87171')}">${k.net_kr >= 0 ? '+' : ''}${fmt(k.net_kr)} kr</div>
+          <div style="font-size:10px;color:var(--dim)">intäkt − kostnad</div>
+        </div>
+      </div>`;
+    simEl.style.display = 'block';
+  }
 
   if (data.reasoning) {
     reasoning.textContent = data.reasoning;

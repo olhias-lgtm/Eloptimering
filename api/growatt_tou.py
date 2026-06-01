@@ -318,6 +318,167 @@ def _fetch_solar_model() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Battery simulation constants
+# ---------------------------------------------------------------------------
+BATT_KWH    = 20.0   # usable capacity (4 × 5 kWh APX)
+C_RATE_KW   = 12.0   # max charge/discharge (0.6 C × 20 kWh)
+SOC_FLOOR   = 0.10   # 10 % minimum SoC
+SOC_CEIL    = 1.00   # 100 % maximum SoC
+CHARGE_EFF  = 0.95   # round-trip charge efficiency
+
+# Tariff constants used in cost simulation (Swedish SE3 baseline)
+NATAVG_IN_ORE   = 26.0   # nätavgift inmatning  öre/kWh
+ENERGISKATT_ORE = 54.25  # energiskatt          öre/kWh
+FORTUM_ORE      = 4.9    # Fortum påslag        öre/kWh
+NATNYTTA_ORE    = 5.50   # nätnytta dagtid      öre/kWh (conservative, high-load rate)
+MOMS            = 1.25   # 25 % moms multiplier
+
+# All-in import rate (öre/kWh incl moms) — spot is added per hour
+FIXED_IMPORT_ORE = (NATAVG_IN_ORE + ENERGISKATT_ORE + FORTUM_ORE) * MOMS
+# Export bonus on top of spot (öre/kWh)
+EXPORT_BONUS_ORE = NATNYTTA_ORE * MOMS
+
+
+def _fetch_avg_load_kw() -> float:
+    """Return average hourly load kW from the last 30 days of daily_summary."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return 0.6  # safe fallback: ~14 kWh/day
+    from datetime import timedelta
+    since = (date.today() - timedelta(days=30)).isoformat()
+    url = (f"{SUPABASE_URL}/rest/v1/daily_summary"
+           f"?day=gte.{since}&select=solar_kwh,export_kwh,import_kwh&order=day.desc&limit=30")
+    req = urllib.request.Request(url, headers=_sb_headers())
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            rows = json.loads(r.read())
+        if not rows:
+            return 0.6
+        # load ≈ solar − export + import  (energy balance)
+        daily_loads = [
+            float(r.get("solar_kwh") or 0)
+            - float(r.get("export_kwh") or 0)
+            + float(r.get("import_kwh") or 0)
+            for r in rows
+        ]
+        avg_daily_kwh = sum(daily_loads) / len(daily_loads)
+        return max(0.3, avg_daily_kwh / 24)
+    except Exception as e:
+        print(f"[tou sim] load forecast error: {e}")
+        return 0.6
+
+
+def _fetch_soc_start() -> float:
+    """Return current battery SoC (0.0–1.0) from Growatt, default 0.5."""
+    try:
+        sess = get_session()
+        sess.ensure_ready()
+        r = sess._s.post(
+            BASE + "/newTlxApi.do",
+            params={"op": "getTlxLastData"},
+            data={"serialNum": SERIAL},
+            timeout=8,
+        )
+        data = r.json()
+        obj  = data.get("obj") or {}
+        # Field name varies by firmware; try common variants
+        soc_raw = (obj.get("soc") or obj.get("bmsSoc") or
+                   obj.get("batteryCapacity") or obj.get("capacity"))
+        if soc_raw is not None:
+            soc = float(soc_raw)
+            return soc / 100 if soc > 1 else soc
+    except Exception as e:
+        print(f"[tou sim] SoC fetch error: {e}")
+    return 0.5  # default to 50 %
+
+
+def _simulate_battery(solar_h: dict, load_kw: float,
+                      mode_h: dict, price_h: dict,
+                      soc_start: float) -> dict:
+    """
+    Hourly battery simulation. Returns daily totals only.
+
+    solar_h   : {hour: kW}  — forecast solar (already haircut-adjusted)
+    load_kw   : float       — flat average load kW (same every hour)
+    mode_h    : {hour: int} — 0=Load First 1=Battery First 2=Grid First
+    price_h   : {hour: SEK_per_kWh} — spot price
+    soc_start : float 0–1   — SoC at start of day
+    """
+    soc_kwh     = soc_start * BATT_KWH
+    soc_floor_k = SOC_FLOOR * BATT_KWH
+    soc_ceil_k  = SOC_CEIL  * BATT_KWH
+
+    total_import_kwh = 0.0
+    total_export_kwh = 0.0
+    total_cost_kr    = 0.0
+    total_earn_kr    = 0.0
+    total_saved_kr   = 0.0
+
+    for h in range(24):
+        solar  = solar_h.get(h, 0.0)
+        load   = load_kw
+        mode   = mode_h.get(h, 0)
+        spot   = price_h.get(h)        # SEK/kWh, may be None
+
+        import_kwh = 0.0
+        export_kwh = 0.0
+
+        if mode == 1:  # Battery First — force charge from grid
+            headroom   = min(C_RATE_KW, (soc_ceil_k - soc_kwh) / CHARGE_EFF)
+            solar_self = min(solar, load)
+            solar_exc  = max(0.0, solar - load)
+            chg_solar  = min(solar_exc, headroom)
+            chg_grid   = max(0.0, headroom - chg_solar)
+            soc_kwh   += (chg_solar + chg_grid) * CHARGE_EFF
+            import_kwh = max(0.0, load - solar_self) + chg_grid
+            export_kwh = max(0.0, solar_exc - chg_solar)
+
+        elif mode == 2:  # Grid First — discharge battery
+            avail      = min(C_RATE_KW, soc_kwh - soc_floor_k)
+            net        = solar + avail - load
+            export_kwh = max(0.0, net)
+            import_kwh = max(0.0, -net)
+            soc_kwh   -= avail
+
+        else:  # Load First — normal operation
+            net = solar - load
+            if net >= 0:
+                chg        = min(net, C_RATE_KW, (soc_ceil_k - soc_kwh) / CHARGE_EFF)
+                soc_kwh   += chg * CHARGE_EFF
+                export_kwh = max(0.0, net - chg)
+                import_kwh = 0.0
+            else:
+                dis        = min(-net, C_RATE_KW, soc_kwh - soc_floor_k)
+                soc_kwh   -= dis
+                import_kwh = max(0.0, -net - dis)
+                export_kwh = 0.0
+
+        soc_kwh = max(soc_floor_k, min(soc_ceil_k, soc_kwh))
+
+        total_import_kwh += import_kwh
+        total_export_kwh += export_kwh
+
+        if spot is not None:
+            import_rate_ore = spot * 100 + FIXED_IMPORT_ORE
+            export_rate_ore = spot * 100 + EXPORT_BONUS_ORE
+            total_cost_kr  += import_kwh * import_rate_ore / 100
+            total_earn_kr  += export_kwh * export_rate_ore / 100
+            # Savings = self-consumed kWh valued at full import rate
+            self_kwh        = max(0.0, load - import_kwh)
+            total_saved_kr += self_kwh * import_rate_ore / 100
+
+    net_kr = total_earn_kr - total_cost_kr
+    return {
+        "import_kwh":  round(total_import_kwh, 3),
+        "export_kwh":  round(total_export_kwh, 3),
+        "cost_kr":     round(total_cost_kr,    2),
+        "earn_kr":     round(total_earn_kr,    2),
+        "saved_kr":    round(total_saved_kr,   2),
+        "net_kr":      round(net_kr,           2),
+        "soc_start":   round(soc_start,        3),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Suggestion: optimiser
 # ---------------------------------------------------------------------------
 
@@ -426,6 +587,12 @@ def _build_suggestion(for_date: date) -> dict:
         f"Solproduktion antagen 15% lägre än prognos."
     )
 
+    # Battery simulation — daily KPI totals
+    avg_load_kw = _fetch_avg_load_kw()
+    soc_start   = _fetch_soc_start()
+    sim_kpis    = _simulate_battery(solar_by_hour, avg_load_kw, hour_mode,
+                                    price_by_hour, soc_start)
+
     return {
         "ok":         True,
         "for_date":   for_date.isoformat(),
@@ -436,6 +603,7 @@ def _build_suggestion(for_date: date) -> dict:
                         "low_thresh":  round(low_thresh, 4),
                         "high_thresh": round(high_thresh, 4)},
         "solar_peak_kw": round(solar_peak[1], 2),
+        "sim_kpis":   sim_kpis,
     }
 
 
