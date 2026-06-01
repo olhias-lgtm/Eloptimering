@@ -26,6 +26,11 @@ def _growatt_hash(password: str) -> str:
 _lock    = threading.Lock()
 _session = None   # module-level singleton
 
+# Login-failure cooldown: after a failed login, refuse to retry for this many seconds.
+# This prevents hammering a locked Growatt account on warm Lambda reuse.
+_LOGIN_COOLDOWN_SECS = 300   # 5 minutes
+_login_failed_at: float = 0  # time.monotonic() of last failure; 0 = never failed
+
 
 class GrowattSession:
     def __init__(self):
@@ -44,19 +49,36 @@ class GrowattSession:
         })
 
     def login(self):
+        global _login_failed_at  # noqa: PLW0603
+        # Respect cooldown: don't retry login if we recently failed
+        if _login_failed_at:
+            elapsed = time.monotonic() - _login_failed_at
+            if elapsed < _LOGIN_COOLDOWN_SECS:
+                remaining = int(_LOGIN_COOLDOWN_SECS - elapsed)
+                raise RuntimeError(
+                    f"Growatt login on cooldown — retry in {remaining}s "
+                    f"(last failure {int(elapsed)}s ago)"
+                )
+
         pw_hash = _growatt_hash(GROWATT_PASS)
-        resp = self._s.post(
-            GROWATT_API + "/newTwoLoginAPI.do",
-            data={"userName": GROWATT_USER, "password": pw_hash},
-            timeout=15,
-        )
+        try:
+            resp = self._s.post(
+                GROWATT_API + "/newTwoLoginAPI.do",
+                data={"userName": GROWATT_USER, "password": pw_hash},
+                timeout=15,
+            )
+        except Exception as e:
+            _login_failed_at = time.monotonic()
+            raise RuntimeError(f"Growatt login network error: {e}") from e
         data = resp.json()
         back = data.get("back", {})
         if not back.get("success"):
+            _login_failed_at = time.monotonic()
             raise RuntimeError(f"Growatt login failed: {back.get('msg','unknown')} | {data}")
         user           = back.get("user") or {}
         self.user_id   = str(user.get("id") or user.get("userId") or "")
         self.logged_in = True
+        _login_failed_at = 0  # clear cooldown on success
         # Grab plant_id from login response if available
         plant_list = back.get("data") or []
         if plant_list:

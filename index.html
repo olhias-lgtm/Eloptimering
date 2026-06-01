@@ -2626,7 +2626,8 @@ async function loadWeather(triggerForecastRefresh = false) {
 // ---------------------------------------------------------------------------
 // Live strip
 // ---------------------------------------------------------------------------
-let _liveTimer = null;
+let _liveTimer     = null;
+let _liveFailCount = 0;
 
 // ---------------------------------------------------------------------------
 // Flow diagram animation
@@ -2826,6 +2827,7 @@ async function loadLive() {
 
   try {
     const d = await fetchJSON('/api/live');
+    _liveFailCount = 0;  // reset on success
     renderFlowDiagram(d);
     updateSkyIcon();
 
@@ -2841,14 +2843,28 @@ async function loadLive() {
       'Hämtad ' + new Date().toLocaleTimeString('sv-SE', {hour:'2-digit', minute:'2-digit'});
 
   } catch(e) {
-    console.warn('[Live]', e.message);
+    _liveFailCount++;
+    console.warn(`[Live] fail #${_liveFailCount}:`, e.message);
   }
 }
 
 function startLivePolling() {
-  if (_liveTimer) clearInterval(_liveTimer);
-  loadLive();
-  _liveTimer = setInterval(loadLive, 60 * 1000);
+  if (_liveTimer) { clearTimeout(_liveTimer); _liveTimer = null; }
+
+  async function tick() {
+    await loadLive();
+    // Back off on consecutive failures: 60s → 2min → 5min → 10min, then hold
+    const BACKOFF = [60, 120, 300, 600];
+    const delaySec = _liveFailCount === 0
+      ? 60
+      : BACKOFF[Math.min(_liveFailCount - 1, BACKOFF.length - 1)];
+    if (_liveFailCount > 0) {
+      console.info(`[Live] backoff ${delaySec}s (${_liveFailCount} consecutive failures)`);
+    }
+    _liveTimer = setTimeout(tick, delaySec * 1000);
+  }
+
+  tick();
 }
 
 
