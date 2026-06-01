@@ -51,6 +51,10 @@ TOU_PASSWORD  = "79"
 MAX_FAILURES  = 3
 LOCKOUT_HOURS = 24
 
+NOTIFY_TO   = "olhias@gmail.com"
+NOTIFY_FROM = os.environ.get("NOTIFY_EMAIL_FROM", "")
+NOTIFY_PASS = os.environ.get("NOTIFY_EMAIL_PASS", "")
+
 MODE_NAMES = {0: "Load First", 1: "Battery First", 2: "Grid First"}
 
 # Suggestion tuning
@@ -646,6 +650,75 @@ def _load_suggestion(for_date: date) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Reset to default (disable all segments → inverter falls back to Load First)
+# ---------------------------------------------------------------------------
+
+def _reset_to_default() -> list:
+    """Write all 9 segments as disabled. Returns _write_many results."""
+    segs = [
+        {
+            "segment_id": i,
+            "mode":       0,   # Load First
+            "start_hour": 0, "start_min": 0,
+            "end_hour":   0, "end_min":   0,
+            "enabled":    False,
+        }
+        for i in range(1, 10)
+    ]
+    return _write_many(segs)
+
+
+# ---------------------------------------------------------------------------
+# Notify: send reminder e-mail if any TOU segment is currently active
+# ---------------------------------------------------------------------------
+
+def _send_email(subject: str, body: str):
+    import smtplib
+    from email.mime.text import MIMEText
+    if not NOTIFY_FROM or not NOTIFY_PASS:
+        print("[notify] NOTIFY_EMAIL_FROM / NOTIFY_EMAIL_PASS not set — skipping email")
+        return
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"]    = NOTIFY_FROM
+    msg["To"]      = NOTIFY_TO
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as s:
+        s.login(NOTIFY_FROM, NOTIFY_PASS)
+        s.sendmail(NOTIFY_FROM, [NOTIFY_TO], msg.as_string())
+    print(f"[notify] email sent to {NOTIFY_TO}: {subject}")
+
+
+def _notify_if_active() -> dict:
+    """Read current TOU, send reminder email if any segment is enabled."""
+    tou = _read_tou()
+    if not tou.get("ok"):
+        return {"ok": False, "error": "Could not read TOU from inverter"}
+
+    active = [s for s in tou.get("segments", []) if s.get("enabled")]
+    if not active:
+        return {"ok": True, "email_sent": False, "reason": "no active segments"}
+
+    desc_lines = []
+    for s in active:
+        desc_lines.append(
+            f"  Segment {s['segment_id']}: {s.get('start','?')}–{s.get('stop','?')} "
+            f"({s.get('mode_name', s.get('mode', '?'))})"
+        )
+    body = (
+        f"Det finns {len(active)} aktiva TOU-segment på växelriktaren (MID 12KTL3-XH):\n\n"
+        + "\n".join(desc_lines)
+        + "\n\nKom ihåg att återställa till standardläge (Load First) om det inte längre behövs."
+        + "\n\nhttps://electricity-dashboard-phi.vercel.app"
+    )
+    try:
+        _send_email("remember to reset TOU", body)
+        return {"ok": True, "email_sent": True, "active_segments": len(active)}
+    except Exception as e:
+        print(f"[notify] email error: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
 # Handler
 # ---------------------------------------------------------------------------
 
@@ -683,6 +756,15 @@ class handler(BaseHTTPRequestHandler):
                 self._send({"ok": False, "error": str(e)}, 500)
             return
 
+        if action == "notify_reset":
+            # Cron entry point — no password required (internal, read-only + email)
+            try:
+                self._send(_notify_if_active())
+            except Exception as e:
+                print(f"[growatt_tou notify_reset] {e}")
+                self._send({"ok": False, "error": str(e)}, 500)
+            return
+
         try:
             length = int(self.headers.get("Content-Length", 0))
             body   = json.loads(self.rfile.read(length)) if length else {}
@@ -713,6 +795,13 @@ class handler(BaseHTTPRequestHandler):
 
             # Password correct — clear any previous failures
             _clear_failures(ip)
+
+            # --- Reset to default ---
+            if action == "reset":
+                results = _reset_to_default()
+                all_ok  = all(r.get("success") for r in results)
+                self._send({"ok": all_ok, "results": results})
+                return
 
             # --- Write ---
             # Multiple segments
