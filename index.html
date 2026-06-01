@@ -978,6 +978,15 @@
     </div>
   </div>
 
+  <!-- CSV export -->
+  <div style="text-align:right;margin-bottom:14px">
+    <button onclick="exportKpiCsv()"
+      style="font-size:11px;padding:4px 12px;border-radius:3px;border:1px solid var(--border);
+             background:var(--muted);color:var(--text-muted);cursor:pointer;letter-spacing:.4px">
+      ⬇ Exportera KPI (.csv)
+    </button>
+  </div>
+
   <!-- TOU Battery Schedule panel -->
   <div class="card" style="margin-bottom:14px">
     <div class="card-title">
@@ -1386,6 +1395,31 @@ function kwhFromRows(rows, field) {
   return rows.reduce((s,r) => s + r[field], 0) * (5/60);
 }
 
+// Latest KPI snapshot — updated by renderKPIs, used for CSV export
+let _lastKpi = null;
+
+function exportKpiCsv() {
+  if (!_lastKpi) return;
+  const k = _lastKpi;
+  const headers = [
+    'Datum','Sol (kWh)','Last (kWh)','Import (kWh)','Export (kWh)','Batteri ur (kWh)',
+    'Rörlig kostnad (kr)','Fast kostnad (kr)','Total kostnad (kr)',
+    'Exportintäkt (kr)','Besparing (kr)','Netto (kr)'
+  ];
+  const values = [
+    k.date, k.solar, k.load, k.imp, k.exp, k.dis,
+    k.varCost, k.fixedDay, k.totalCost,
+    k.totalEarn, k.totalSaved, k.net
+  ];
+  const csv = [headers.join(','), values.join(',')].join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `kpi_${k.date}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 function renderKPIs(rows, priceMap, c, dateStr) {
   const solar  = kwhFromRows(rows, 'solar_kw');
   const load   = kwhFromRows(rows, 'load_kw');
@@ -1463,6 +1497,22 @@ function renderKPIs(rows, priceMap, c, dateStr) {
       }
     });
   }
+
+  // Store snapshot for CSV export
+  _lastKpi = {
+    date: dateStr,
+    solar:      +solar.toFixed(3),
+    load:       +load.toFixed(3),
+    imp:        +imp.toFixed(3),
+    exp:        +exp.toFixed(3),
+    dis:        +dis.toFixed(3),
+    varCost:    hasPrices ? +(totalCost - fixedDay).toFixed(2) : '',
+    fixedDay:   +fixedDay.toFixed(2),
+    totalCost:  hasPrices ? +totalCost.toFixed(2) : '',
+    totalEarn:  hasPrices ? +totalEarn.toFixed(2) : '',
+    totalSaved: hasPrices ? +totalSaved.toFixed(2) : '',
+    net:        hasPrices ? +net.toFixed(2) : '',
+  };
 
   return { totalCost, totalEarn, net, fixedDay, hasPrices };
 }
