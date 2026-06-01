@@ -3038,6 +3038,7 @@ function renderMonthlySummary(rows, year, month) {
         </td>
         <td style="text-align:right;padding:5px 6px;color:var(--negative,#ef4444);font-size:0.82rem">−${cost.toFixed(2)}</td>
         <td style="text-align:right;padding:5px 6px;color:var(--positive,#22c55e);font-size:0.82rem">+${earn.toFixed(2)}</td>
+        <td style="text-align:right;padding:5px 6px;color:#34d399;font-size:0.82rem">+${saved.toFixed(2)}</td>
         <td style="text-align:right;padding:5px 6px;color:#34d399;font-size:0.82rem;font-weight:600">+${roi.toFixed(2)}</td>
         <td style="text-align:right;padding:5px 4px">
           <span style="display:inline-block;background:${netBg};color:${netFg};font-weight:600;font-size:0.8rem;padding:2px 7px;border-radius:999px;white-space:nowrap">
@@ -3053,6 +3054,7 @@ function renderMonthlySummary(rows, year, month) {
           <span style="font-size:0.72rem;color:var(--text-muted);margin-left:4px">${dayName}</span>
         </td>
         <td style="padding:5px 6px"><div style="height:5px;background:var(--border);border-radius:3px"></div></td>
+        <td style="text-align:right;padding:5px 6px;font-size:0.82rem">—</td>
         <td style="text-align:right;padding:5px 6px;font-size:0.82rem">—</td>
         <td style="text-align:right;padding:5px 6px;font-size:0.82rem">—</td>
         <td style="text-align:right;padding:5px 6px;font-size:0.82rem">—</td>
@@ -3076,19 +3078,21 @@ function renderMonthlySummary(rows, year, month) {
         </th>
         <th style="text-align:right;padding:5px 6px;font-weight:500">Kostnad</th>
         <th style="text-align:right;padding:5px 6px;font-weight:500">Export</th>
+        <th style="text-align:right;padding:5px 6px;font-weight:500">Besparing</th>
         <th style="text-align:right;padding:5px 6px;font-weight:500;color:#34d399">ROI</th>
-        <th style="text-align:right;padding:5px 4px;font-weight:500">Netto</th>
+        <th style="text-align:right;padding:5px 4px;font-weight:500">Exportnetto</th>
       </tr>
     </thead>
     <tbody id="monthly-rows">${rowsHtml}</tbody>
     <tfoot>
       <tr style="border-top:2px solid var(--border)">
-        <td colspan="6" style="padding:10px 6px 4px">
+        <td colspan="7" style="padding:10px 6px 4px">
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <span style="font-size:0.75rem;color:var(--text-muted)">${rows.length} / ${total_days} dagar</span>
             <span style="flex:1"></span>
             <span style="font-size:0.78rem;color:var(--text-muted)">☀ ${sumSolar.toFixed(1)} kWh</span>
             <span style="font-size:0.78rem;color:var(--negative,#ef4444)">−${(sumCost+fixedMonth).toFixed(2)} kr</span>
+            <span style="font-size:0.78rem;color:#34d399">Besparing +${sumSaved.toFixed(2)} kr</span>
             <span style="font-size:0.78rem;color:#34d399;font-weight:600">ROI +${sumRoi.toFixed(2)} kr</span>
             <span style="display:inline-block;background:${gc ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.12)'};color:${gc ? 'var(--positive,#22c55e)' : 'var(--negative,#ef4444)'};font-weight:700;font-size:0.85rem;padding:3px 10px;border-radius:999px">
               ${gc ? '+' : ''}${grandNet.toFixed(2)} kr
