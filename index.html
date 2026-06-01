@@ -256,6 +256,9 @@
     width:240px; white-space:normal; z-index:999; pointer-events:none;
     box-shadow:0 4px 12px rgba(0,0,0,0.4);
   }
+  .tou-mode-tip.tip-above:hover::after {
+    top:auto; bottom:calc(100% + 6px);
+  }
   .tou-save-btn { font-size:11px; padding:3px 8px; border-radius:3px; border:1px solid var(--border); background:var(--muted); color:var(--text-muted); cursor:pointer; transition:background .15s; }
   .tou-save-btn.dirty { background:#22c55e; color:#000; border-color:#22c55e; }
   .tou-save-btn.saving { opacity:.5; cursor:default; }
@@ -3305,7 +3308,7 @@ function renderTouTable(segments) {
           <select class="tou-mode" style="color:${TOU_MODE_COLORS[mode]}"
             onchange="this.style.color=TOU_MODE_COLORS[this.value];markTouDirty(${seg.segment_id});this.nextElementSibling.dataset.tip=TOU_MODE_TIPS[this.value]">
             ${modeOpts}
-          </select><span class="tou-mode-tip" data-tip="${TOU_MODE_TIPS[mode].replace(/"/g,'&quot;')}">ⓘ</span>
+          </select><span class="tou-mode-tip${seg.segment_id >= 7 ? ' tip-above' : ''}" data-tip="${TOU_MODE_TIPS[mode].replace(/"/g,'&quot;')}">ⓘ</span>
         </td>
         <td>
           <button id="tou-btn-${seg.segment_id}" class="tou-save-btn"
