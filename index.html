@@ -2569,19 +2569,38 @@ async function loadWeather(triggerForecastRefresh = false) {
     if (idx < 0) return;
 
     const temp    = hourly.temperature_2m[idx];
+    // Use met.no cloud cover when available (combined model), fall back to Open-Meteo
     const cloud   = hourly.cloudcover[idx];
+    const cloudLo = hourly.cloud_lo?.[idx];
+    const cloudMi = hourly.cloud_mid?.[idx];
+    const cloudHi = hourly.cloud_hi?.[idx];
     const wind    = hourly.windspeed_10m[idx];
     const rad     = hourly.shortwave_radiation[idx];
+    // Use met.no-adjusted GTI for the solar bar when available
+    const gtiAdj  = hourly.gti_adjusted;
     const sunrise = daily?.sunrise?.[0] ? new Date(daily.sunrise[0]).toLocaleTimeString('sv-SE', {hour:'2-digit',minute:'2-digit'}) : '—';
     const sunset  = daily?.sunset?.[0]  ? new Date(daily.sunset[0]).toLocaleTimeString('sv-SE',  {hour:'2-digit',minute:'2-digit'}) : '—';
+    const source  = w.source || 'open-meteo';
 
-    // Next 8 hours of solar radiation for mini-bar
-    const radSlice = hourly.shortwave_radiation.slice(idx, idx + 8);
-    const maxRad   = Math.max(...radSlice, 1);
-    const bars     = radSlice.map(r => {
+    // Next 8 hours: use adjusted GTI if available, otherwise shortwave radiation
+    const solarArr  = (gtiAdj && gtiAdj.some(v => v > 0)) ? gtiAdj : hourly.shortwave_radiation;
+    const radSlice  = solarArr.slice(idx, idx + 8);
+    const maxRad    = Math.max(...radSlice, 1);
+    const bars      = radSlice.map((r, i) => {
+      const gtiRaw = hourly.global_tilted_irradiance?.[idx + i];
+      const label  = gtiAdj
+        ? `adj ${Math.round(r)} W/m² (raw ${Math.round(gtiRaw ?? r)} W/m²)`
+        : `${Math.round(r)} W/m²`;
       const h = Math.round((r / maxRad) * 20);
-      return `<div class="wx-bar-seg" style="height:${Math.max(h,2)}px" title="${Math.round(r)} W/m²"></div>`;
+      return `<div class="wx-bar-seg" style="height:${Math.max(h,2)}px" title="${label}"></div>`;
     }).join('');
+
+    // Cloud layer breakdown tooltip
+    const cloudDetail = (cloudLo != null)
+      ? `lo ${Math.round(cloudLo)}% · mid ${Math.round(cloudMi)}% · hi ${Math.round(cloudHi)}%`
+      : '';
+    const cloudSource = source.includes('met.no') || source === 'supabase'
+      ? 'met.no' : 'Open-Meteo';
 
     document.getElementById('weather-strip').innerHTML = `
       <div class="wx-item">
@@ -2591,27 +2610,27 @@ async function loadWeather(triggerForecastRefresh = false) {
           <div class="wx-label">Temp</div>
         </div>
       </div>
-      <div class="wx-item">
+      <div class="wx-item" title="${cloudDetail}">
         <div>
-          <div><strong>${cloud}%</strong></div>
-          <div class="wx-label">Cloud cover</div>
+          <div><strong>${Math.round(cloud)}%</strong></div>
+          <div class="wx-label">Moln (${cloudSource})</div>
         </div>
       </div>
       <div class="wx-item">
         <div>
-          <div><strong>${wind} km/h</strong></div>
+          <div><strong>${wind} m/s</strong></div>
           <div class="wx-label">Wind</div>
         </div>
       </div>
       <div class="wx-item">
         <div>
           <div><strong>${Math.round(rad)} W/m²</strong></div>
-          <div class="wx-label">Solar irr.</div>
+          <div class="wx-label">Instrålning</div>
         </div>
       </div>
       <div class="wx-item">
         <div class="wx-bar">${bars}</div>
-        <div class="wx-label" style="margin-left:4px">Next 8h solar</div>
+        <div class="wx-label" style="margin-left:4px">Sol nästa 8h${gtiAdj ? ' (adj)' : ''}</div>
       </div>
       <div class="wx-item" style="margin-left:auto">
         <div>

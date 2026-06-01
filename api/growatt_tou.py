@@ -414,7 +414,44 @@ def _fetch_prices_for_date(d: date) -> list:
 
 
 def _fetch_gti_forecast(d: date) -> dict:
-    """Return {hour: gti_wm2} for tomorrow from Open-Meteo forecast."""
+    """Return {hour: gti_wm2} for date d using the met.no-adjusted GTI from Supabase.
+
+    Reads from weather_forecast table (populated by /api/weather).
+    Falls back to a direct Open-Meteo call if Supabase has no data.
+    Using the adjusted GTI means the TOU suggestion already incorporates
+    the better Scandinavian cloud model from met.no.
+    """
+    from datetime import timezone as _tz
+
+    # Try Supabase weather_forecast first (gti_adj = met.no-corrected GTI)
+    if SUPABASE_URL and SUPABASE_KEY:
+        try:
+            # Date d is local (CEST = UTC+2) — fetch UTC window
+            cest = _tz(timedelta(hours=2))
+            day_start = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=cest)
+            day_end   = datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=cest)
+            url = (f"{SUPABASE_URL}/rest/v1/weather_forecast"
+                   f"?valid_time=gte.{day_start.astimezone(_tz.utc).isoformat()}"
+                   f"&valid_time=lte.{day_end.astimezone(_tz.utc).isoformat()}"
+                   f"&order=valid_time.asc"
+                   f"&select=valid_time,gti_adj")
+            req = urllib.request.Request(url, headers=_sb_headers())
+            with urllib.request.urlopen(req, timeout=8) as r:
+                rows = json.loads(r.read())
+            if rows:
+                result = {}
+                for row in rows:
+                    dt_utc  = datetime.fromisoformat(row["valid_time"].replace("Z", "+00:00"))
+                    dt_cest = dt_utc.astimezone(cest)
+                    result[dt_cest.hour] = float(row["gti_adj"] or 0)
+                print(f"[tou_suggest] GTI loaded from Supabase weather_forecast for {d} "
+                      f"({len(result)} hours)")
+                return result
+        except Exception as e:
+            print(f"[tou_suggest] Supabase GTI fetch failed, falling back to Open-Meteo: {e}")
+
+    # Fallback: direct Open-Meteo call
+    print(f"[tou_suggest] Fetching GTI direct from Open-Meteo for {d}")
     url = (
         f"https://api.open-meteo.com/v1/forecast"
         f"?latitude={LAT}&longitude={LON}"
@@ -430,8 +467,7 @@ def _fetch_gti_forecast(d: date) -> dict:
     result = {}
     for t, v in zip(data["hourly"]["time"], data["hourly"]["global_tilted_irradiance"]):
         if t.startswith(target) and v is not None:
-            hour = int(t[11:13])
-            result[hour] = float(v)
+            result[int(t[11:13])] = float(v)
     return result
 
 
