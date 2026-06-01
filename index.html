@@ -246,6 +246,15 @@
   .tou-sw .slider:before { content:''; position:absolute; width:12px; height:12px; left:3px; bottom:3px; background:#fff; border-radius:50%; transition:.2s; }
   .tou-sw input:checked + .slider { background:#22c55e; }
   .tou-sw input:checked + .slider:before { transform:translateX(16px); }
+  .tou-mode-tip { display:inline-block;margin-left:4px;font-size:10px;color:var(--text-muted);cursor:help;vertical-align:middle;position:relative; }
+  .tou-mode-tip:hover::after {
+    content: attr(data-tip);
+    position:absolute; left:50%; transform:translateX(-50%); bottom:calc(100% + 6px);
+    background:#1e2433; color:#e2e8f0; border:1px solid #334155;
+    border-radius:6px; padding:7px 10px; font-size:11px; line-height:1.5;
+    width:240px; white-space:normal; z-index:999; pointer-events:none;
+    box-shadow:0 4px 12px rgba(0,0,0,0.4);
+  }
   .tou-save-btn { font-size:11px; padding:3px 8px; border-radius:3px; border:1px solid var(--border); background:var(--muted); color:var(--text-muted); cursor:pointer; transition:background .15s; }
   .tou-save-btn.dirty { background:#22c55e; color:#000; border-color:#22c55e; }
   .tou-save-btn.saving { opacity:.5; cursor:default; }
@@ -3036,6 +3045,11 @@ document.getElementById('month-next').addEventListener('click', () => {
 // ---------------------------------------------------------------------------
 const TOU_MODE_LABELS = ['Load First', 'Battery First', 'Grid First'];
 const TOU_MODE_COLORS = ['#f59e0b',    '#22c55e',       '#60a5fa'];
+const TOU_MODE_TIPS   = [
+  'Load First: Solelen driver lasten direkt. Överskott laddar batteriet, och batteriet driver lasten när solen inte räcker. Standardläge – ingen tvingad laddning eller urladdning.',
+  'Battery First: Tvingar laddning av batteriet från elnätet. Används under billiga timmar för att lagra billig el inför dyrare timmar senare under dagen.',
+  'Grid First: Prioriterar elnätet som källa för lasten och låter batteriet laddas ur mot nätet eller lasten. Används under dyra timmar för att sälja eller förbruka lagrad energi.',
+];
 
 let _touSegments      = [];   // last loaded segments (for dirty comparison)
 let _touFailCount     = 0;    // session failure counter
@@ -3286,11 +3300,11 @@ function renderTouTable(segments) {
           oninput="markTouDirty(${seg.segment_id})"></td>
         <td><input type="time" class="tou-stop" value="${stopStr}"
           oninput="markTouDirty(${seg.segment_id})"></td>
-        <td>
+        <td style="white-space:nowrap">
           <select class="tou-mode" style="color:${TOU_MODE_COLORS[mode]}"
-            onchange="this.style.color=TOU_MODE_COLORS[this.value];markTouDirty(${seg.segment_id})">
+            onchange="this.style.color=TOU_MODE_COLORS[this.value];markTouDirty(${seg.segment_id});this.nextElementSibling.dataset.tip=TOU_MODE_TIPS[this.value]">
             ${modeOpts}
-          </select>
+          </select><span class="tou-mode-tip" data-tip="${TOU_MODE_TIPS[mode].replace(/"/g,'&quot;')}">ⓘ</span>
         </td>
         <td>
           <button id="tou-btn-${seg.segment_id}" class="tou-save-btn"
@@ -3356,7 +3370,7 @@ function renderTouSuggestion(data) {
       <td style="color:var(--text-muted)">${seg.segment_id}</td>
       <td>${seg.start || `${String(seg.start_hour).padStart(2,'0')}:${String(seg.start_min).padStart(2,'0')}`}</td>
       <td>${seg.stop  || `${String(seg.end_hour).padStart(2,'0')}:${String(seg.end_min).padStart(2,'0')}`}</td>
-      <td style="color:${col};font-weight:500">${lbl}</td>
+      <td style="color:${col};font-weight:500;white-space:nowrap">${lbl}<span class="tou-mode-tip" data-tip="${(TOU_MODE_TIPS[seg.mode]||'').replace(/"/g,'&quot;')}">ⓘ</span></td>
     </tr>`;
   }).join('');
 
