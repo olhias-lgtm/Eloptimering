@@ -1,7 +1,9 @@
 """
 growatt_tou
-  GET  — read current TOU settings via newTlxApi.do?op=getTlxSetData
-  POST — write one or more time segments via newTcpsetAPI.do?op=tlxSet
+  GET                    — read current TOU settings via newTlxApi.do?op=getTlxSetData
+  GET ?action=suggest    — return latest saved TOU suggestion for tomorrow
+  POST                   — write one or more time segments via newTcpsetAPI.do?op=tlxSet
+  POST ?action=build_suggest — (re)build and save tomorrow's TOU suggestion (cron at 00:05)
 
 Key findings from reverse-engineering (PyPi_GrowattServer 1.6.0 / HA PR #133319):
   • Read  uses newTlxApi.do?op=getTlxSetData   with body  serialNum=<sn>
@@ -10,21 +12,29 @@ Key findings from reverse-engineering (PyPi_GrowattServer 1.6.0 / HA PR #133319)
   • Auth  is the standard newTwoLoginAPI.do session (same as all other ops)
   • The "installer password" is a ShinePhone UI concept, not an API parameter
 
+Suggestion algorithm (build_suggest):
+  1. Fetch tomorrow's hourly spot prices (elprisetjustnu.se)
+  2. Fetch tomorrow's hourly GTI forecast (Open-Meteo) × solar model ratios → kW
+  3. Apply SOLAR_HAIRCUT (15%) safety margin
+  4. Classify each hour:
+       Battery First  — cheap grid hour (< LOW_PRICE_PCTILE) AND low solar
+       Grid First     — expensive hour (> HIGH_PRICE_PCTILE) AND low solar
+       Load First     — everything else (solar hours + neutral)
+  5. Merge consecutive same-mode runs → up to MAX_SEGMENTS TOU segments
+  6. Upsert into Supabase tou_suggestions table
+
 POST body (JSON) — single segment:
-  {
-    "segment_id": 1,        // 1–9
-    "mode":       1,        // 0=Load First  1=Battery First  2=Grid First
-    "start_hour": 0,
-    "start_min":  0,
-    "end_hour":   8,
-    "end_min":    0,
-    "enabled":    true
-  }
+  { "segment_id": 1, "mode": 1, "start_hour": 0, "start_min": 0,
+    "end_hour": 8, "end_min": 0, "enabled": true }
 
 POST body (JSON) — multiple segments at once:
   { "segments": [ { ...same fields... }, ... ] }
 """
 import json
+import os
+import urllib.request
+from collections import defaultdict
+from datetime import date, timedelta, timezone, datetime
 from http.server import BaseHTTPRequestHandler
 
 from _growatt import get_session
@@ -32,11 +42,39 @@ from _growatt import get_session
 SERIAL = "KJN6EXV00L"
 BASE   = "https://openapi.growatt.com"
 
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+
 MODE_NAMES = {0: "Load First", 1: "Battery First", 2: "Grid First"}
+
+# Suggestion tuning
+SOLAR_HAIRCUT      = 0.15   # assume 15% less solar than forecast
+SOLAR_LOW_KW       = 0.3    # hourly avg kW below which we treat the hour as "dark"
+LOW_PRICE_PCTILE   = 0.30   # cheapest 30% of hours → candidate for Battery First
+HIGH_PRICE_PCTILE  = 0.70   # most expensive 30% of hours → candidate for Grid First
+MAX_SEGMENTS       = 6      # leave headroom below the 9-segment limit
+
+LAT        = 59.28
+LON        = 18.00
+PANEL_TILT = 45
+PANEL_AZ   = -68
+AREA       = "SE3"
 
 
 # ---------------------------------------------------------------------------
-# Read
+# Supabase helpers
+# ---------------------------------------------------------------------------
+
+def _sb_headers():
+    return {
+        "apikey":        SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type":  "application/json",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Read current TOU settings
 # ---------------------------------------------------------------------------
 
 def _read_tou() -> dict:
@@ -56,13 +94,10 @@ def _read_tou() -> dict:
     except Exception:
         return {"ok": False, "raw": r.text[:500]}
 
-    # Normalise into a usable segment list if the obj/tlxSetBean is present
     obj  = data.get("obj") or {}
-    bean = obj.get("tlxSetBean") or obj  # location varies by firmware
+    bean = obj.get("tlxSetBean") or obj
     segments = []
     for i in range(1, 10):
-        # Field names seen in community data: forcedTimeStart{N}, time{N}Mode, etc.
-        # Also try compact variants used by some firmware versions.
         start = (bean.get(f"forcedTimeStart{i}")
                  or bean.get(f"startTime{i}")
                  or bean.get(f"time{i}Start"))
@@ -88,7 +123,7 @@ def _read_tou() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Write
+# Write segments
 # ---------------------------------------------------------------------------
 
 def _write_segment(segment_id: int, mode: int, start_hour: int, start_min: int,
@@ -110,7 +145,6 @@ def _write_segment(segment_id: int, mode: int, start_hour: int, start_min: int,
         "param4":    str(end_hour),
         "param5":    str(end_min),
         "param6":    "1" if enabled else "0",
-        # param7–param19 must be present as empty strings (API contract)
         **{f"param{i}": "" for i in range(7, 20)},
     }
 
@@ -151,11 +185,237 @@ def _write_many(segments: list) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Suggestion: data fetchers
+# ---------------------------------------------------------------------------
+
+def _fetch_prices_for_date(d: date) -> list:
+    """Return list of {time_start, SEK_per_kWh} for the given date from elprisetjustnu."""
+    y, mo, day = d.isoformat().split("-")
+    url = f"https://www.elprisetjustnu.se/api/v1/prices/{y}/{mo}-{day}_{AREA}.json"
+    req = urllib.request.Request(url, headers={"User-Agent": "electricity-dashboard/tou-suggest"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())
+    except Exception:
+        return []
+
+
+def _fetch_gti_forecast(d: date) -> dict:
+    """Return {hour: gti_wm2} for tomorrow from Open-Meteo forecast."""
+    url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={LAT}&longitude={LON}"
+        f"&hourly=global_tilted_irradiance"
+        f"&tilt={PANEL_TILT}&azimuth={PANEL_AZ}"
+        f"&timezone=Europe%2FStockholm"
+        f"&forecast_days=2&past_days=0"
+    )
+    req = urllib.request.Request(url, headers={"User-Agent": "electricity-dashboard/tou-suggest"})
+    with urllib.request.urlopen(req, timeout=12) as r:
+        data = json.loads(r.read())
+    target = d.isoformat()
+    result = {}
+    for t, v in zip(data["hourly"]["time"], data["hourly"]["global_tilted_irradiance"]):
+        if t.startswith(target) and v is not None:
+            hour = int(t[11:13])
+            result[hour] = float(v)
+    return result
+
+
+def _fetch_solar_model() -> dict:
+    """Return {slot: ratio} from Supabase solar_model table. slot = 0-min/5."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return {}
+    url = f"{SUPABASE_URL}/rest/v1/solar_model?select=slot,ratio&order=slot.asc"
+    req = urllib.request.Request(url, headers=_sb_headers())
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            rows = json.loads(r.read())
+        return {int(row["slot"]): row["ratio"] for row in rows if row["ratio"] is not None}
+    except Exception:
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Suggestion: optimiser
+# ---------------------------------------------------------------------------
+
+def _build_suggestion(for_date: date) -> dict:
+    """
+    Compute an optimised TOU schedule for for_date.
+    Returns {"ok": True, "for_date": ..., "segments": [...], "reasoning": "..."}
+    """
+    prices_raw = _fetch_prices_for_date(for_date)
+    if not prices_raw:
+        return {"ok": False, "error": f"No spot prices available for {for_date}"}
+
+    # Build hourly price map  (öre/kWh incl 25% moms — elprisetjustnu returns SEK_per_kWh)
+    # Keep in SEK/kWh for comparison
+    price_by_hour = {}
+    for row in prices_raw:
+        t = row.get("time_start", "")
+        if len(t) >= 13:
+            h = int(t[11:13])
+            price_by_hour[h] = float(row.get("SEK_per_kWh", 0))
+
+    if not price_by_hour:
+        return {"ok": False, "error": "Could not parse prices"}
+
+    # Solar forecast with model correction + haircut
+    gti = _fetch_gti_forecast(for_date)
+    model = _fetch_solar_model()
+
+    # Convert GTI → kW per hour using per-slot ratios
+    # slot = hour * 12 (top-of-hour slot); if no ratio use simple panel_kWp estimate
+    PANEL_KWP = 12.0
+    solar_by_hour = {}
+    for h in range(24):
+        slot = h * 12
+        gti_val = gti.get(h, 0.0)
+        if slot in model:
+            kw = model[slot] * gti_val  # ratio is kW / (W/m²)
+        elif gti_val > 0:
+            kw = (gti_val / 1000) * PANEL_KWP * 0.85  # simple physics fallback
+        else:
+            kw = 0.0
+        solar_by_hour[h] = kw * (1 - SOLAR_HAIRCUT)
+
+    # Percentile thresholds
+    prices_sorted = sorted(price_by_hour.values())
+    n = len(prices_sorted)
+    low_thresh  = prices_sorted[int(n * LOW_PRICE_PCTILE)]
+    high_thresh = prices_sorted[int(n * HIGH_PRICE_PCTILE)]
+
+    # Classify each hour
+    # 0=Load First, 1=Battery First, 2=Grid First
+    hour_mode = {}
+    for h in range(24):
+        price = price_by_hour.get(h)
+        solar = solar_by_hour.get(h, 0.0)
+        is_dark = solar < SOLAR_LOW_KW
+
+        if price is not None and price <= low_thresh and is_dark:
+            hour_mode[h] = 1  # Battery First: cheap + dark → charge from grid
+        elif price is not None and price >= high_thresh and is_dark:
+            hour_mode[h] = 2  # Grid First: expensive + dark → discharge battery
+        else:
+            hour_mode[h] = 0  # Load First: solar hours or neutral
+
+    # Merge consecutive same-mode hours into runs, skip Load First runs
+    # (Load First is the inverter default; we only need segments for modes 1 and 2)
+    runs = []
+    cur_mode = hour_mode[0]
+    cur_start = 0
+    for h in range(1, 25):
+        mode = hour_mode.get(h, hour_mode[23])  # h=24 sentinel
+        if mode != cur_mode or h == 24:
+            if cur_mode != 0:  # skip Load First
+                runs.append({"mode": cur_mode, "start": cur_start, "end": h})
+            cur_mode = mode
+            cur_start = h
+
+    # Limit to MAX_SEGMENTS
+    runs = runs[:MAX_SEGMENTS]
+
+    # Build segment list
+    segments = []
+    for i, run in enumerate(runs, 1):
+        sh, sm = run["start"], 0
+        eh, em = run["end"] % 24, 0
+        segments.append({
+            "segment_id": i,
+            "mode":       run["mode"],
+            "mode_name":  MODE_NAMES[run["mode"]],
+            "start_hour": sh, "start_min": sm,
+            "end_hour":   eh, "end_min":   em,
+            "enabled":    True,
+            "start":      f"{sh:02d}:00",
+            "stop":       f"{eh:02d}:00",
+        })
+
+    # Human-readable reasoning
+    cheap_hours  = sorted(h for h, m in hour_mode.items() if m == 1)
+    exp_hours    = sorted(h for h, m in hour_mode.items() if m == 2)
+    solar_peak   = max(solar_by_hour.items(), key=lambda x: x[1])
+    reasoning = (
+        f"Priser {for_date}: min {min(prices_sorted):.2f} – max {max(prices_sorted):.2f} SEK/kWh. "
+        f"Laddning (Battery First) timmar: {cheap_hours}. "
+        f"Urladdning (Grid First) timmar: {exp_hours}. "
+        f"Solpeak (−15%): {solar_peak[1]:.1f} kW kl {solar_peak[0]:02d}:00. "
+        f"Solproduktion antagen 15% lägre än prognos."
+    )
+
+    return {
+        "ok":         True,
+        "for_date":   for_date.isoformat(),
+        "segments":   segments,
+        "reasoning":  reasoning,
+        "price_range": {"min": round(min(prices_sorted), 4),
+                        "max": round(max(prices_sorted), 4),
+                        "low_thresh":  round(low_thresh, 4),
+                        "high_thresh": round(high_thresh, 4)},
+        "solar_peak_kw": round(solar_peak[1], 2),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Suggestion: Supabase persistence
+# ---------------------------------------------------------------------------
+
+def _save_suggestion(result: dict):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return
+    row = {
+        "for_date":  result["for_date"],
+        "segments":  result["segments"],
+        "reasoning": result.get("reasoning", ""),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    body = json.dumps([row]).encode()
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/tou_suggestions?on_conflict=for_date",
+        data=body, method="POST",
+        headers={**_sb_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"},
+    )
+    urllib.request.urlopen(req, timeout=10).read()
+
+
+def _load_suggestion(for_date: date) -> dict:
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return {"ok": False, "error": "no supabase config"}
+    url = (f"{SUPABASE_URL}/rest/v1/tou_suggestions"
+           f"?for_date=eq.{for_date.isoformat()}&limit=1")
+    req = urllib.request.Request(url, headers=_sb_headers())
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            rows = json.loads(r.read())
+        if rows:
+            return {"ok": True, **rows[0]}
+        return {"ok": False, "error": "no suggestion saved yet for this date"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
 # Handler
 # ---------------------------------------------------------------------------
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        import urllib.parse
+        params = dict(urllib.parse.parse_qsl(
+            urllib.parse.urlparse(self.path).query))
+        action = params.get("action", "")
+
+        if action == "suggest":
+            # Return saved suggestion for tomorrow (or today if tomorrow not available)
+            tomorrow = date.today() + timedelta(days=1)
+            result = _load_suggestion(tomorrow)
+            if not result.get("ok"):
+                result = _load_suggestion(date.today())
+            self._send(result)
+            return
+
         try:
             self._send(_read_tou())
         except Exception as e:
@@ -163,6 +423,24 @@ class handler(BaseHTTPRequestHandler):
             self._send({"ok": False, "error": str(e)}, 500)
 
     def do_POST(self):
+        import urllib.parse
+        params = dict(urllib.parse.parse_qsl(
+            urllib.parse.urlparse(self.path).query))
+        action = params.get("action", "")
+
+        if action == "build_suggest":
+            # Cron entry point — build and persist tomorrow's suggestion
+            tomorrow = date.today() + timedelta(days=1)
+            try:
+                result = _build_suggestion(tomorrow)
+                if result.get("ok"):
+                    _save_suggestion(result)
+                self._send(result)
+            except Exception as e:
+                print(f"[growatt_tou build_suggest] {e}")
+                self._send({"ok": False, "error": str(e)}, 500)
+            return
+
         try:
             length = int(self.headers.get("Content-Length", 0))
             body   = json.loads(self.rfile.read(length)) if length else {}

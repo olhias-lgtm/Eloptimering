@@ -9,6 +9,7 @@
     { "src": "/(.*)",     "dest": "/index.html" }
   ],
   "crons": [
-    { "path": "/api/solar_model?action=build", "schedule": "0 4 * * *" }
+    { "path": "/api/solar_model?action=build",            "schedule": "0 4 * * *" },
+    { "path": "/api/growatt_tou?action=build_suggest",    "schedule": "5 22 * * *" }
   ]
 }
