@@ -3039,12 +3039,7 @@ function renderMonthlySummary(rows, year, month) {
         <td style="text-align:right;padding:5px 6px;color:var(--negative,#ef4444);font-size:0.82rem">−${cost.toFixed(2)}</td>
         <td style="text-align:right;padding:5px 6px;color:var(--positive,#22c55e);font-size:0.82rem">+${earn.toFixed(2)}</td>
         <td style="text-align:right;padding:5px 6px;color:#34d399;font-size:0.82rem">+${saved.toFixed(2)}</td>
-        <td style="text-align:right;padding:5px 6px;color:#34d399;font-size:0.82rem;font-weight:600">+${roi.toFixed(2)}</td>
-        <td style="text-align:right;padding:5px 4px">
-          <span style="display:inline-block;background:${netBg};color:${netFg};font-weight:600;font-size:0.8rem;padding:2px 7px;border-radius:999px;white-space:nowrap">
-            ${isPos ? '+' : ''}${net.toFixed(2)}
-          </span>
-        </td>
+        <td style="text-align:right;padding:5px 4px;color:#34d399;font-size:0.82rem;font-weight:600">+${roi.toFixed(2)}</td>
       </tr>`;
     } else {
       rowsHtml += `
@@ -3057,8 +3052,7 @@ function renderMonthlySummary(rows, year, month) {
         <td style="text-align:right;padding:5px 6px;font-size:0.82rem">—</td>
         <td style="text-align:right;padding:5px 6px;font-size:0.82rem">—</td>
         <td style="text-align:right;padding:5px 6px;font-size:0.82rem">—</td>
-        <td style="text-align:right;padding:5px 6px;font-size:0.82rem">—</td>
-        <td style="text-align:right;padding:5px 4px"><span style="display:inline-block;padding:2px 7px;font-size:0.8rem">—</span></td>
+        <td style="text-align:right;padding:5px 4px;font-size:0.82rem">—</td>
       </tr>`;
     }
   }
@@ -3079,14 +3073,13 @@ function renderMonthlySummary(rows, year, month) {
         <th style="text-align:right;padding:5px 6px;font-weight:500">Kostnad</th>
         <th style="text-align:right;padding:5px 6px;font-weight:500">Export</th>
         <th style="text-align:right;padding:5px 6px;font-weight:500">Besparing</th>
-        <th style="text-align:right;padding:5px 6px;font-weight:500;color:#34d399">ROI</th>
-        <th style="text-align:right;padding:5px 4px;font-weight:500">Exportnetto</th>
+        <th style="text-align:right;padding:5px 4px;font-weight:500;color:#34d399">ROI</th>
       </tr>
     </thead>
     <tbody id="monthly-rows">${rowsHtml}</tbody>
     <tfoot>
       <tr style="border-top:2px solid var(--border)">
-        <td colspan="7" style="padding:10px 6px 4px">
+        <td colspan="6" style="padding:10px 6px 4px">
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <span style="font-size:0.75rem;color:var(--text-muted)">${rows.length} / ${total_days} dagar</span>
             <span style="flex:1"></span>
