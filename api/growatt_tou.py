@@ -320,9 +320,14 @@ def _write_segment(segment_id: int, mode: int, start_hour: int, start_min: int,
     return {"segment_id": segment_id, "success": success, "response": result}
 
 
+WRITE_INTERVAL_SECS = 1.0  # pause between sequential writes to respect rate limits
+
 def _write_many(segments: list) -> list:
+    import time
     results = []
-    for seg in segments:
+    for i, seg in enumerate(segments):
+        if i > 0:
+            time.sleep(WRITE_INTERVAL_SECS)
         try:
             res = _write_segment(
                 segment_id = int(seg["segment_id"]),
@@ -873,8 +878,9 @@ class handler(BaseHTTPRequestHandler):
                 results = _reset_to_default()
                 all_ok  = all(r.get("success") for r in results)
                 if all_ok:
-                    # Refresh cache to reflect the new default state
+                    # Brief pause then refresh cache to confirm default state landed
                     try:
+                        import time; time.sleep(WRITE_INTERVAL_SECS)
                         _read_tou(force_refresh=True)
                     except Exception:
                         pass
@@ -885,8 +891,9 @@ class handler(BaseHTTPRequestHandler):
             # Multiple segments
             if "segments" in body:
                 results = _write_many(body["segments"])
-                # Refresh cache after bulk write
+                # Brief pause then refresh cache after bulk write
                 try:
+                    import time; time.sleep(WRITE_INTERVAL_SECS)
                     _read_tou(force_refresh=True)
                 except Exception:
                     pass
@@ -904,8 +911,9 @@ class handler(BaseHTTPRequestHandler):
                 enabled    = bool(body.get("enabled", True)),
             )
             if res.get("success"):
-                # Refresh cache to confirm the write landed
+                # Brief pause then refresh cache to confirm write landed
                 try:
+                    import time; time.sleep(WRITE_INTERVAL_SECS)
                     _read_tou(force_refresh=True)
                 except Exception:
                     pass
