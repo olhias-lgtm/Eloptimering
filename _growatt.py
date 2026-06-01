@@ -8,10 +8,18 @@ import os
 import threading
 import time
 import requests
+from datetime import datetime, timezone, timedelta
 
 GROWATT_API  = "https://openapi.growatt.com"
 GROWATT_USER = os.environ.get("GROWATT_USER") or os.environ.get("GROWATT_USERNAME", "")
 GROWATT_PASS = os.environ.get("GROWATT_PASS") or os.environ.get("GROWATT_PASSWORD", "")
+
+# ---------------------------------------------------------------------------
+# Hard pause — set to None to re-enable Growatt API access.
+# While set, ensure_ready() raises immediately without touching the network.
+# Account was locked 2026-06-01; pause until 2026-06-03 12:00 CEST to be safe.
+# ---------------------------------------------------------------------------
+_HARD_PAUSED_UNTIL = datetime(2026, 6, 3, 10, 0, 0, tzinfo=timezone.utc)  # 12:00 CEST
 
 
 def _growatt_hash(password: str) -> str:
@@ -113,6 +121,14 @@ class GrowattSession:
         print(f"[Growatt] plant={self.plant_id} serial={self.mix_serial}")
 
     def ensure_ready(self):
+        if _HARD_PAUSED_UNTIL is not None:
+            now = datetime.now(timezone.utc)
+            if now < _HARD_PAUSED_UNTIL:
+                remaining_h = int((_HARD_PAUSED_UNTIL - now).total_seconds() / 3600)
+                raise RuntimeError(
+                    f"Growatt API paused — återkommer om ca {remaining_h}h "
+                    f"(konto låst 2026-06-01, paus till 2026-06-03 12:00 CEST)"
+                )
         if not self.logged_in:
             self.login()
         if not self.plant_id or not self.mix_serial:

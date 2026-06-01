@@ -2845,6 +2845,7 @@ async function loadLive() {
   } catch(e) {
     _liveFailCount++;
     console.warn(`[Live] fail #${_liveFailCount}:`, e.message);
+    document.getElementById('live-fetched-badge').textContent = '⏸ Growatt offline';
   }
 }
 
@@ -3476,16 +3477,19 @@ async function resetTouToDefault() {
 
 async function loadTou() {
   try {
-    const data = await fetchJSON('/api/growatt_tou');
+    const resp = await fetch('/api/growatt_tou');
+    const data = await resp.json();
     if (data.ok && data.segments && data.segments.length) {
       renderTouTable(data.segments);
     } else {
+      const msg = data.error || data.note || 'okänt fel';
+      const isPaused = msg.toLowerCase().includes('paused') || msg.toLowerCase().includes('paus');
       document.getElementById('tou-wrap').innerHTML =
-        `<p style="color:var(--text-muted);font-size:12px">Ingen data — ${data.note || data.error || 'okänt fel'}</p>`;
+        `<p style="color:var(--text-muted);font-size:12px">${isPaused ? '⏸ ' : ''}${msg}</p>`;
     }
   } catch (e) {
     document.getElementById('tou-wrap').innerHTML =
-      `<p style="color:#fca5a5;font-size:12px">Kunde inte ladda TOU-schema.</p>`;
+      `<p style="color:var(--text-muted);font-size:12px">⏸ Growatt offline — återkommer 3 jun</p>`;
   }
 }
 
