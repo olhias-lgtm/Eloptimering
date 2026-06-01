@@ -488,12 +488,8 @@ class handler(BaseHTTPRequestHandler):
         action = params.get("action", "")
 
         if action == "suggest":
-            # Return saved suggestion for tomorrow (or today if tomorrow not available)
-            tomorrow = date.today() + timedelta(days=1)
-            result = _load_suggestion(tomorrow)
-            if not result.get("ok"):
-                result = _load_suggestion(date.today())
-            self._send(result)
+            # Return today's saved suggestion
+            self._send(_load_suggestion(date.today()))
             return
 
         try:
@@ -509,9 +505,8 @@ class handler(BaseHTTPRequestHandler):
 
         if action == "build_suggest":
             # Cron entry point — no password required (internal)
-            tomorrow = date.today() + timedelta(days=1)
             try:
-                result = _build_suggestion(tomorrow)
+                result = _build_suggestion(date.today())
                 if result.get("ok"):
                     _save_suggestion(result)
                 self._send(result)
