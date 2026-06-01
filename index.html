@@ -1395,27 +1395,51 @@ function kwhFromRows(rows, field) {
   return rows.reduce((s,r) => s + r[field], 0) * (5/60);
 }
 
-// Latest KPI snapshot — updated by renderKPIs, used for CSV export
+// Latest KPI dataset — updated by renderKPIs, used for CSV export
 let _lastKpi = null;
 
 function exportKpiCsv() {
   if (!_lastKpi) return;
-  const k = _lastKpi;
+  const { date, rows } = _lastKpi;
+
   const headers = [
-    'Datum','Sol (kWh)','Last (kWh)','Import (kWh)','Export (kWh)','Batteri ur (kWh)',
-    'Rörlig kostnad (kr)','Fast kostnad (kr)','Total kostnad (kr)',
-    'Exportintäkt (kr)','Besparing (kr)','Netto (kr)'
+    'Datum', 'Tid',
+    'Sol (kW)', 'Last (kW)', 'Import (kW)', 'Export (kW)', 'Batteri ur (kW)', 'Batteri in (kW)',
+    'Sol (kWh)', 'Last (kWh)', 'Import (kWh)', 'Export (kWh)', 'Batteri ur (kWh)', 'Batteri in (kWh)',
+    'Spotpris (öre/kWh)', 'Importpris (öre/kWh)', 'Exportpris (öre/kWh)',
+    'Kostnad (kr)', 'Exportintäkt (kr)', 'Besparing (kr)'
   ];
-  const values = [
-    k.date, k.solar, k.load, k.imp, k.exp, k.dis,
-    k.varCost, k.fixedDay, k.totalCost,
-    k.totalEarn, k.totalSaved, k.net
-  ];
-  const csv = [headers.join(','), values.join(',')].join('\n');
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `kpi_${k.date}.csv`;
+
+  const kwh5 = 5 / 60;
+  const dataRows = rows.map(r => [
+    date,
+    r.time,
+    r.solar_kw.toFixed(4),
+    r.load_kw.toFixed(4),
+    r.import_kw.toFixed(4),
+    r.export_kw.toFixed(4),
+    r.discharge_kw.toFixed(4),
+    (r.charge_kw || 0).toFixed(4),
+    (r.solar_kw    * kwh5).toFixed(5),
+    (r.load_kw     * kwh5).toFixed(5),
+    (r.import_kw   * kwh5).toFixed(5),
+    (r.export_kw   * kwh5).toFixed(5),
+    (r.discharge_kw* kwh5).toFixed(5),
+    ((r.charge_kw||0)* kwh5).toFixed(5),
+    r.spot    !== null ? r.spot.toFixed(4)          : '',
+    r.importRate !== null ? r.importRate.toFixed(4) : '',
+    r.exportRate !== null ? r.exportRate.toFixed(4) : '',
+    r.costKr  !== null ? r.costKr.toFixed(5)        : '',
+    r.earnKr  !== null ? r.earnKr.toFixed(5)        : '',
+    r.savedKr !== null ? r.savedKr.toFixed(5)       : '',
+  ]);
+
+  const lines = [headers.join(','), ...dataRows.map(r => r.join(','))];
+  const csv   = lines.join('\n');
+  const blob  = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const a     = document.createElement('a');
+  a.href      = URL.createObjectURL(blob);
+  a.download  = `kpi_${date}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -1498,20 +1522,25 @@ function renderKPIs(rows, priceMap, c, dateStr) {
     });
   }
 
-  // Store snapshot for CSV export
+  // Store full interval dataset for CSV export
+  const kwh5 = 5 / 60;
   _lastKpi = {
     date: dateStr,
-    solar:      +solar.toFixed(3),
-    load:       +load.toFixed(3),
-    imp:        +imp.toFixed(3),
-    exp:        +exp.toFixed(3),
-    dis:        +dis.toFixed(3),
-    varCost:    hasPrices ? +(totalCost - fixedDay).toFixed(2) : '',
-    fixedDay:   +fixedDay.toFixed(2),
-    totalCost:  hasPrices ? +totalCost.toFixed(2) : '',
-    totalEarn:  hasPrices ? +totalEarn.toFixed(2) : '',
-    totalSaved: hasPrices ? +totalSaved.toFixed(2) : '',
-    net:        hasPrices ? +net.toFixed(2) : '',
+    rows: rows.map(r => {
+      const spot = priceAt(priceMap, r.time);
+      let costKr = null, earnKr = null, savedKr = null, importRate = null, exportRate = null;
+      if (spot !== null) {
+        const calc = calcInterval(r.import_kw * kwh5, r.export_kw * kwh5, spot, c, r.time, dateStr);
+        costKr     = calc.costKr;
+        earnKr     = calc.earningKr;
+        importRate = calc.importRateOre;
+        exportRate = calc.exportRateOre;
+        const selfKwh    = Math.max(0, r.load_kw - r.import_kw) * kwh5;
+        const savedRate  = (spot + c.natavgIn + c.energiskatt + c.fortumPaslag) * c.moms;
+        savedKr = selfKwh * savedRate / 100;
+      }
+      return { ...r, spot, importRate, exportRate, costKr, earnKr, savedKr };
+    }),
   };
 
   return { totalCost, totalEarn, net, fixedDay, hasPrices };
