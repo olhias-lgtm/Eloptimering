@@ -3037,7 +3037,88 @@ document.getElementById('month-next').addEventListener('click', () => {
 const TOU_MODE_LABELS = ['Load First', 'Battery First', 'Grid First'];
 const TOU_MODE_COLORS = ['#f59e0b',    '#22c55e',       '#60a5fa'];
 
-let _touSegments = [];   // last loaded segments (for dirty comparison)
+let _touSegments      = [];   // last loaded segments (for dirty comparison)
+let _touFailCount     = 0;    // session failure counter
+let _touLocked        = false; // session locked after MAX_FAILURES
+
+function _touRevertAll() {
+  // Restore all form fields to the last loaded values
+  _touSegments.forEach(seg => {
+    const row = document.getElementById(`tou-row-${seg.segment_id}`);
+    if (!row) return;
+    const startStr = (seg.start || '00:00').substring(0, 5);
+    const stopStr  = (seg.stop  || '00:00').substring(0, 5);
+    const mode     = seg.mode ?? 0;
+    row.querySelector('.tou-en').checked  = !!seg.enabled;
+    row.querySelector('.tou-start').value = startStr;
+    row.querySelector('.tou-stop').value  = stopStr;
+    const modeEl = row.querySelector('.tou-mode');
+    modeEl.value       = String(mode);
+    modeEl.style.color = TOU_MODE_COLORS[mode];
+    const btn = document.getElementById(`tou-btn-${seg.segment_id}`);
+    if (btn) { btn.className = 'tou-save-btn'; btn.textContent = 'Spara'; btn.disabled = true; }
+  });
+}
+
+function _touLockUI(message) {
+  _touLocked = true;
+  _touRevertAll();
+  // Disable all save buttons and show lock notice
+  for (let i = 1; i <= 9; i++) {
+    const btn = document.getElementById(`tou-btn-${i}`);
+    if (btn) { btn.className = 'tou-save-btn err'; btn.textContent = '🔒'; btn.disabled = true; }
+  }
+  const warn = document.getElementById('tou-conflict-warn');
+  if (warn) {
+    warn.textContent = '🔒 ' + (message || 'Åtkomst blockerad. Ladda om sidan efter 24h.');
+    warn.style.display = 'block';
+  }
+}
+
+// Small inline password prompt — returns the entered string or null if cancelled
+function _touAskPassword() {
+  return new Promise(resolve => {
+    // Remove any existing prompt
+    document.getElementById('tou-pwd-overlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'tou-pwd-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center';
+
+    overlay.innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:22px 24px;min-width:260px;max-width:320px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px">Bekräfta sparning</div>
+        <input id="tou-pwd-input" type="password" placeholder="Lösenord"
+          style="width:100%;box-sizing:border-box;background:var(--muted);border:1px solid var(--border);
+                 color:var(--text);border-radius:4px;padding:7px 10px;font-size:13px;outline:none">
+        <div id="tou-pwd-err" style="color:#fca5a5;font-size:11px;min-height:16px;margin-top:6px"></div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button id="tou-pwd-ok" style="flex:1;padding:7px;border-radius:4px;border:1px solid #22c55e;
+            background:rgba(34,197,94,0.15);color:#22c55e;cursor:pointer;font-size:12px">Bekräfta</button>
+          <button id="tou-pwd-cancel" style="flex:1;padding:7px;border-radius:4px;border:1px solid var(--border);
+            background:var(--muted);color:var(--text-muted);cursor:pointer;font-size:12px">Avbryt</button>
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+    const input  = document.getElementById('tou-pwd-input');
+    const errEl  = document.getElementById('tou-pwd-err');
+    const okBtn  = document.getElementById('tou-pwd-ok');
+    const cancel = document.getElementById('tou-pwd-cancel');
+
+    const remaining = Math.max(0, 3 - _touFailCount);
+    if (_touFailCount > 0) errEl.textContent = `${remaining} försök kvar`;
+
+    const submit = () => { overlay.remove(); resolve(input.value); };
+    const abort  = () => { overlay.remove(); resolve(null); };
+
+    input.focus();
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') abort(); });
+    okBtn.addEventListener('click', submit);
+    cancel.addEventListener('click', abort);
+    overlay.addEventListener('click', e => { if (e.target === overlay) abort(); });
+  });
+}
 
 function _touVal(segId, field) {
   const row = document.getElementById(`tou-row-${segId}`);
@@ -3096,22 +3177,25 @@ function checkTouConflicts(forSegId) {
 }
 
 async function saveTouSegment(segId) {
+  if (_touLocked) return;
+
   const btn = document.getElementById(`tou-btn-${segId}`);
+  const warnEl = document.getElementById('tou-conflict-warn');
 
   // Conflict check
   const conflicts = checkTouConflicts(segId);
-  const warnEl = document.getElementById('tou-conflict-warn');
   if (conflicts.length) {
-    if (warnEl) {
-      warnEl.textContent = '⚠ ' + conflicts.join(' · ');
-      warnEl.style.display = 'block';
-    }
+    if (warnEl) { warnEl.textContent = '⚠ ' + conflicts.join(' · '); warnEl.style.display = 'block'; }
     btn.className = 'tou-save-btn err';
     btn.textContent = 'Konflikt ✗';
     setTimeout(() => { btn.className = 'tou-save-btn dirty'; btn.textContent = 'Spara'; btn.disabled = false; }, 3000);
     return;
   }
   if (warnEl) warnEl.style.display = 'none';
+
+  // Ask for password
+  const pwd = await _touAskPassword();
+  if (pwd === null) return; // cancelled
 
   btn.className = 'tou-save-btn saving';
   btn.disabled = true;
@@ -3130,26 +3214,48 @@ async function saveTouSegment(segId) {
         start_hour: sh, start_min: sm,
         end_hour:   eh, end_min:   em,
         enabled:    _touVal(segId, 'enabled'),
+        pwd,
       }),
     });
-    const json = await res.json();
-    if (json.ok && json.success) {
+    const data = await res.json();
+
+    if (res.status === 401) {
+      // Wrong password
+      _touFailCount++;
+      const remaining = data.remaining ?? Math.max(0, 3 - _touFailCount);
+      btn.className = 'tou-save-btn err';
+      btn.textContent = 'Fel lösenord ✗';
+      if (remaining === 0) {
+        _touLockUI(data.message);
+      } else {
+        if (warnEl) { warnEl.textContent = `⚠ ${data.message}`; warnEl.style.display = 'block'; }
+        setTimeout(() => { btn.className = 'tou-save-btn dirty'; btn.textContent = 'Spara'; btn.disabled = false; }, 2500);
+      }
+      return;
+    }
+
+    if (res.status === 403) {
+      // IP locked by server
+      _touLockUI(data.message);
+      return;
+    }
+
+    if (data.ok && data.success) {
+      _touFailCount = 0;
       btn.className = 'tou-save-btn ok';
       btn.textContent = 'OK ✓';
+      setTimeout(() => { btn.className = 'tou-save-btn'; btn.textContent = 'Spara'; btn.disabled = false; }, 3000);
     } else {
       btn.className = 'tou-save-btn err';
       btn.textContent = 'Fel ✗';
-      console.warn('[TOU save]', json);
+      console.warn('[TOU save]', data);
+      setTimeout(() => { btn.className = 'tou-save-btn dirty'; btn.textContent = 'Spara'; btn.disabled = false; }, 3000);
     }
   } catch (e) {
     btn.className = 'tou-save-btn err';
     btn.textContent = 'Nätfel ✗';
+    setTimeout(() => { btn.className = 'tou-save-btn dirty'; btn.textContent = 'Spara'; btn.disabled = false; }, 3000);
   }
-  setTimeout(() => {
-    btn.className = 'tou-save-btn';
-    btn.textContent = 'Spara';
-    btn.disabled = false;
-  }, 3000);
 }
 
 function renderTouTable(segments) {

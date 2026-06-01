@@ -32,6 +32,7 @@ POST body (JSON) — multiple segments at once:
 """
 import json
 import os
+import urllib.parse
 import urllib.request
 from collections import defaultdict
 from datetime import date, timedelta, timezone, datetime
@@ -42,8 +43,13 @@ from _growatt import get_session
 SERIAL = "KJN6EXV00L"
 BASE   = "https://openapi.growatt.com"
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+SUPABASE_URL     = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY     = os.environ.get("SUPABASE_ANON_KEY", "")
+SUPABASE_SERVICE = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", SUPABASE_KEY)
+
+TOU_PASSWORD  = "79"
+MAX_FAILURES  = 3
+LOCKOUT_HOURS = 24
 
 MODE_NAMES = {0: "Load First", 1: "Battery First", 2: "Grid First"}
 
@@ -65,12 +71,87 @@ AREA       = "SE3"
 # Supabase helpers
 # ---------------------------------------------------------------------------
 
-def _sb_headers():
+def _sb_headers(service=False):
+    key = SUPABASE_SERVICE if service else SUPABASE_KEY
     return {
-        "apikey":        SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "apikey":        key,
+        "Authorization": f"Bearer {key}",
         "Content-Type":  "application/json",
     }
+
+
+# ---------------------------------------------------------------------------
+# IP lockout (stored in Supabase tou_ip_lockout, service-role only)
+# ---------------------------------------------------------------------------
+
+def _get_client_ip(handler_self) -> str:
+    forwarded = handler_self.headers.get("X-Forwarded-For", "")
+    return forwarded.split(",")[0].strip() or handler_self.client_address[0]
+
+
+def _check_lockout(ip: str) -> dict:
+    """Returns {"locked": bool, "fail_count": int, "locked_until": str|None}."""
+    url = f"{SUPABASE_URL}/rest/v1/tou_ip_lockout?ip=eq.{urllib.parse.quote(ip)}&limit=1"
+    req = urllib.request.Request(url, headers=_sb_headers(service=True))
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            rows = json.loads(r.read())
+        if not rows:
+            return {"locked": False, "fail_count": 0, "locked_until": None}
+        row = rows[0]
+        until = row.get("locked_until")
+        if until:
+            until_dt = datetime.fromisoformat(until.replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) < until_dt:
+                return {"locked": True, "fail_count": row["fail_count"], "locked_until": until}
+        return {"locked": False, "fail_count": row.get("fail_count", 0), "locked_until": None}
+    except Exception as e:
+        print(f"[lockout check] {e}")
+        return {"locked": False, "fail_count": 0, "locked_until": None}
+
+
+def _record_failure(ip: str) -> int:
+    """Increment fail count; lock if >= MAX_FAILURES. Returns new fail_count."""
+    import urllib.parse as _up
+    state = _check_lockout(ip)
+    new_count = state["fail_count"] + 1
+    locked_until = None
+    if new_count >= MAX_FAILURES:
+        from datetime import timedelta
+        locked_until = (datetime.now(timezone.utc) + timedelta(hours=LOCKOUT_HOURS)).isoformat()
+    row = {
+        "ip":           ip,
+        "fail_count":   new_count,
+        "locked_until": locked_until,
+        "last_attempt": datetime.now(timezone.utc).isoformat(),
+    }
+    body = json.dumps([row]).encode()
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/tou_ip_lockout?on_conflict=ip",
+        data=body, method="POST",
+        headers={**_sb_headers(service=True), "Prefer": "resolution=merge-duplicates,return=minimal"},
+    )
+    try:
+        urllib.request.urlopen(req, timeout=5).read()
+    except Exception as e:
+        print(f"[lockout record] {e}")
+    return new_count
+
+
+def _clear_failures(ip: str):
+    """Reset fail count on successful auth."""
+    row = {"ip": ip, "fail_count": 0, "locked_until": None,
+           "last_attempt": datetime.now(timezone.utc).isoformat()}
+    body = json.dumps([row]).encode()
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/tou_ip_lockout?on_conflict=ip",
+        data=body, method="POST",
+        headers={**_sb_headers(service=True), "Prefer": "resolution=merge-duplicates,return=minimal"},
+    )
+    try:
+        urllib.request.urlopen(req, timeout=5).read()
+    except Exception as e:
+        print(f"[lockout clear] {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -402,7 +483,6 @@ def _load_suggestion(for_date: date) -> dict:
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        import urllib.parse
         params = dict(urllib.parse.parse_qsl(
             urllib.parse.urlparse(self.path).query))
         action = params.get("action", "")
@@ -423,13 +503,12 @@ class handler(BaseHTTPRequestHandler):
             self._send({"ok": False, "error": str(e)}, 500)
 
     def do_POST(self):
-        import urllib.parse
         params = dict(urllib.parse.parse_qsl(
             urllib.parse.urlparse(self.path).query))
         action = params.get("action", "")
 
         if action == "build_suggest":
-            # Cron entry point — build and persist tomorrow's suggestion
+            # Cron entry point — no password required (internal)
             tomorrow = date.today() + timedelta(days=1)
             try:
                 result = _build_suggestion(tomorrow)
@@ -445,6 +524,34 @@ class handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             body   = json.loads(self.rfile.read(length)) if length else {}
 
+            # --- Authentication ---
+            ip = _get_client_ip(self)
+            lockout = _check_lockout(ip)
+            if lockout["locked"]:
+                self._send({
+                    "ok": False,
+                    "error": "locked",
+                    "message": f"För många misslyckade försök. Åtkomst blockerad i {LOCKOUT_HOURS}h.",
+                }, 403)
+                return
+
+            provided_pwd = body.get("pwd", "")
+            if provided_pwd != TOU_PASSWORD:
+                fails = _record_failure(ip)
+                remaining = max(0, MAX_FAILURES - fails)
+                self._send({
+                    "ok":        False,
+                    "error":     "wrong_password",
+                    "remaining": remaining,
+                    "message":   f"Fel lösenord. {remaining} försök kvar." if remaining else
+                                 f"Fel lösenord. IP låst i {LOCKOUT_HOURS}h.",
+                }, 401)
+                return
+
+            # Password correct — clear any previous failures
+            _clear_failures(ip)
+
+            # --- Write ---
             # Multiple segments
             if "segments" in body:
                 results = _write_many(body["segments"])
