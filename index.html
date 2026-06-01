@@ -237,7 +237,8 @@
   .tou-table { width:100%; border-collapse:collapse; font-size:12px; }
   .tou-table th { color:var(--text-muted); font-weight:400; text-align:left; padding:4px 6px; border-bottom:1px solid var(--border); }
   .tou-table td { padding:5px 6px; border-bottom:1px solid var(--border); vertical-align:middle; }
-  .tou-table input[type=time] { background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:3px; padding:2px 5px; font-size:12px; width:80px; }
+  .tou-table input[type=time] { background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:3px; padding:2px 5px; font-size:12px; width:90px; cursor:text; }
+  .tou-table input[type=time]:focus { outline:1px solid #22c55e; border-color:#22c55e; }
   .tou-table select { background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:3px; padding:2px 5px; font-size:12px; }
   /* toggle switch */
   .tou-sw { position:relative; display:inline-block; width:34px; height:18px; }
@@ -3297,9 +3298,9 @@ function renderTouTable(segments) {
           </label>
         </td>
         <td><input type="time" class="tou-start" value="${startStr}"
-          oninput="markTouDirty(${seg.segment_id})"></td>
+          oninput="markTouDirty(${seg.segment_id})" onchange="markTouDirty(${seg.segment_id})"></td>
         <td><input type="time" class="tou-stop" value="${stopStr}"
-          oninput="markTouDirty(${seg.segment_id})"></td>
+          oninput="markTouDirty(${seg.segment_id})" onchange="markTouDirty(${seg.segment_id})"></td>
         <td style="white-space:nowrap">
           <select class="tou-mode" style="color:${TOU_MODE_COLORS[mode]}"
             onchange="this.style.color=TOU_MODE_COLORS[this.value];markTouDirty(${seg.segment_id});this.nextElementSibling.dataset.tip=TOU_MODE_TIPS[this.value]">
