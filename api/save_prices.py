@@ -53,11 +53,13 @@ class handler(BaseHTTPRequestHandler):
         params = dict(urllib.parse.parse_qsl(
             urllib.parse.urlparse(self.path).query))
 
-        tz_cest   = timezone(timedelta(hours=2))
-        yesterday = (datetime.now(timezone.utc).astimezone(tz_cest).date()
-                     - timedelta(days=1)).isoformat()
+        tz_cest  = timezone(timedelta(hours=2))
+        today    = datetime.now(timezone.utc).astimezone(tz_cest).date()
+        tomorrow = (today + timedelta(days=1)).isoformat()
 
-        date_str = params.get("date", yesterday)
+        raw_date = params.get("date", today.isoformat())
+        # Accept "tomorrow" as a convenience alias
+        date_str = tomorrow if raw_date == "tomorrow" else raw_date
         area     = params.get("area", "SE3")
 
         try:

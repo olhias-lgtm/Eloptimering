@@ -897,6 +897,28 @@ class handler(BaseHTTPRequestHandler):
             self._send(_load_suggestion(date.today()))
             return
 
+        if action == "build_suggest":
+            # Vercel crons send GET — build tomorrow's TOU suggestion
+            try:
+                tomorrow = date.today() + timedelta(days=1)
+                result = _build_suggestion(tomorrow)
+                if result.get("ok"):
+                    _save_suggestion(result)
+                self._send(result)
+            except Exception as e:
+                print(f"[growatt_tou build_suggest GET] {e}")
+                self._send({"ok": False, "error": str(e)}, 500)
+            return
+
+        if action == "notify_reset":
+            # Vercel crons send GET — send reminder email if TOU segments are active
+            try:
+                self._send(_notify_if_active())
+            except Exception as e:
+                print(f"[growatt_tou notify_reset GET] {e}")
+                self._send({"ok": False, "error": str(e)}, 500)
+            return
+
         # ?action=refresh forces a live read from Growatt, bypassing the cache
         force = (action == "refresh")
         try:
@@ -913,7 +935,8 @@ class handler(BaseHTTPRequestHandler):
         if action == "build_suggest":
             # Cron entry point — no password required (internal)
             try:
-                result = _build_suggestion(date.today())
+                tomorrow = date.today() + timedelta(days=1)
+                result = _build_suggestion(tomorrow)
                 if result.get("ok"):
                     _save_suggestion(result)
                 self._send(result)

@@ -109,8 +109,8 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
                 else:
                     b[k] = round(b[k], 3)
 
-    # Truncate future slots when viewing today
-    today_str = date.today().isoformat()
+    # Truncate future slots when viewing today (CEST date — Vercel runs UTC)
+    today_str = datetime.now(timezone.utc).astimezone(tz_cest).date().isoformat()
     if date_str == today_str:
         cest_now = datetime.now(timezone.utc).astimezone(tz_cest)
         cutoff   = cest_now.hour * 60 + cest_now.minute + SLOT_MIN  # grace of one slot
@@ -126,8 +126,9 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed   = urllib.parse.urlparse(self.path)
         params   = dict(urllib.parse.parse_qsl(parsed.query))
-        date_str = params.get("date", date.today().isoformat())
-        today    = date.today().isoformat()
+        tz_cest  = timezone(timedelta(hours=2))
+        today    = datetime.now(timezone.utc).astimezone(tz_cest).date().isoformat()
+        date_str = params.get("date", today)
         is_today = (date_str == today)
 
         # Cache: past dates indefinitely, today for 5 min
