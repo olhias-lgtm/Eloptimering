@@ -972,6 +972,7 @@
       <span id="tou-badge" class="badge" style="background:var(--muted);color:var(--dim);padding:2px 7px;border-radius:2px;font-size:9px;text-transform:uppercase;letter-spacing:.5px"></span>
     </div>
     <p style="font-size:11px;color:var(--text-muted);margin:0 0 10px">Ändringar skickas direkt till växelriktaren (MID 12KTL3-XH). Kontrollera inställningen i ShinePhone efter sparning.</p>
+    <div id="tou-conflict-warn" style="display:none;font-size:11px;color:#fca5a5;background:rgba(127,29,29,0.3);border:1px solid #7f1d1d;border-radius:4px;padding:6px 10px;margin-bottom:8px"></div>
     <div id="tou-wrap" style="overflow-x:auto">
       <p style="color:var(--text-muted);font-size:12px">Laddar…</p>
     </div>
@@ -3036,8 +3037,62 @@ function markTouDirty(segId) {
   btn.disabled = false;
 }
 
+function _touMinutes(timeStr) {
+  const [h, m] = (timeStr || '00:00').split(':').map(Number);
+  return h * 60 + m;
+}
+
+// Returns array of conflict descriptions, empty if none.
+function checkTouConflicts(forSegId) {
+  const segments = [];
+  for (let i = 1; i <= 9; i++) {
+    const row = document.getElementById(`tou-row-${i}`);
+    if (!row) continue;
+    const enabled = row.querySelector('.tou-en').checked;
+    if (!enabled) continue;
+    const startMin = _touMinutes(row.querySelector('.tou-start').value);
+    const stopMin  = _touMinutes(row.querySelector('.tou-stop').value);
+    if (startMin === stopMin) continue; // treat same start=stop as inactive
+    segments.push({ id: i, start: startMin, stop: stopMin });
+  }
+
+  const conflicts = [];
+  for (let a = 0; a < segments.length; a++) {
+    for (let b = a + 1; b < segments.length; b++) {
+      const A = segments[a], B = segments[b];
+      // Normalise: if stop <= start, it wraps midnight → extend to 1440+stop
+      const aEnd = A.stop <= A.start ? A.stop + 1440 : A.stop;
+      const bEnd = B.stop <= B.start ? B.stop + 1440 : B.stop;
+      // Check overlap in both normal and wrapped representations
+      const overlaps = (A.start < bEnd && aEnd > B.start) ||
+                       (B.start < aEnd && bEnd > A.start);
+      if (overlaps) {
+        const fmt = m => `${String(Math.floor(m%1440/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+        conflicts.push(`Segment ${A.id} (${fmt(A.start)}–${fmt(A.stop)}) överlappar segment ${B.id} (${fmt(B.start)}–${fmt(B.stop)})`);
+      }
+    }
+  }
+  return conflicts;
+}
+
 async function saveTouSegment(segId) {
   const btn = document.getElementById(`tou-btn-${segId}`);
+
+  // Conflict check
+  const conflicts = checkTouConflicts(segId);
+  const warnEl = document.getElementById('tou-conflict-warn');
+  if (conflicts.length) {
+    if (warnEl) {
+      warnEl.textContent = '⚠ ' + conflicts.join(' · ');
+      warnEl.style.display = 'block';
+    }
+    btn.className = 'tou-save-btn err';
+    btn.textContent = 'Konflikt ✗';
+    setTimeout(() => { btn.className = 'tou-save-btn dirty'; btn.textContent = 'Spara'; btn.disabled = false; }, 3000);
+    return;
+  }
+  if (warnEl) warnEl.style.display = 'none';
+
   btn.className = 'tou-save-btn saving';
   btn.disabled = true;
   btn.textContent = 'Sparar…';
