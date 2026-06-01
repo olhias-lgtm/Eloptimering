@@ -3676,7 +3676,9 @@ detectMode().then(() => {
   loadTou();
   loadTouSuggestion();
   startLivePolling();
-  setInterval(() => loadWeather(true), 30 * 60 * 1000);
+  // Open-Meteo's Nordic model (most relevant for Stockholm) updates every hour.
+  // Polling every 60 min matches the data cadence — no benefit in polling faster.
+  setInterval(() => loadWeather(true), 60 * 60 * 1000);
 });
 
 // Auto-refresh every 5 minutes
