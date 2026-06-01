@@ -992,7 +992,7 @@
     <div class="card-title">
       Batteri-schema (TOU)
       <span id="tou-badge" class="badge" style="background:var(--muted);color:var(--dim);padding:2px 7px;border-radius:2px;font-size:9px;text-transform:uppercase;letter-spacing:.5px"></span>
-      <button onclick="loadTou(true)"
+      <button id="tou-refresh-btn" onclick="forceTouRefresh(this)"
         style="font-size:11px;padding:3px 8px;border-radius:3px;border:1px solid var(--border);background:var(--muted);color:var(--text-muted);cursor:pointer;margin-left:auto">
         ↻
       </button>
@@ -3477,6 +3477,33 @@ async function resetTouToDefault() {
     btn.textContent = 'Nätfel ✗';
     setTimeout(() => { btn.textContent = 'Återställ'; btn.disabled = false; }, 2500);
   }
+}
+
+let _touRefreshLockedUntil = 0;
+
+function forceTouRefresh(btn) {
+  const now = Date.now();
+  if (now < _touRefreshLockedUntil) {
+    const secsLeft = Math.ceil((_touRefreshLockedUntil - now) / 1000);
+    btn.textContent = `↻ ${secsLeft}s`;
+    return;
+  }
+  // Lock for 2 minutes
+  _touRefreshLockedUntil = now + 2 * 60 * 1000;
+  btn.disabled = true;
+  btn.textContent = '↻ 120s';
+  // Countdown ticker
+  const ticker = setInterval(() => {
+    const left = Math.ceil((_touRefreshLockedUntil - Date.now()) / 1000);
+    if (left <= 0) {
+      clearInterval(ticker);
+      btn.disabled = false;
+      btn.textContent = '↻';
+    } else {
+      btn.textContent = `↻ ${left}s`;
+    }
+  }, 1000);
+  loadTou(true);
 }
 
 async function loadTou(forceRefresh = false) {

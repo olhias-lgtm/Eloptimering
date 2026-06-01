@@ -291,7 +291,10 @@ class GrowattSession:
             if stored:
                 self._restore(stored)
             else:
+                print("[GROWATT LIVE CALL] login — no stored session, authenticating fresh")
                 self.login()
+        else:
+            print("[GROWATT LIVE CALL] using existing session (no re-login)")
 
         if not self.plant_id or not self.mix_serial:
             self.discover()
@@ -326,6 +329,7 @@ class GrowattSession:
     def get_energy(self, target_date: str) -> dict:
         from datetime import date as _date, datetime as _dt, timezone as _tz, timedelta as _td
         self.ensure_ready()
+        print(f"[GROWATT LIVE CALL] get_energy date={target_date}")
         for attempt in range(2):
             resp = self._s.post(
                 GROWATT_API + "/newTlxApi.do",
@@ -369,7 +373,7 @@ class GrowattSession:
 
     def get_live(self) -> dict:
         self.ensure_ready()
-        print(f"[live] plant={self.plant_id} serial={self.mix_serial}")
+        print(f"[GROWATT LIVE CALL] get_live plant={self.plant_id} serial={self.mix_serial}")
 
         detail_resp = self._s.get(
             GROWATT_API + "/newTlxApi.do",

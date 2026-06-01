@@ -225,12 +225,21 @@ def _read_tou(force_refresh: bool = False) -> dict:
     Serves from the Supabase tou_cache when available and fresh.
     Only calls Growatt when the cache is missing, stale, or force_refresh=True.
     """
+    if force_refresh:
+        # Honour cooldown even on explicit refresh requests (protects against
+        # repeated clicks / debugging loops hitting Growatt too fast)
+        if _check_force_refresh_cooldown():
+            force_refresh = False  # fall through to cache
+        else:
+            _record_force_refresh()
+
     if not force_refresh:
         cached = _load_tou_cache()
         if cached:
             return cached
 
     # Cache miss or forced refresh — fetch live from Growatt
+    print("[GROWATT LIVE CALL] _read_tou (getTlxSetData)")
     sess = get_session()
     sess.ensure_ready()
     r = sess._s.post(
@@ -290,6 +299,9 @@ def _write_segment(segment_id: int, mode: int, start_hour: int, start_min: int,
 
     sess = get_session()
     sess.ensure_ready()
+    print(f"[GROWATT LIVE CALL] _write_segment seg={segment_id} mode={mode} "
+          f"{start_hour:02d}:{start_min:02d}–{end_hour:02d}:{end_min:02d} en={enabled}")
+    _record_write_op()
 
     payload = {
         "serialNum": SERIAL,
@@ -320,7 +332,48 @@ def _write_segment(segment_id: int, mode: int, start_hour: int, start_min: int,
     return {"segment_id": segment_id, "success": success, "response": result}
 
 
-WRITE_INTERVAL_SECS = 1.0  # pause between sequential writes to respect rate limits
+# ---------------------------------------------------------------------------
+# Growatt call-rate guards
+# These module-level timestamps survive warm Lambda reuse and prevent
+# accidental bursts during debugging or repeated UI interactions.
+# ---------------------------------------------------------------------------
+import time as _time
+
+WRITE_INTERVAL_SECS       = 1.0   # pause between sequential segment writes
+WRITE_OP_COOLDOWN_SECS    = 30    # minimum seconds between separate write operations
+FORCE_REFRESH_COOLDOWN_SECS = 120 # minimum seconds between force-refresh reads
+
+_last_write_op_at:      float = 0  # time.monotonic() of last _write_segment call
+_last_force_refresh_at: float = 0  # time.monotonic() of last force-refresh
+
+
+def _check_write_cooldown() -> str | None:
+    """Return an error message if a write was attempted too soon, else None."""
+    elapsed = _time.monotonic() - _last_write_op_at
+    if _last_write_op_at and elapsed < WRITE_OP_COOLDOWN_SECS:
+        remaining = int(WRITE_OP_COOLDOWN_SECS - elapsed)
+        return f"Vänta {remaining}s innan nästa sparning (skydd mot burst-skrivning)."
+    return None
+
+
+def _record_write_op():
+    global _last_write_op_at
+    _last_write_op_at = _time.monotonic()
+
+
+def _check_force_refresh_cooldown() -> bool:
+    """Return True if force-refresh should be suppressed (too soon)."""
+    elapsed = _time.monotonic() - _last_force_refresh_at
+    if _last_force_refresh_at and elapsed < FORCE_REFRESH_COOLDOWN_SECS:
+        remaining = int(FORCE_REFRESH_COOLDOWN_SECS - elapsed)
+        print(f"[growatt_tou] force-refresh suppressed — cooldown {remaining}s remaining")
+        return True
+    return False
+
+
+def _record_force_refresh():
+    global _last_force_refresh_at
+    _last_force_refresh_at = _time.monotonic()
 
 def _write_many(segments: list) -> list:
     import time
@@ -845,6 +898,12 @@ class handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", 0))
             body   = json.loads(self.rfile.read(length)) if length else {}
+
+            # --- Write-burst cooldown ---
+            cooldown_msg = _check_write_cooldown()
+            if cooldown_msg:
+                self._send({"ok": False, "error": "cooldown", "message": cooldown_msg}, 429)
+                return
 
             # --- Authentication ---
             ip = _get_client_ip(self)
