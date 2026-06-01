@@ -1,0 +1,73 @@
+"""
+save_summary — called by the frontend after computing daily cost/earn.
+POST JSON {date, solar_kwh, export_kwh, import_kwh, cost_kr, earn_kr, fixed_kr, net_kr}
+Upserts to daily_summary via Supabase REST.
+Always returns 200.
+"""
+import json
+import os
+import urllib.request
+from http.server import BaseHTTPRequestHandler
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+
+
+def _upsert(payload: dict):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise RuntimeError("Supabase env vars not set")
+    body = json.dumps({
+        "day":            payload.get("date"),
+        "area":           payload.get("area", "SE3"),
+        "solar_kwh":      payload.get("solar_kwh"),
+        "export_kwh":     payload.get("export_kwh"),
+        "import_kwh":     payload.get("import_kwh"),
+        "import_cost_kr": payload.get("cost_kr"),
+        "export_earn_kr": payload.get("earn_kr"),
+        "fixed_cost_kr":  payload.get("fixed_kr"),
+        "net_kr":         payload.get("net_kr"),
+        "saved_kr":       payload.get("saved_kr"),
+    }).encode()
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/daily_summary?on_conflict=day,area",
+        data=body,
+        method="POST",
+        headers={
+            "apikey":        SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type":  "application/json",
+            "Prefer":        "resolution=merge-duplicates,return=minimal",
+        },
+    )
+    urllib.request.urlopen(req, timeout=8).read()
+
+
+class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        try:
+            length  = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length)) if length else {}
+            _upsert(payload)
+            self._send({"ok": True})
+        except Exception as e:
+            print(f"[save_summary] error: {e}")
+            self._send({"ok": False, "error": str(e)})
+
+    # Allow OPTIONS preflight
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+    def _send(self, data, status=200):
+        body = json.dumps(data).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *a): pass
