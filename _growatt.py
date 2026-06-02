@@ -339,7 +339,7 @@ class GrowattSession:
                     "plantId":  self.plant_id,
                     "language": "1",
                     "id":       self.mix_serial,
-                    "type":     "1",
+                    "type":     "0",  # 0=hour(5-min slots), 1=day(30-min), 2=month
                 },
                 timeout=15,
             )
