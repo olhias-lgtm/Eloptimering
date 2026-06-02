@@ -87,7 +87,7 @@ def _daily_totals_from_counters(rows: list) -> dict:
     }
 
 
-def _bucket_readings(rows: list) -> dict:
+def _bucket_readings(rows: list, date_str: str = "") -> dict:
     """Return {HH:MM: {ppv, load, export, import, soc}} — one reading per 5-min slot.
 
     When both a live cron row and a chart-imported row exist for the same slot:
@@ -116,6 +116,8 @@ def _bucket_readings(rows: list) -> dict:
             continue
         if row.get("soc_pct") is not None:
             ts = ts - timedelta(minutes=5)
+        if date_str and ts.date().isoformat() != date_str:
+            continue
         slot_min = (ts.hour * 60 + ts.minute) // SLOT_MIN * SLOT_MIN
         label = f"{slot_min//60:02d}:{slot_min%60:02d}"
         if label not in buckets:
@@ -339,7 +341,7 @@ class handler(BaseHTTPRequestHandler):
                     d += timedelta(days=1)
                     continue
 
-                buckets             = _bucket_readings(rows)
+                buckets             = _bucket_readings(rows, date_str)
                 price_map, raw_prices = _fetch_prices(date_str, area)
                 if not price_map:
                     results.append({"date": date_str, "status": "no_prices"})

@@ -85,6 +85,10 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
         # Chart rows are already corrected (SQL-shifted -5 min at import time).
         if row.get("soc_pct") is not None:
             ts = ts - timedelta(minutes=5)
+        # After shift a row fired at 00:00–00:04 CEST would fall into the
+        # previous day's 23:55 slot — drop it so it doesn't corrupt this day.
+        if ts.date().isoformat() != date_str:
+            continue
         slot_min = (ts.hour * 60 + ts.minute) // SLOT_MIN * SLOT_MIN
         label = f"{slot_min // 60:02d}:{slot_min % 60:02d}"
         if label not in buckets:
