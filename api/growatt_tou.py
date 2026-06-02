@@ -743,6 +743,30 @@ def _build_suggestion(for_date: date) -> dict:
             "stop":       f"{eh:02d}:00",
         })
 
+    # Clip segments that start before "now" when building for today in CEST.
+    # A segment can't be applied retroactively, so trim the start to the next
+    # 15-min boundary and drop any segment whose window has already closed.
+    tz_cest = timezone(timedelta(hours=2))
+    today_cest = datetime.now(tz_cest).date()
+    if for_date == today_cest:
+        now_cest  = datetime.now(tz_cest)
+        now_min   = now_cest.hour * 60 + now_cest.minute
+        clip_min  = ((now_min // 15) + 1) * 15   # round up to next 15-min slot
+        clip_h, clip_m = divmod(clip_min, 60)
+        clipped = []
+        for seg in segments:
+            seg_end_min   = seg["end_hour"] * 60 + seg["end_min"]
+            seg_start_min = seg["start_hour"] * 60 + seg["start_min"]
+            if seg_end_min <= clip_min:
+                continue  # entire window already passed
+            if seg_start_min < clip_min:
+                seg = dict(seg)
+                seg["start_hour"] = clip_h
+                seg["start_min"]  = clip_m
+                seg["start"]      = f"{clip_h:02d}:{clip_m:02d}"
+            clipped.append(seg)
+        segments = clipped
+
     # Human-readable reasoning
     cheap_hours  = sorted(h for h, m in hour_mode.items() if m == 1)
     exp_hours    = sorted(h for h, m in hour_mode.items() if m == 2)
