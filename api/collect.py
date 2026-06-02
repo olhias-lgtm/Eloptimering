@@ -66,8 +66,8 @@ def _chart_to_rows(chart_data: dict, target_date: date, utc_offset_h: int) -> li
             "ppv_kw":       vals.get("ppv"),
             "load_kw":      vals.get("sysOut"),
             "export_kw":    vals.get("pacToGrid"),
-            "import_kw":    vals.get("pacToUser"),
-            "discharge_kw": vals.get("pdischarge"),
+            "import_kw":    0,               # pacToUser = inverter→loads (battery), not grid import
+            "discharge_kw": vals.get("pacToUser"),  # battery discharge to loads
             # Fields not available from chart data — left null
             "ppv1_kw":          None,
             "ppv2_kw":          None,
