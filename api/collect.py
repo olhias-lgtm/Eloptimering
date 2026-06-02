@@ -55,11 +55,12 @@ def _chart_to_rows(chart_data: dict, target_date: date, utc_offset_h: int) -> li
             h, m = map(int, label.split(":"))
         except Exception:
             continue
-        # Build local datetime for this slot
+        # Growatt labels each slot with the END of the 5-min interval.
+        # Subtract 5 min to align with Shinephone (which shows start time).
         local_dt = datetime(
             target_date.year, target_date.month, target_date.day,
             h, m, 0, tzinfo=tz_local,
-        )
+        ) - timedelta(minutes=5)
         ts_utc = local_dt.astimezone(timezone.utc).isoformat()
         rows.append({
             "ts":           ts_utc,
