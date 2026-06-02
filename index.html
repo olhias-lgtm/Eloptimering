@@ -125,7 +125,7 @@
   /* KPI rows */
   .kpi-row {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     gap: 10px;
     margin-bottom: 10px;
   }
@@ -958,6 +958,11 @@
       <div class="kpi-value" id="kpi-discharge" style="color:var(--battery)">—</div>
       <div class="kpi-sub">kWh från batteri</div>
     </div>
+    <div class="kpi">
+      <div class="kpi-label">Laddning</div>
+      <div class="kpi-value" id="kpi-charge" style="color:var(--charge,#42a5f5)">—</div>
+      <div class="kpi-sub">kWh till batteri</div>
+    </div>
   </div>
   <!-- KPI row 2: cost -->
   <div class="kpi-row-cost">
@@ -1460,7 +1465,8 @@ function renderKPIs(rows, priceMap, c, dateStr) {
   const load   = kwhFromRows(rows, 'load_kw');
   const imp    = dt?.import_kwh    ?? kwhFromRows(rows, 'import_kw');
   const exp    = dt?.export_kwh    ?? kwhFromRows(rows, 'export_kw');
-  const dis    = dt?.discharge_kwh ?? kwhFromRows(rows, 'discharge_kw');
+  const dis    = kwhFromRows(rows, 'discharge_kw');
+  const chg    = kwhFromRows(rows, 'charge_kw');
 
   let totalCost = 0, totalEarn = 0, totalSaved = 0;
   let hasPrices = false;
@@ -1494,6 +1500,7 @@ function renderKPIs(rows, priceMap, c, dateStr) {
   set('kpi-import',    imp.toFixed(2));
   set('kpi-export',    exp.toFixed(2));
   set('kpi-discharge', dis.toFixed(2));
+  set('kpi-charge',    chg.toFixed(2));
   const varCostKpi = totalCost - fixedDay;
   document.getElementById('kpi-cost').innerHTML = hasPrices
     ? `${varCostKpi.toFixed(2)} <span style="font-size:11px;opacity:0.55;font-weight:400">(+${fixedDay.toFixed(2)})</span>`
