@@ -65,49 +65,49 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
         buckets[label] = empty()
         counts[label]  = 0
 
+    # Per slot: prefer live cron rows (soc_pct not None) over chart-imported rows.
+    # Chart rows have import=0 (pac_user empty) and discharge from epv3 (PV string 3,
+    # not battery) — both wrong. Live rows carry accurate values from getTlxDetailData.
+    # Within same source type, row closest to the 5-min boundary wins.
+    priority = {label: (-1, float("inf")) for label in buckets}  # (is_live, offset_s)
+
     tz_cest = timezone(timedelta(hours=2))
     for row in rows:
         ts_str = row["ts"]
-        # Parse ISO timestamp (may have +00:00 or Z suffix)
         ts_str = ts_str.replace("Z", "+00:00")
         try:
             ts = datetime.fromisoformat(ts_str).astimezone(tz_cest)
         except Exception:
             continue
-        # Round down to 5-min slot
         slot_min = (ts.hour * 60 + ts.minute) // SLOT_MIN * SLOT_MIN
         label = f"{slot_min // 60:02d}:{slot_min % 60:02d}"
         if label not in buckets:
             continue
-        b = buckets[label]
-        b["ppv"]       += float(row.get("ppv_kw")      or 0)
-        b["load"]      += float(row.get("load_kw")     or 0)
-        b["export"]    += float(row.get("export_kw")   or 0)
-        b["import"]    += float(row.get("import_kw")   or 0)
-        b["charge"]    += float(row.get("charge_kw")   or 0)
-        b["discharge"] += float(row.get("discharge_kw") or 0)
-        soc = row.get("soc_pct")
-        if soc is not None:
-            b["soc"] = (b["soc"] or 0) + float(soc)
-        counts[label]  += 1
 
-    # Average each bucket
+        is_live = 1 if row.get("soc_pct") is not None else 0
+        offset  = (ts.minute % SLOT_MIN) * 60 + ts.second
+        prev_live, prev_offset = priority[label]
+        if is_live < prev_live or (is_live == prev_live and offset >= prev_offset):
+            continue
+
+        priority[label] = (is_live, offset)
+        b = buckets[label]
+        b["ppv"]       = float(row.get("ppv_kw")       or 0)
+        b["load"]      = float(row.get("load_kw")      or 0)
+        b["export"]    = float(row.get("export_kw")    or 0)
+        b["import"]    = float(row.get("import_kw")    or 0)
+        b["charge"]    = float(row.get("charge_kw")    or 0)
+        b["discharge"] = float(row.get("discharge_kw") or 0)
+        soc = row.get("soc_pct")
+        b["soc"] = float(soc) if soc is not None else None
+
     for label in buckets:
-        n = counts[label]
-        if n > 1:
-            b = buckets[label]
-            for k in b:
-                if k == "soc":
-                    b[k] = round(b[k] / n, 1) if b[k] is not None else None
-                else:
-                    b[k] = round(b[k] / n, 3)
-        elif n == 1:
-            b = buckets[label]
-            for k in b:
-                if k == "soc":
-                    b[k] = round(b[k], 1) if b[k] is not None else None
-                else:
-                    b[k] = round(b[k], 3)
+        b = buckets[label]
+        for k in b:
+            if k == "soc":
+                b[k] = round(b[k], 1) if b[k] is not None else None
+            else:
+                b[k] = round(b[k], 3)
 
     # Truncate future slots when viewing today (CEST date — Vercel runs UTC)
     today_str = datetime.now(timezone.utc).astimezone(tz_cest).date().isoformat()
