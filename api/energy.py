@@ -37,7 +37,7 @@ def _fetch_readings(date_str: str) -> list:
             f"&ts=lte.{urllib.parse.quote(end)}"
             f"&order=ts.asc"
             f"&select=ts,ppv_kw,load_kw,export_kw,import_kw,charge_kw,discharge_kw,"
-            f"soc_pct,epv_today,export_today,import_today,edischarge_today"
+            f"soc_pct,epv_today,export_today"
         )
         req = urllib.request.Request(url, headers=_sb_headers())
         with urllib.request.urlopen(req, timeout=8) as r:
@@ -140,10 +140,10 @@ def _daily_totals(rows: list) -> dict | None:
         v = best.get(k)
         return round(float(v), 2) if v is not None else None
     return {
-        "solar_kwh":     _f("epv_today"),
-        "export_kwh":    _f("export_today"),
-        "import_kwh":    _f("import_today"),
-        "discharge_kwh": _f("edischarge_today"),
+        "solar_kwh":  _f("epv_today"),
+        "export_kwh": _f("export_today"),
+        # import_today omitted — 0.10 kWh counter granularity causes
+        # phantom 0.2 kWh; kwhFromRows integration is more accurate
     }
 
 
