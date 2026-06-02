@@ -63,17 +63,20 @@ def _fetch_readings(date_str: str) -> list:
 def _bucket_readings(rows: list) -> dict:
     """Return {HH:MM: {ppv, load, export, import, soc}} — one reading per 5-min slot.
 
-    When multiple rows fall in the same slot (e.g. live cron row at :37s AND
-    a chart-imported row at :00s), the row closest to the slot boundary wins.
-    This prevents averaging errors when historical import and live cron data
-    coexist for the same day.
+    When both a live cron row and a chart-imported row exist for the same slot:
+    - Live cron rows (soc_pct not None) are preferred: they carry accurate DC PV
+      power from getTlxDetailData.
+    - Chart rows map Growatt's 'sysOut' (AC system output) to ppv, which is
+      lower than true DC solar due to inverter/battery losses — not the same metric.
+    Within each source type, the row closest to the slot boundary is used.
     """
     total_slots = (24 * 60) // SLOT_MIN
     empty = lambda: {"ppv": 0.0, "load": 0.0, "export": 0.0,
                      "import": 0.0, "soc": None}
-    buckets = {f"{(j*SLOT_MIN)//60:02d}:{(j*SLOT_MIN)%60:02d}": empty()
-               for j in range(total_slots)}
-    offsets = {k: float("inf") for k in buckets}  # seconds from boundary
+    buckets  = {f"{(j*SLOT_MIN)//60:02d}:{(j*SLOT_MIN)%60:02d}": empty()
+                for j in range(total_slots)}
+    # Track best row per slot: (is_live, -offset) — live beats chart, then closer boundary
+    priority = {k: (-1, float("inf")) for k in buckets}  # (is_live 0/1, offset_secs)
 
     tz_cest = timezone(timedelta(hours=2))
     for row in rows:
@@ -88,11 +91,18 @@ def _bucket_readings(rows: list) -> dict:
         label = f"{slot_min//60:02d}:{slot_min%60:02d}"
         if label not in buckets:
             continue
-        # Distance from slot boundary in seconds
-        offset = (ts.minute % SLOT_MIN) * 60 + ts.second
-        if offset >= offsets[label]:
-            continue  # a closer row already claimed this slot
-        offsets[label] = offset
+
+        is_live = 1 if row.get("soc_pct") is not None else 0
+        offset  = (ts.minute % SLOT_MIN) * 60 + ts.second
+        prev_live, prev_offset = priority[label]
+
+        # Live beats chart; within same type, closer to boundary wins
+        if is_live < prev_live:
+            continue
+        if is_live == prev_live and offset >= prev_offset:
+            continue
+
+        priority[label] = (is_live, offset)
         b = buckets[label]
         b["ppv"]    = float(row.get("ppv_kw")    or 0)
         b["load"]   = float(row.get("load_kw")   or 0)
