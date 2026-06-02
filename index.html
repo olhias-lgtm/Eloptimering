@@ -367,6 +367,10 @@
     position: absolute; inset: 0;
     pointer-events: none; overflow: hidden; z-index: 1;
   }
+  /* Ensure all real content sits above the sky/rain overlays */
+  .live-bg, .flow-diagram, .live-mobile-grid, .live-badge-row {
+    position: relative; z-index: 2;
+  }
   @keyframes rain-fall {
     0%   { transform: translateY(-24px); opacity: 0; }
     8%   { opacity: 1; }
