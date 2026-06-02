@@ -36,7 +36,8 @@ def _fetch_readings(date_str: str) -> list:
             f"?ts=gte.{urllib.parse.quote(start)}"
             f"&ts=lte.{urllib.parse.quote(end)}"
             f"&order=ts.asc"
-            f"&select=ts,ppv_kw,load_kw,export_kw,import_kw,charge_kw,discharge_kw,soc_pct"
+            f"&select=ts,ppv_kw,load_kw,export_kw,import_kw,charge_kw,discharge_kw,"
+            f"soc_pct,epv_today,export_today,import_today,edischarge_today"
         )
         req = urllib.request.Request(url, headers=_sb_headers())
         with urllib.request.urlopen(req, timeout=8) as r:
@@ -122,6 +123,30 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
     return buckets
 
 
+def _daily_totals(rows: list) -> dict | None:
+    """Return counter-based daily totals from the last live row, or None."""
+    best = None
+    for row in rows:
+        if row.get("soc_pct") is None:
+            continue
+        epv = row.get("epv_today")
+        if epv is None:
+            continue
+        if best is None or float(epv) > float(best.get("epv_today") or -1):
+            best = row
+    if best is None:
+        return None
+    def _f(k):
+        v = best.get(k)
+        return round(float(v), 2) if v is not None else None
+    return {
+        "solar_kwh":     _f("epv_today"),
+        "export_kwh":    _f("export_today"),
+        "import_kwh":    _f("import_today"),
+        "discharge_kwh": _f("edischarge_today"),
+    }
+
+
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed   = urllib.parse.urlparse(self.path)
@@ -154,6 +179,9 @@ class handler(BaseHTTPRequestHandler):
 
         chart_data = _bucket_readings(rows, date_str)
         result     = {"obj": {"chartData": chart_data}, "source": "supabase"}
+        totals = _daily_totals(rows)
+        if totals:
+            result["daily_totals"] = totals
         _CACHE[date_str] = {"ts": time.monotonic(), "data": result}
         self._send(result)
 

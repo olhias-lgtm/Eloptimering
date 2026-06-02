@@ -1324,6 +1324,7 @@ function _parseEnergyRaw(raw) {
   rows.forEach(r => {
     r.charge_kw = Math.max(0, r.solar_kw + r.import_kw - r.load_kw - r.export_kw + r.discharge_kw);
   });
+  rows.daily_totals = raw.daily_totals || null;
   return rows;
 }
 
@@ -1454,11 +1455,12 @@ function exportKpiCsv() {
 }
 
 function renderKPIs(rows, priceMap, c, dateStr) {
-  const solar  = kwhFromRows(rows, 'solar_kw');
+  const dt     = rows.daily_totals;
+  const solar  = dt?.solar_kwh     ?? kwhFromRows(rows, 'solar_kw');
   const load   = kwhFromRows(rows, 'load_kw');
-  const imp    = kwhFromRows(rows, 'import_kw');
-  const exp    = kwhFromRows(rows, 'export_kw');
-  const dis    = kwhFromRows(rows, 'discharge_kw');
+  const imp    = dt?.import_kwh    ?? kwhFromRows(rows, 'import_kw');
+  const exp    = dt?.export_kwh    ?? kwhFromRows(rows, 'export_kw');
+  const dis    = dt?.discharge_kwh ?? kwhFromRows(rows, 'discharge_kw');
 
   let totalCost = 0, totalEarn = 0, totalSaved = 0;
   let hasPrices = false;
@@ -1513,9 +1515,9 @@ function renderKPIs(rows, priceMap, c, dateStr) {
     saveDailySummary({
       date:       dateStr,
       area:       c.area,
-      solar_kwh:  Math.round(solar   * 100) / 100,
-      export_kwh: Math.round(exp     * 100) / 100,
-      import_kwh: Math.round(imp     * 100) / 100,
+      solar_kwh:  Math.round(solar * 100) / 100,
+      export_kwh: Math.round(exp   * 100) / 100,
+      import_kwh: Math.round(imp   * 100) / 100,
       cost_kr:    Math.round(varCost      * 100) / 100,
       earn_kr:    Math.round(totalEarn    * 100) / 100,
       fixed_kr:   Math.round(fixedDay     * 100) / 100,
