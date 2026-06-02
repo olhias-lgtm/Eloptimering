@@ -1697,8 +1697,8 @@ function renderPowerChart(rows, isForecast, forecastOverlay) {
     { label:`Load${fSuffix}`,   data: actualByTime('load_kw'),   borderColor:C.load,    backgroundColor:'rgba(96,165,250,0.08)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:`Import${fSuffix}`, data: actualByTime('import_kw'), borderColor:C.imp,     backgroundColor:'rgba(239,68,68,0.06)',  tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:`Export${fSuffix}`, data: actualByTime('export_kw'), borderColor:C.exp,     backgroundColor:'rgba(34,197,94,0.06)',  tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
-    { label:'Battery net',      data: labels.map(t => { if (lastActualTime && t > lastActualTime) return null; const r = actualMap[t]; return r ? Math.abs((r.discharge_kw||0)-(r.charge_kw||0)) : null; }),
-                                                              borderColor:C.battery, backgroundColor:'rgba(167,139,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1, borderDash: isForecast ? [5,4] : [3,3], yAxisID:'y' },
+    { label:`Urladdning${fSuffix}`, data: actualByTime('discharge_kw'), borderColor:C.battery,              backgroundColor:'rgba(167,139,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
+    { label:`Laddning${fSuffix}`,   data: actualByTime('charge_kw'),   borderColor:'rgba(96,205,250,0.9)',   backgroundColor:'rgba(96,205,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:'SoC %',            data: actualByTime('soc_pct'),
                                                               borderColor:'rgba(167,139,250,0.7)', backgroundColor:'transparent', tension:0.4, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[6,3], yAxisID:'y2' },
   ];
@@ -1709,8 +1709,10 @@ function renderPowerChart(rows, isForecast, forecastOverlay) {
       { label:'Solar (prognos)',  data: overlayByTime('solar_kw'),  borderColor:'rgba(245,158,11,0.6)',   backgroundColor:'rgba(245,158,11,0.04)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
       { label:'Load (prognos)',   data: overlayByTime('load_kw'),   borderColor:'rgba(96,165,250,0.6)',   backgroundColor:'rgba(96,165,250,0.04)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
       { label:'Import (prognos)', data: overlayByTime('import_kw'), borderColor:'rgba(239,68,68,0.55)',   backgroundColor:'transparent',           tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
-      { label:'Export (prognos)', data: overlayByTime('export_kw'), borderColor:'rgba(34,197,94,0.55)',   backgroundColor:'transparent',           tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
-      { label:'SoC % (prognos)',  data: overlayByTime('soc_pct'),   borderColor:'rgba(167,139,250,0.45)', backgroundColor:'transparent',           tension:0.4, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4], yAxisID:'y2' }
+      { label:'Export (prognos)',     data: overlayByTime('export_kw'),    borderColor:'rgba(34,197,94,0.55)',   backgroundColor:'transparent', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
+      { label:'Urladdning (prognos)', data: overlayByTime('discharge_kw'), borderColor:'rgba(167,139,250,0.55)', backgroundColor:'transparent', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
+      { label:'Laddning (prognos)',   data: overlayByTime('charge_kw'),    borderColor:'rgba(96,205,250,0.55)',  backgroundColor:'transparent', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
+      { label:'SoC % (prognos)',      data: overlayByTime('soc_pct'),      borderColor:'rgba(167,139,250,0.45)', backgroundColor:'transparent', tension:0.4, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4], yAxisID:'y2' }
     );
   }
 
