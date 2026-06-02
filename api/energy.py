@@ -29,8 +29,11 @@ def _fetch_readings(date_str: str) -> list:
         day   = date.fromisoformat(date_str)
         start = datetime(day.year, day.month, day.day, 0, 0, 0,
                          tzinfo=timezone(timedelta(hours=2))).isoformat()
-        end   = datetime(day.year, day.month, day.day, 23, 59, 59,
-                         tzinfo=timezone(timedelta(hours=2))).isoformat()
+        # Extend end by 5 min: the cron fired at 00:00–00:04 CEST of the next day
+        # represents the 23:55 slot of this day (after the -5 min lag correction).
+        end   = (datetime(day.year, day.month, day.day, 23, 59, 59,
+                          tzinfo=timezone(timedelta(hours=2)))
+                 + timedelta(minutes=5)).isoformat()
         url = (
             f"{SUPABASE_URL}/rest/v1/energy_readings"
             f"?ts=gte.{urllib.parse.quote(start)}"

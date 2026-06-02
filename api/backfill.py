@@ -42,8 +42,9 @@ def _fetch_readings(date_str: str) -> list:
     day = date.fromisoformat(date_str)
     start = datetime(day.year, day.month, day.day, 0, 0, 0,
                      tzinfo=timezone(timedelta(hours=2))).isoformat()
-    end   = datetime(day.year, day.month, day.day, 23, 59, 59,
-                     tzinfo=timezone(timedelta(hours=2))).isoformat()
+    end   = (datetime(day.year, day.month, day.day, 23, 59, 59,
+                      tzinfo=timezone(timedelta(hours=2)))
+             + timedelta(minutes=5)).isoformat()
     url = (
         f"{SUPABASE_URL}/rest/v1/energy_readings"
         f"?ts=gte.{urllib.parse.quote(start)}"
