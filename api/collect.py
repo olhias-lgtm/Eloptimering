@@ -160,8 +160,8 @@ def _do_historical(date_str: str, confirm: bool) -> tuple[int, dict]:
     today_utc = datetime.now(timezone.utc).date()
 
     # ── 2. Validate range ──────────────────────────────────────────────────────
-    if target >= today_utc:
-        return 400, {"ok": False, "error": "date must be before today (historical only)"}
+    if target > today_utc:
+        return 400, {"ok": False, "error": "date cannot be in the future"}
 
     if (today_utc - target).days > 365:
         return 400, {"ok": False, "error": "date too far in the past (max 365 days)"}
