@@ -356,6 +356,24 @@
   }
   .live-strip.hidden { display: none; }
 
+  /* Dynamic sky background overlay */
+  #live-sky-bg {
+    position: absolute; inset: 0;
+    pointer-events: none; z-index: 0;
+    transition: background 3s ease, opacity 3s ease;
+  }
+  /* Rain / mist layer */
+  #live-rain {
+    position: absolute; inset: 0;
+    pointer-events: none; overflow: hidden; z-index: 1;
+  }
+  @keyframes rain-fall {
+    0%   { transform: translateY(-24px); opacity: 0; }
+    8%   { opacity: 1; }
+    88%  { opacity: 0.55; }
+    100% { transform: translateY(var(--rh, 220px)); opacity: 0; }
+  }
+
   /* Background illustrations */
   .live-bg {
     position: absolute;
@@ -693,6 +711,8 @@
 </div>
 
 <div class="live-strip hidden" id="live-strip">
+  <div id="live-sky-bg"></div>
+  <div id="live-rain"></div>
   <!-- hidden spans keep JS compat -->
   <span id="live-ppv" style="display:none">—</span>
   <span id="live-load" style="display:none">—</span>
@@ -2662,6 +2682,8 @@ async function loadWeather(triggerForecastRefresh = false) {
 // ---------------------------------------------------------------------------
 let _liveTimer     = null;
 let _liveFailCount = 0;
+// Refresh sky background every minute (time-of-day gradient shifts)
+setInterval(updateLiveBg, 60_000);
 
 // ---------------------------------------------------------------------------
 // Flow diagram animation
@@ -2735,6 +2757,141 @@ function updateSkyIcon() {
       <circle cx="102" cy="46" r="3"  fill="#e2e8f0" opacity="0.4"/>
       <circle cx="118" cy="52" r="2"  fill="#e2e8f0" opacity="0.3"/>
       <circle cx="95"  cy="34" r="1.5" fill="#e2e8f0" opacity="0.3"/>`;
+  }
+  updateLiveBg();
+}
+
+// ---------------------------------------------------------------------------
+// Live strip dynamic background
+// ---------------------------------------------------------------------------
+function updateLiveBg() {
+  const bg = document.getElementById('live-sky-bg');
+  if (!bg) return;
+
+  const now     = new Date();
+  const h       = now.getHours() + now.getMinutes() / 60; // local decimal hours
+
+  // Sunrise / sunset from weather data
+  let sunrise = 4.5, sunset = 21.5;
+  try {
+    const daily = state.weatherData?.daily;
+    if (daily?.sunrise?.[0]) { const sr = new Date(daily.sunrise[0]); sunrise = sr.getHours() + sr.getMinutes()/60; }
+    if (daily?.sunset?.[0])  { const ss = new Date(daily.sunset[0]);  sunset  = ss.getHours() + ss.getMinutes()/60; }
+  } catch(e) {}
+
+  const isDaytime  = h >= sunrise && h <= sunset;
+  const TWI        = 0.75; // twilight window, hours
+  const inDawn     = h >= sunrise - TWI && h < sunrise + TWI;
+  const inDusk     = h >= sunset  - TWI && h <= sunset  + TWI;
+
+  // Cloud cover + radiation from current hour
+  let cloud = 0, radiation = 500;
+  try {
+    const hourly = state.weatherData?.hourly;
+    if (hourly) {
+      const idx   = Math.min(Math.floor(h), (hourly.cloudcover?.length ?? 24) - 1);
+      cloud       = hourly.cloudcover?.[idx]            ?? 0;
+      radiation   = hourly.shortwave_radiation?.[idx]   ?? (isDaytime ? 400 : 0);
+    }
+  } catch(e) {}
+
+  const isRainy      = cloud > 75 && radiation < 60 && isDaytime;
+  const isOvercast   = cloud > 75;
+  const isPartCloud  = cloud > 30;
+
+  // ── Base sky gradient ──────────────────────────────────────────────
+  let skyGrad;
+  if (inDawn) {
+    skyGrad = `radial-gradient(ellipse 80% 55% at 50% 110%, rgba(251,146,60,0.35) 0%, rgba(139,92,246,0.15) 50%, transparent 80%),
+               linear-gradient(180deg, #120a2a 0%, #2d1206 45%, #0c1828 100%)`;
+  } else if (inDusk) {
+    skyGrad = `radial-gradient(ellipse 80% 55% at 50% 110%, rgba(239,100,36,0.4) 0%, rgba(120,40,160,0.2) 50%, transparent 80%),
+               linear-gradient(180deg, #0e0820 0%, #2a1005 45%, #0a1220 100%)`;
+  } else if (!isDaytime) {
+    // Night — deep indigo/navy, subtle star-glow
+    skyGrad = `radial-gradient(ellipse 50% 60% at 50% 30%, rgba(30,20,80,0.18) 0%, transparent 70%),
+               linear-gradient(180deg, #04060e 0%, #070d1a 100%)`;
+  } else {
+    // Daytime — interpolate morning → midday → afternoon
+    const p = (h - sunrise) / (sunset - sunrise); // 0→1
+    if (p < 0.30) {
+      // Morning: cool teal-blue horizon
+      skyGrad = `radial-gradient(ellipse 60% 70% at 50% 50%, rgba(56,189,248,0.10) 0%, transparent 70%),
+                 linear-gradient(180deg, #071b38 0%, #0d2d52 55%, #071828 100%)`;
+    } else if (p < 0.65) {
+      // Midday: brightest blue
+      skyGrad = `radial-gradient(ellipse 60% 80% at 50% 40%, rgba(56,189,248,0.18) 0%, transparent 70%),
+                 linear-gradient(180deg, #0a2245 0%, #0f3465 55%, #081c3a 100%)`;
+    } else {
+      // Afternoon → evening, warm tinge creeps in
+      const t = (p - 0.65) / 0.35;
+      const warmA = (0.04 + t * 0.10).toFixed(3);
+      skyGrad = `radial-gradient(ellipse 65% 55% at 50% 90%, rgba(251,146,60,${warmA}) 0%, transparent 55%),
+                 radial-gradient(ellipse 60% 80% at 50% 40%, rgba(56,189,248,0.09) 0%, transparent 70%),
+                 linear-gradient(180deg, #091d3c 0%, #0d2a50 50%, #0e1825 100%)`;
+    }
+  }
+
+  // ── Cloud/rain grey tint ───────────────────────────────────────────
+  const greyA = isOvercast ? 0.48 : isPartCloud ? (cloud / 100) * 0.25 : 0;
+  const greyLayer = greyA > 0
+    ? `linear-gradient(180deg, rgba(50,60,72,${greyA}) 0%, rgba(35,45,55,${(greyA*0.7).toFixed(3)}) 100%), `
+    : '';
+
+  bg.style.background = greyLayer + skyGrad;
+
+  // ── Rain / mist drops ─────────────────────────────────────────────
+  _updateRainDrops(isRainy ? cloud : 0, !isRainy && isOvercast ? cloud : 0);
+}
+
+function _updateRainDrops(rainCloud, mistCloud) {
+  const container = document.getElementById('live-rain');
+  if (!container) return;
+
+  const dropCount = Math.round((rainCloud / 100) * 38);
+  const dotCount  = Math.round((mistCloud  / 100) * 10);
+
+  if (dropCount === 0 && dotCount === 0) { container.innerHTML = ''; return; }
+
+  // Avoid thrashing DOM if count hasn't changed much
+  const current = container.children.length;
+  const target  = dropCount + dotCount;
+  if (Math.abs(current - target) < 3) return;
+
+  container.innerHTML = '';
+  const stripH = (document.getElementById('live-strip')?.offsetHeight || 220) + 'px';
+
+  for (let i = 0; i < dropCount; i++) {
+    const el  = document.createElement('div');
+    const len = 7 + Math.random() * 10;
+    Object.assign(el.style, {
+      position:   'absolute',
+      left:       (Math.random() * 100).toFixed(1) + '%',
+      top:        '0',
+      width:      '1.5px',
+      height:     len + 'px',
+      borderRadius: '1px',
+      background: `linear-gradient(to bottom, transparent, rgba(147,197,253,${(0.35 + Math.random()*0.35).toFixed(2)}))`,
+      animation:  `rain-fall ${(0.55 + Math.random()*0.65).toFixed(2)}s ${(Math.random()*2.5).toFixed(2)}s linear infinite`,
+      '--rh':     stripH,
+    });
+    container.appendChild(el);
+  }
+
+  // Floating mist dots for heavy-but-dry overcast
+  for (let i = 0; i < dotCount; i++) {
+    const el = document.createElement('div');
+    const sz = (2.5 + Math.random() * 3).toFixed(1);
+    Object.assign(el.style, {
+      position:     'absolute',
+      left:         (Math.random() * 95).toFixed(1) + '%',
+      top:          (15 + Math.random() * 65).toFixed(1) + '%',
+      width:        sz + 'px',
+      height:       sz + 'px',
+      borderRadius: '50%',
+      background:   `rgba(148,163,184,${(0.08 + Math.random()*0.13).toFixed(2)})`,
+    });
+    container.appendChild(el);
   }
 }
 
