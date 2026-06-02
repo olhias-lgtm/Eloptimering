@@ -61,13 +61,19 @@ def _fetch_readings(date_str: str) -> list:
 
 
 def _bucket_readings(rows: list) -> dict:
-    """Return {HH:MM: {ppv, load, export, import, soc}} averaged per 5-min slot."""
+    """Return {HH:MM: {ppv, load, export, import, soc}} — one reading per 5-min slot.
+
+    When multiple rows fall in the same slot (e.g. live cron row at :37s AND
+    a chart-imported row at :00s), the row closest to the slot boundary wins.
+    This prevents averaging errors when historical import and live cron data
+    coexist for the same day.
+    """
     total_slots = (24 * 60) // SLOT_MIN
     empty = lambda: {"ppv": 0.0, "load": 0.0, "export": 0.0,
                      "import": 0.0, "soc": None}
     buckets = {f"{(j*SLOT_MIN)//60:02d}:{(j*SLOT_MIN)%60:02d}": empty()
                for j in range(total_slots)}
-    counts  = {k: 0 for k in buckets}
+    offsets = {k: float("inf") for k in buckets}  # seconds from boundary
 
     tz_cest = timezone(timedelta(hours=2))
     for row in rows:
@@ -82,24 +88,25 @@ def _bucket_readings(rows: list) -> dict:
         label = f"{slot_min//60:02d}:{slot_min%60:02d}"
         if label not in buckets:
             continue
+        # Distance from slot boundary in seconds
+        offset = (ts.minute % SLOT_MIN) * 60 + ts.second
+        if offset >= offsets[label]:
+            continue  # a closer row already claimed this slot
+        offsets[label] = offset
         b = buckets[label]
-        b["ppv"]    += float(row.get("ppv_kw")    or 0)
-        b["load"]   += float(row.get("load_kw")   or 0)
-        b["export"] += float(row.get("export_kw") or 0)
-        b["import"] += float(row.get("import_kw") or 0)
+        b["ppv"]    = float(row.get("ppv_kw")    or 0)
+        b["load"]   = float(row.get("load_kw")   or 0)
+        b["export"] = float(row.get("export_kw") or 0)
+        b["import"] = float(row.get("import_kw") or 0)
         soc = row.get("soc_pct")
-        if soc is not None:
-            b["soc"] = (b["soc"] or 0) + float(soc)
-        counts[label] += 1
+        b["soc"] = float(soc) if soc is not None else None
 
-    for label, n in counts.items():
-        if n > 0:
-            b = buckets[label]
-            for k in b:
-                if k == "soc":
-                    b[k] = round(b[k] / n, 1) if b[k] is not None else None
-                else:
-                    b[k] = round(b[k] / n, 3)
+    for label in buckets:
+        b = buckets[label]
+        for k in ("ppv", "load", "export", "import"):
+            b[k] = round(b[k], 3)
+        if b["soc"] is not None:
+            b["soc"] = round(b["soc"], 1)
     return buckets
 
 
