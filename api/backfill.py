@@ -49,7 +49,8 @@ def _fetch_readings(date_str: str) -> list:
         f"?ts=gte.{urllib.parse.quote(start)}"
         f"&ts=lte.{urllib.parse.quote(end)}"
         f"&order=ts.asc"
-        f"&select=ts,ppv_kw,load_kw,export_kw,import_kw,soc_pct"
+        f"&select=ts,ppv_kw,load_kw,export_kw,import_kw,soc_pct,"
+        f"epv_today,export_today,import_today"
     )
     try:
         req = urllib.request.Request(url, headers=_sb_headers())
@@ -58,6 +59,32 @@ def _fetch_readings(date_str: str) -> list:
     except Exception as e:
         print(f"[backfill] fetch_readings {date_str}: {e}")
         return []
+
+
+def _daily_totals_from_counters(rows: list) -> dict:
+    """Extract inverter cumulative counters from the last live row of the day.
+
+    The inverter's energy counters (epv_today, export_today, import_today) are
+    measured by an internal Wh meter — far more accurate than integrating
+    instantaneous power readings, which are skewed by cron timing jitter.
+    Returns {} if no live row with counter data exists.
+    """
+    best = {}
+    for row in rows:
+        if row.get("soc_pct") is None:
+            continue  # chart-imported row, no counters
+        epv = row.get("epv_today")
+        if epv is not None and float(epv) > float(best.get("epv_today") or -1):
+            best = row
+    if not best:
+        return {}
+    def _f(k):
+        v = best.get(k)
+        return round(float(v), 2) if v is not None else None
+    return {
+        "solar_kwh":  _f("epv_today"),
+        "export_kwh": _f("export_today"),
+    }
 
 
 def _bucket_readings(rows: list) -> dict:
@@ -317,7 +344,15 @@ class handler(BaseHTTPRequestHandler):
                     d += timedelta(days=1)
                     continue
 
-                summary = _compute_summary(buckets, price_map, date_str, c)
+                summary  = _compute_summary(buckets, price_map, date_str, c)
+                # Override integrated solar/export with inverter's own Wh counters
+                # when available — these are far more accurate than integrating
+                # instantaneous kW readings with a ~5-min assumed interval.
+                counters = _daily_totals_from_counters(rows)
+                if counters.get("solar_kwh") is not None:
+                    summary["solar_kwh"]  = counters["solar_kwh"]
+                if counters.get("export_kwh") is not None:
+                    summary["export_kwh"] = counters["export_kwh"]
                 _upsert(date_str, area, summary)
                 _upsert_spot_prices(raw_prices, area)
                 results.append({"date": date_str, "status": "ok", **summary})
