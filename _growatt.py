@@ -42,7 +42,7 @@ SESSION_MAX_AGE_HOURS = 10
 # While set, ensure_ready() raises immediately without touching the network.
 # Account was locked 2026-06-01; pause until 2026-06-03 12:00 CEST to be safe.
 # ---------------------------------------------------------------------------
-_HARD_PAUSED_UNTIL = datetime(2026, 6, 3, 10, 0, 0, tzinfo=timezone.utc)  # 12:00 CEST
+_HARD_PAUSED_UNTIL = None  # lifted 2026-06-02 ~22:44 CEST
 
 # Login-failure cooldown: after a failed login, refuse to retry for this many seconds.
 # Helps on warm Lambda reuse within the same invocation window.
