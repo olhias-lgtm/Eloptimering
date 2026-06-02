@@ -35,7 +35,7 @@ def _latest_from_supabase() -> dict | None:
         return None
     try:
         url = (f"{SUPABASE_URL}/rest/v1/energy_readings"
-               f"?order=ts.desc&limit=1&select=*")
+               f"?soc_pct=not.is.null&order=ts.desc&limit=1&select=*")
         req = urllib.request.Request(url, headers=_sb_headers())
         with urllib.request.urlopen(req, timeout=5) as r:
             rows = json.loads(r.read())
