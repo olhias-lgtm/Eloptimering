@@ -73,7 +73,7 @@ def _bucket_readings(rows: list) -> dict:
     for row in rows:
         ts_str = row["ts"]
         try:
-            ts_bare = ts_str[:19]
+            ts_bare = ts_str[:19].replace("T", " ")
             ts = datetime.strptime(ts_bare, "%Y-%m-%d %H:%M:%S").replace(
                      tzinfo=timezone.utc).astimezone(tz_cest)
         except Exception:
