@@ -114,6 +114,8 @@ def _bucket_readings(rows: list) -> dict:
                      tzinfo=timezone.utc).astimezone(tz_cest)
         except Exception:
             continue
+        if row.get("soc_pct") is not None:
+            ts = ts - timedelta(minutes=5)
         slot_min = (ts.hour * 60 + ts.minute) // SLOT_MIN * SLOT_MIN
         label = f"{slot_min//60:02d}:{slot_min%60:02d}"
         if label not in buckets:
