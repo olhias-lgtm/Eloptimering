@@ -309,6 +309,29 @@
     font-size: 10px;
     color: var(--dim);
   }
+  .legend-item[data-ds] {
+    cursor: pointer;
+    user-select: none;
+    transition: opacity 0.15s;
+  }
+  .legend-item[data-ds]:hover { opacity: 0.75; }
+  .legend-item[data-ds].ds-hidden {
+    opacity: 0.35;
+    text-decoration: line-through;
+  }
+  .legend-show-all {
+    font-size: 9px;
+    color: var(--dim);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    cursor: pointer;
+    margin-left: 4px;
+    align-self: center;
+    transition: opacity 0.15s;
+  }
+  .legend-show-all:hover { opacity: 0.7; }
   .legend-dot {
     width: 8px; height: 8px;
     border-radius: 50%;
@@ -1073,13 +1096,14 @@
       <div class="chart-wrap-tall">
         <canvas id="power-chart"></canvas>
       </div>
-      <div class="legend">
-        <div class="legend-item"><div class="legend-dot" style="background:var(--solar)"></div>Solar</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--load)"></div>Load</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--import)"></div>Import</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--export)"></div>Export</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--battery)"></div>Battery net</div>
-        <div class="legend-item"><div class="legend-dot" style="background:rgba(167,139,250,0.7);border:1px dashed rgba(167,139,250,0.7);box-sizing:border-box"></div>SoC %</div>
+      <div class="legend" id="power-legend">
+        <div class="legend-item" data-ds="solar"><div class="legend-dot" style="background:var(--solar)"></div>Solar</div>
+        <div class="legend-item" data-ds="load"><div class="legend-dot" style="background:var(--load)"></div>Load</div>
+        <div class="legend-item" data-ds="import"><div class="legend-dot" style="background:var(--import)"></div>Import</div>
+        <div class="legend-item" data-ds="export"><div class="legend-dot" style="background:var(--export)"></div>Export</div>
+        <div class="legend-item" data-ds="battery"><div class="legend-dot" style="background:var(--battery)"></div>Battery net</div>
+        <div class="legend-item" data-ds="soc"><div class="legend-dot" style="background:rgba(167,139,250,0.7);border:1px dashed rgba(167,139,250,0.7);box-sizing:border-box"></div>SoC %</div>
+        <button class="legend-show-all" id="power-legend-show-all" style="display:none">Visa alla</button>
       </div>
     </div>
 
@@ -1227,6 +1251,7 @@ let state = {
   weatherData:  null,   // full Open-Meteo response, kept fresh by loadWeather()
   currentDate:  todayStr(),
   charts:       {},
+  hiddenPowerDs: new Set(), // dataset keys hidden by the user (persists across re-renders)
 };
 
 function todayStr() {
@@ -1777,10 +1802,42 @@ function renderPowerChart(rows, isForecast, forecastOverlay) {
     type:'line', data:{ labels, datasets },
     options: opts,
   });
+
+  // Re-apply any hidden datasets the user toggled before this re-render
+  _applyPowerDsVisibility();
+
   const fcSlots = forecastOverlay ? forecastOverlay.filter(r => !r._actual).length : 0;
   document.getElementById('interval-badge').textContent = fcSlots > 0
     ? `${rows.length} intervals · +${fcSlots} prognos`
     : isForecast ? `${rows.length} intervals (prognos)` : `${rows.length} intervals`;
+}
+
+// Map legend data-ds key → label prefix(es) in the power chart datasets
+const _POWER_DS_KEYS = {
+  solar:   ['Solar'],
+  load:    ['Load'],
+  import:  ['Import'],
+  export:  ['Export'],
+  battery: ['Urladdning', 'Laddning'],
+  soc:     ['SoC'],
+};
+
+function _applyPowerDsVisibility() {
+  const chart = state.charts['power'];
+  if (!chart) return;
+  chart.data.datasets.forEach((ds, i) => {
+    const key = Object.entries(_POWER_DS_KEYS).find(([, prefixes]) =>
+      prefixes.some(p => ds.label.startsWith(p))
+    )?.[0];
+    if (key) chart.setDatasetVisibility(i, !state.hiddenPowerDs.has(key));
+  });
+  chart.update('none');
+  // Sync legend item visual state
+  document.querySelectorAll('#power-legend [data-ds]').forEach(el => {
+    el.classList.toggle('ds-hidden', state.hiddenPowerDs.has(el.dataset.ds));
+  });
+  const showAllBtn = document.getElementById('power-legend-show-all');
+  if (showAllBtn) showAllBtn.style.display = state.hiddenPowerDs.size > 0 ? '' : 'none';
 }
 
 function renderPriceChart(priceMap, rows, tomorrowMap, isTomorrow) {
@@ -3945,6 +4002,25 @@ async function loadTouSuggestion() {
       `<p style="color:#fca5a5;font-size:12px">Kunde inte ladda förslag.</p>`;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Power chart legend — toggle datasets on/off
+// ---------------------------------------------------------------------------
+document.querySelectorAll('#power-legend [data-ds]').forEach(el => {
+  el.addEventListener('click', () => {
+    const key = el.dataset.ds;
+    if (state.hiddenPowerDs.has(key)) {
+      state.hiddenPowerDs.delete(key);
+    } else {
+      state.hiddenPowerDs.add(key);
+    }
+    _applyPowerDsVisibility();
+  });
+});
+document.getElementById('power-legend-show-all').addEventListener('click', () => {
+  state.hiddenPowerDs.clear();
+  _applyPowerDsVisibility();
+});
 
 // ---------------------------------------------------------------------------
 // Init
