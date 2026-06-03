@@ -4113,10 +4113,38 @@ async function loadGridData() {
     if (!Array.isArray(rows) || rows.length === 0) return;
     const latest = rows[rows.length - 1];
     renderGridKpis(latest);
-    renderGridChart(rows);
+
+    // Collect unique local dates covered by grid rows
+    const area = cfg().area || 'SE3';
+    const dates = [...new Set(rows.map(r => {
+      const loc = new Date(new Date(r.ts).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' }));
+      return `${loc.getFullYear()}-${String(loc.getMonth()+1).padStart(2,'0')}-${String(loc.getDate()).padStart(2,'0')}`;
+    }))];
+
+    // Fetch spot prices for each date in parallel (elprisetjustnu supports CORS)
+    const priceArrays = await Promise.all(dates.map(async dt => {
+      try {
+        const [y, mo, d] = dt.split('-');
+        return await fetchJSON(`https://www.elprisetjustnu.se/api/v1/prices/${y}/${mo}-${d}_${area}.json`);
+      } catch { return []; }
+    }));
+
+    // Build map: "YYYY-MM-DDTHH" (local CEST) → öre/kWh
+    const priceMap = {};
+    for (const arr of priceArrays) {
+      for (const row of (arr || [])) {
+        try {
+          const loc = new Date(new Date(row.time_start).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' }));
+          const key = `${loc.getFullYear()}-${String(loc.getMonth()+1).padStart(2,'0')}-${String(loc.getDate()).padStart(2,'0')}T${String(loc.getHours()).padStart(2,'0')}`;
+          priceMap[key] = row.SEK_per_kWh * 100; // → öre/kWh
+        } catch {}
+      }
+    }
+
+    renderGridChart(rows, priceMap);
+
     const ageEl = document.getElementById('grid-data-age');
     if (ageEl && latest.ts) {
-      // ts is UTC ISO — convert to CEST date for display
       const d = new Date(latest.ts);
       const cest = new Date(d.toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' }));
       ageEl.textContent = `senaste data: ${cest.toLocaleDateString('sv-SE')} ${String(cest.getHours()).padStart(2,'0')}:00`;
@@ -4151,7 +4179,7 @@ function renderGridKpis(row) {
     </div>`).join('');
 }
 
-function renderGridChart(rows) {
+function renderGridChart(rows, priceMap = {}) {
   // Subsample to one point per 2 hours for a clean 7-day view
   const sampled = rows.filter((_, i) => i % 2 === 0);
   const labels  = sampled.map(r => {
@@ -4160,13 +4188,28 @@ function renderGridChart(rows) {
     return `${String(c.getDate()).padStart(2,'0')}/${String(c.getMonth()+1).padStart(2,'0')} ${String(c.getHours()).padStart(2,'0')}:00`;
   });
 
+  // Map each sampled row to its spot price using local CEST hour key
+  const priceData = sampled.map(r => {
+    const loc = new Date(new Date(r.ts).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' }));
+    const key = `${loc.getFullYear()}-${String(loc.getMonth()+1).padStart(2,'0')}-${String(loc.getDate()).padStart(2,'0')}T${String(loc.getHours()).padStart(2,'0')}`;
+    const p = priceMap[key];
+    return p != null ? p : null;
+  });
+  const hasPrices = priceData.some(v => v != null);
+
   const datasets = [
-    { label: 'Kärnkraft', data: sampled.map(r => r.nuclear),  backgroundColor: 'rgba(167,139,250,0.6)', borderColor: 'rgba(167,139,250,0.9)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
-    { label: 'Vattenkraft', data: sampled.map(r => r.hydro),  backgroundColor: 'rgba(96,165,250,0.55)', borderColor: 'rgba(96,165,250,0.85)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
-    { label: 'Vind',        data: sampled.map(r => r.wind),   backgroundColor: 'rgba(52,211,153,0.5)',  borderColor: 'rgba(52,211,153,0.8)',  fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
-    { label: 'Sol',         data: sampled.map(r => r.solar),  backgroundColor: 'rgba(245,158,11,0.55)', borderColor: 'rgba(245,158,11,0.85)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
+    { label: 'Kärnkraft', data: sampled.map(r => r.nuclear),  backgroundColor: 'rgba(167,139,250,0.6)', borderColor: 'rgba(167,139,250,0.9)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
+    { label: 'Vattenkraft', data: sampled.map(r => r.hydro),  backgroundColor: 'rgba(96,165,250,0.55)', borderColor: 'rgba(96,165,250,0.85)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
+    { label: 'Vind',        data: sampled.map(r => r.wind),   backgroundColor: 'rgba(52,211,153,0.5)',  borderColor: 'rgba(52,211,153,0.8)',  fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
+    { label: 'Sol',         data: sampled.map(r => r.solar),  backgroundColor: 'rgba(245,158,11,0.55)', borderColor: 'rgba(245,158,11,0.85)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
     { label: 'Termisk+Övrigt', data: sampled.map(r => (r.thermal||0) + (r.other||0)),
-      backgroundColor: 'rgba(156,163,175,0.4)', borderColor: 'rgba(156,163,175,0.7)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
+      backgroundColor: 'rgba(156,163,175,0.4)', borderColor: 'rgba(156,163,175,0.7)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
+    ...(hasPrices ? [{
+      label: 'Spotpris', data: priceData, yAxisID: 'y2',
+      borderColor: 'rgba(251,146,60,0.9)', backgroundColor: 'transparent',
+      fill: false, borderWidth: 2, pointRadius: 0, tension: 0.3,
+      borderDash: [],
+    }] : []),
   ];
 
   upsertChart('grid-chart', 'grid', {
@@ -4183,7 +4226,9 @@ function renderGridChart(rows) {
         },
         tooltip: {
           callbacks: {
-            label: ctx => `${ctx.dataset.label}: ${Math.round(ctx.parsed.y).toLocaleString('sv-SE')} MW`,
+            label: ctx => ctx.dataset.yAxisID === 'y2'
+              ? `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'} öre/kWh`
+              : `${ctx.dataset.label}: ${Math.round(ctx.parsed.y).toLocaleString('sv-SE')} MW`,
           },
         },
       },
@@ -4198,6 +4243,13 @@ function renderGridChart(rows) {
           ticks: { font: { size: 10 }, color: 'rgba(156,163,175,0.8)',
             callback: v => v >= 1000 ? `${(v/1000).toFixed(1)} GW` : `${v} MW` },
           grid: { color: 'rgba(255,255,255,0.04)' },
+        },
+        y2: {
+          position: 'right',
+          display: hasPrices,
+          title: { display: true, text: 'öre/kWh', font: { size: 9 }, color: 'rgba(251,146,60,0.65)' },
+          ticks: { font: { size: 10 }, color: 'rgba(251,146,60,0.75)', callback: v => Math.round(v) },
+          grid: { drawOnChartArea: false },
         },
       },
     },
