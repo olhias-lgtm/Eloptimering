@@ -1155,6 +1155,7 @@
   <div class="tab-live-mini" id="mini-live-dag">
     <span class="tlm-chip">☀️ <b id="tlm-dag-solar">—</b></span>
     <span class="tlm-chip">🔋 <b id="tlm-dag-soc">—</b></span>
+    <span class="tlm-chip">🔌 <b id="tlm-dag-batt">—</b></span>
     <span class="tlm-chip">💰 <b id="tlm-dag-price">—</b></span>
     <span class="tlm-chip">⚡ <b id="tlm-dag-grid">—</b></span>
   </div>
@@ -1238,6 +1239,7 @@
   <div class="tab-live-mini" id="mini-live-trender">
     <span class="tlm-chip">☀️ <b id="tlm-trnd-solar">—</b></span>
     <span class="tlm-chip">🔋 <b id="tlm-trnd-soc">—</b></span>
+    <span class="tlm-chip">🔌 <b id="tlm-trnd-batt">—</b></span>
     <span class="tlm-chip">💰 <b id="tlm-trnd-price">—</b></span>
     <span class="tlm-chip">⚡ <b id="tlm-trnd-grid">—</b></span>
   </div>
@@ -3349,6 +3351,11 @@ function _updateMiniLive(d) {
   // Battery SOC
   const socStr = d.soc_pct != null ? `${d.soc_pct}%` : '—';
 
+  // Battery net (+ = charging, − = discharging)
+  const chgKw = d.charge_kw || 0;
+  const disKw = d.discharge_kw || 0;
+  const battStr = chgKw > 0.05 ? `+${chgKw.toFixed(2)} kW` : disKw > 0.05 ? `−${disKw.toFixed(2)} kW` : '0.00 kW';
+
   // Grid: positive = import (cost), negative = export (earn)
   const netKw = (d.import_kw || 0) - (d.export_kw || 0);
   const absStr = `${Math.abs(netKw).toFixed(2)} kW`;
@@ -3365,8 +3372,8 @@ function _updateMiniLive(d) {
   }
 
   const pairs = [
-    ['dag','solar', solarStr], ['dag','soc', socStr], ['dag','price', priceStr], ['dag','grid', gridStr],
-    ['trnd','solar', solarStr], ['trnd','soc', socStr], ['trnd','price', priceStr], ['trnd','grid', gridStr],
+    ['dag','solar', solarStr], ['dag','soc', socStr], ['dag','batt', battStr], ['dag','price', priceStr], ['dag','grid', gridStr],
+    ['trnd','solar', solarStr], ['trnd','soc', socStr], ['trnd','batt', battStr], ['trnd','price', priceStr], ['trnd','grid', gridStr],
   ];
   for (const [pfx, key, val] of pairs) {
     const el = document.getElementById(`tlm-${pfx}-${key}`);
