@@ -1831,7 +1831,7 @@ function _applyPowerDsVisibility() {
     )?.[0];
     if (key) chart.setDatasetVisibility(i, !state.hiddenPowerDs.has(key));
   });
-  chart.update('none');
+  chart.update({ duration: 300, easing: 'easeInOutQuart' });
   // Sync legend item visual state
   document.querySelectorAll('#power-legend [data-ds]').forEach(el => {
     el.classList.toggle('ds-hidden', state.hiddenPowerDs.has(el.dataset.ds));
