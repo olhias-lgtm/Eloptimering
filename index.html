@@ -666,21 +666,25 @@
   }
   .tlm-chip {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
-    gap: 1px;
-    padding: 4px 8px;
+    gap: 5px;
+    padding: 3px 8px;
     white-space: nowrap;
   }
+  .tlm-chip-icon { font-size: 0.9rem; line-height: 1; }
+  .tlm-chip-text { display: flex; flex-direction: column; gap: 0; }
   .tlm-chip-val {
     font-size: 0.78rem;
     font-weight: 600;
     color: var(--text);
+    line-height: 1.2;
   }
   .tlm-chip-lbl {
-    font-size: 0.62rem;
+    font-size: 0.6rem;
     color: var(--text-muted);
-    opacity: 0.7;
+    opacity: 0.65;
+    line-height: 1.2;
   }
 
   @media (max-width: 900px) {
@@ -1162,11 +1166,11 @@
   <div id="tab-panel-dag" style="display:none">
 
   <div class="tab-live-mini" id="mini-live-dag">
-    <span class="tlm-chip"><span class="tlm-chip-val">☀️ <b id="tlm-dag-solar">—</b></span><span class="tlm-chip-lbl">Solar</span></span>
-    <span class="tlm-chip"><span class="tlm-chip-val">🔋 <b id="tlm-dag-soc">—</b></span><span class="tlm-chip-lbl">Batteri SoC</span></span>
-    <span class="tlm-chip"><span class="tlm-chip-val">🔌 <b id="tlm-dag-batt">—</b></span><span class="tlm-chip-lbl">Batteri kW</span></span>
-    <span class="tlm-chip"><span class="tlm-chip-val">💰 <b id="tlm-dag-price">—</b></span><span class="tlm-chip-lbl">Spotpris</span></span>
-    <span class="tlm-chip"><span class="tlm-chip-val">⚡ <b id="tlm-dag-grid">—</b></span><span class="tlm-chip-lbl">Elnät</span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">☀️</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-dag-solar">—</b></span><span class="tlm-chip-lbl">Solar</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">🔋</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-dag-soc">—</b></span><span class="tlm-chip-lbl">Batteri SoC</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">🔌</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-dag-batt">—</b></span><span class="tlm-chip-lbl">Batteri kW</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">💰</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-dag-price">—</b></span><span class="tlm-chip-lbl">Spotpris</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">⚡</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-dag-grid">—</b></span><span class="tlm-chip-lbl">Elnät</span></span></span>
   </div>
 
   <!-- Forecast notice -->
@@ -1246,11 +1250,11 @@
   <div id="tab-panel-trender" style="display:none">
 
   <div class="tab-live-mini" id="mini-live-trender">
-    <span class="tlm-chip"><span class="tlm-chip-val">☀️ <b id="tlm-trnd-solar">—</b></span><span class="tlm-chip-lbl">Solar</span></span>
-    <span class="tlm-chip"><span class="tlm-chip-val">🔋 <b id="tlm-trnd-soc">—</b></span><span class="tlm-chip-lbl">Batteri SoC</span></span>
-    <span class="tlm-chip"><span class="tlm-chip-val">🔌 <b id="tlm-trnd-batt">—</b></span><span class="tlm-chip-lbl">Batteri kW</span></span>
-    <span class="tlm-chip"><span class="tlm-chip-val">💰 <b id="tlm-trnd-price">—</b></span><span class="tlm-chip-lbl">Spotpris</span></span>
-    <span class="tlm-chip"><span class="tlm-chip-val">⚡ <b id="tlm-trnd-grid">—</b></span><span class="tlm-chip-lbl">Elnät</span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">☀️</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-trnd-solar">—</b></span><span class="tlm-chip-lbl">Solar</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">🔋</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-trnd-soc">—</b></span><span class="tlm-chip-lbl">Batteri SoC</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">🔌</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-trnd-batt">—</b></span><span class="tlm-chip-lbl">Batteri kW</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">💰</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-trnd-price">—</b></span><span class="tlm-chip-lbl">Spotpris</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">⚡</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-trnd-grid">—</b></span><span class="tlm-chip-lbl">Elnät</span></span></span>
   </div>
 
   <!-- Monthly Summary panel -->
