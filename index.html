@@ -1724,7 +1724,7 @@ function renderPowerChart(rows, isForecast, forecastOverlay) {
     { label:`Urladdning${fSuffix}`, data: actualByTime('discharge_kw'), borderColor:C.battery,              backgroundColor:'rgba(167,139,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:`Laddning${fSuffix}`,   data: actualByTime('charge_kw'),   borderColor:'rgba(96,205,250,0.9)',   backgroundColor:'rgba(96,205,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:'SoC %',            data: actualByTime('soc_pct'),
-                                                              borderColor:'rgba(167,139,250,0.7)', backgroundColor:'transparent', tension:0.4, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[6,3], yAxisID:'y2' },
+                                                              borderColor:'rgba(167,139,250,0.7)', backgroundColor:'transparent', tension:0.4, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[6,3], yAxisID:'y2', spanGaps:true },
   ];
 
   // Intraday forecast overlay datasets (dashed, lower opacity)
@@ -1736,7 +1736,7 @@ function renderPowerChart(rows, isForecast, forecastOverlay) {
       { label:'Export (prognos)',     data: overlayByTime('export_kw'),    borderColor:'rgba(34,197,94,0.55)',   backgroundColor:'transparent', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
       { label:'Urladdning (prognos)', data: overlayByTime('discharge_kw'), borderColor:'rgba(167,139,250,0.55)', backgroundColor:'transparent', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
       { label:'Laddning (prognos)',   data: overlayByTime('charge_kw'),    borderColor:'rgba(96,205,250,0.55)',  backgroundColor:'transparent', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
-      { label:'SoC % (prognos)',      data: overlayByTime('soc_pct'),      borderColor:'rgba(167,139,250,0.45)', backgroundColor:'transparent', tension:0.4, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4], yAxisID:'y2' }
+      { label:'SoC % (prognos)',      data: overlayByTime('soc_pct'),      borderColor:'rgba(167,139,250,0.45)', backgroundColor:'transparent', tension:0.4, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4], yAxisID:'y2', spanGaps:true }
     );
   }
 
