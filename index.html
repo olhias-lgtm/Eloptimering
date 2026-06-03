@@ -624,27 +624,59 @@
     position: sticky;
     top: 0;
     z-index: 90;
-    background: var(--card);
-    border-bottom: 1px solid var(--border);
-    border-radius: 10px 10px 0 0;
+    background: var(--bg);
+    padding: 8px 4px;
+    gap: 6px;
     margin: 0 0 1rem;
-    overflow: hidden;
+    border-bottom: 1px solid var(--border);
   }
   .tab-btn {
     flex: 1;
-    padding: 11px 4px;
-    background: none;
-    border: none;
-    border-bottom: 3px solid transparent;
+    padding: 8px 6px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
     color: var(--text-muted);
     font-family: inherit;
     font-size: 0.82rem;
     cursor: pointer;
-    transition: color 0.15s, border-color 0.15s, background 0.15s;
-    letter-spacing: 0.02em;
+    transition: color 0.15s, background 0.15s, border-color 0.15s, box-shadow 0.15s;
+    letter-spacing: 0.01em;
+    font-weight: 500;
   }
-  .tab-btn:hover { background: rgba(255,255,255,0.04); color: var(--text); }
-  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .tab-btn:hover {
+    background: rgba(255,255,255,0.07);
+    color: var(--text);
+    border-color: rgba(255,255,255,0.15);
+  }
+  .tab-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0a0f1a;
+    font-weight: 700;
+    box-shadow: 0 2px 8px rgba(34,211,153,0.3);
+  }
+
+  /* Mini live strip on Dag / Trender tabs */
+  .tab-live-mini {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    padding: 7px 10px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .tlm-chip {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+  }
+  .tlm-chip b { color: var(--text); font-weight: 600; }
 
   @media (max-width: 900px) {
     .kpi-row { grid-template-columns: repeat(3, 1fr); }
@@ -1124,6 +1156,13 @@
   <!-- ═══════ TAB: Dag ═══════ -->
   <div id="tab-panel-dag" style="display:none">
 
+  <div class="tab-live-mini" id="mini-live-dag">
+    <span class="tlm-chip">☀️ <b id="tlm-dag-solar">—</b></span>
+    <span class="tlm-chip">🔋 <b id="tlm-dag-soc">—</b></span>
+    <span class="tlm-chip">💰 <b id="tlm-dag-price">—</b></span>
+    <span class="tlm-chip">⚡ <b id="tlm-dag-grid">—</b></span>
+  </div>
+
   <!-- Forecast notice -->
   <div class="forecast-notice" id="forecast-notice" style="display:none">
     📈 <span id="forecast-notice-text">Tomorrow's prices available — forecast shown for rest of today and tomorrow</span>
@@ -1199,6 +1238,13 @@
 
   <!-- ═══════ TAB: Trender ═══════ -->
   <div id="tab-panel-trender" style="display:none">
+
+  <div class="tab-live-mini" id="mini-live-trender">
+    <span class="tlm-chip">☀️ <b id="tlm-trnd-solar">—</b></span>
+    <span class="tlm-chip">🔋 <b id="tlm-trnd-soc">—</b></span>
+    <span class="tlm-chip">💰 <b id="tlm-trnd-price">—</b></span>
+    <span class="tlm-chip">⚡ <b id="tlm-trnd-grid">—</b></span>
+  </div>
 
   <!-- Monthly Summary panel -->
   <div class="card" style="margin-bottom:14px">
@@ -3289,10 +3335,47 @@ async function loadLive() {
     document.getElementById('live-fetched-badge').textContent =
       'Hämtad ' + new Date().toLocaleTimeString('sv-SE', {hour:'2-digit', minute:'2-digit'});
 
+    // Update mini live strips on Dag + Trender tabs
+    _updateMiniLive(d);
+
   } catch(e) {
     _liveFailCount++;
     console.warn(`[Live] fail #${_liveFailCount}:`, e.message);
     document.getElementById('live-fetched-badge').textContent = '⏸ Growatt offline';
+  }
+}
+
+function _updateMiniLive(d) {
+  // Solar
+  const solarW = Math.round((d.ppv_kw || 0) * 1000);
+  const solarStr = solarW >= 1000 ? `${(solarW/1000).toFixed(1)} kW` : `${solarW} W`;
+
+  // Battery SOC
+  const socStr = d.soc_pct != null ? `${d.soc_pct}%` : '—';
+
+  // Grid: positive = import (cost), negative = export (earn)
+  const netKw = (d.import_kw || 0) - (d.export_kw || 0);
+  const absW  = Math.round(Math.abs(netKw) * 1000);
+  const absStr = absW >= 1000 ? `${(absW/1000).toFixed(1)} kW` : `${absW} W`;
+  const gridStr = netKw > 0.01 ? `↓ ${absStr}` : netKw < -0.01 ? `↑ ${absStr}` : '≈ 0';
+
+  // Spot price for current hour
+  let priceStr = '—';
+  if (state.pricesData?.today) {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2,'0');
+    const pm = buildPriceMap(state.pricesData.today);
+    const p = priceAt(pm, `${hh}:00`);
+    if (p != null) priceStr = `${Math.round(p)} öre`;
+  }
+
+  const pairs = [
+    ['dag','solar', solarStr], ['dag','soc', socStr], ['dag','price', priceStr], ['dag','grid', gridStr],
+    ['trnd','solar', solarStr], ['trnd','soc', socStr], ['trnd','price', priceStr], ['trnd','grid', gridStr],
+  ];
+  for (const [pfx, key, val] of pairs) {
+    const el = document.getElementById(`tlm-${pfx}-${key}`);
+    if (el) el.textContent = val;
   }
 }
 
