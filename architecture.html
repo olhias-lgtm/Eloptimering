@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EnergySaver — Architecture</title>
+<style>
+  :root {
+    --bg:      #0a0f1a;
+    --card:    #111827;
+    --border:  rgba(255,255,255,0.08);
+    --accent:  #22d3a5;
+    --text:    #e2e8f0;
+    --muted:   #1e293b;
+    --dim:     #64748b;
+    --solar:   #fbbf24;
+    --battery: #a78bfa;
+    --import:  #f87171;
+    --export:  #34d399;
+    --blue:    #60a5fa;
+    --orange:  #fb923c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    padding-bottom: 60px;
+  }
+
+  /* ── Header ── */
+  .page-header {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 24px 24px 20px;
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .page-header h1 { font-size: 1.15rem; font-weight: 700; }
+  .page-header .sub { font-size: 0.75rem; color: var(--dim); margin-top: 2px; }
+  .back-link {
+    margin-left: auto;
+    font-size: 0.78rem;
+    color: var(--accent);
+    text-decoration: none;
+    border: 1px solid rgba(34,211,165,0.3);
+    padding: 5px 12px;
+    border-radius: 6px;
+  }
+  .back-link:hover { background: rgba(34,211,165,0.08); }
+
+  /* ── Layout ── */
+  .content { max-width: 960px; margin: 0 auto; padding: 28px 20px; }
+  .section { margin-bottom: 36px; }
+  .section-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    color: var(--dim);
+    margin-bottom: 14px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 12px;
+  }
+  .card-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card p { font-size: 0.8rem; color: var(--dim); line-height: 1.55; }
+
+  /* ── Tables ── */
+  table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  th {
+    text-align: left;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--dim);
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  td { padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td code {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.72rem;
+    background: rgba(255,255,255,0.06);
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: var(--accent);
+  }
+
+  /* ── Badges / chips ── */
+  .badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 99px;
+    letter-spacing: .04em;
+    white-space: nowrap;
+  }
+  .badge-green  { background: rgba(34,211,165,0.15); color: var(--accent); border: 1px solid rgba(34,211,165,0.3); }
+  .badge-blue   { background: rgba(96,165,250,0.15);  color: var(--blue);   border: 1px solid rgba(96,165,250,0.3); }
+  .badge-purple { background: rgba(167,139,250,0.15); color: var(--battery);border: 1px solid rgba(167,139,250,0.3); }
+  .badge-orange { background: rgba(251,146,60,0.15);  color: var(--orange); border: 1px solid rgba(251,146,60,0.3); }
+  .badge-red    { background: rgba(248,113,113,0.15); color: var(--import); border: 1px solid rgba(248,113,113,0.3); }
+  .badge-dim    { background: rgba(255,255,255,0.05); color: var(--dim);    border: 1px solid var(--border); }
+
+  /* ── Pipeline flow ── */
+  .pipeline {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .pipe-step {
+    flex: 1;
+    min-width: 120px;
+    background: var(--muted);
+    border: 1px solid var(--border);
+    border-right: none;
+    padding: 10px 12px;
+    position: relative;
+  }
+  .pipe-step:first-child { border-radius: 8px 0 0 8px; }
+  .pipe-step:last-child  { border-right: 1px solid var(--border); border-radius: 0 8px 8px 0; }
+  .pipe-step::after {
+    content: '▶';
+    position: absolute;
+    right: -10px; top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.65rem;
+    color: var(--dim);
+    z-index: 1;
+  }
+  .pipe-step:last-child::after { display: none; }
+  .pipe-label { font-size: 0.65rem; color: var(--dim); margin-bottom: 3px; }
+  .pipe-val   { font-size: 0.78rem; font-weight: 600; }
+
+  /* ── Architecture diagram ── */
+  .arch-diagram {
+    display: grid;
+    grid-template-columns: 1fr 48px 1fr 48px 1fr;
+    gap: 0;
+    align-items: center;
+    margin: 4px 0 8px;
+  }
+  .arch-box {
+    background: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .arch-box-title { font-size: 0.72rem; font-weight: 700; margin-bottom: 6px; }
+  .arch-box ul { list-style: none; padding: 0; }
+  .arch-box li { font-size: 0.7rem; color: var(--dim); padding: 2px 0; }
+  .arch-box li::before { content: '· '; color: var(--accent); }
+  .arch-arrow {
+    text-align: center;
+    font-size: 1.2rem;
+    color: var(--dim);
+  }
+
+  /* ── Cron table highlight ── */
+  .cron-time { font-family: monospace; color: var(--solar); font-size: 0.72rem; }
+
+  /* ── DB schema ── */
+  .schema-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+  }
+  .schema-table { background: var(--muted); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .schema-table-header {
+    background: rgba(255,255,255,0.05);
+    padding: 8px 12px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .schema-table-header .pk { font-size: 0.6rem; color: var(--solar); margin-left: auto; }
+  .schema-col { padding: 5px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); display: flex; justify-content: space-between; align-items: baseline; }
+  .schema-col:last-child { border-bottom: none; }
+  .schema-col-name { font-size: 0.72rem; font-family: monospace; color: var(--accent); }
+  .schema-col-type { font-size: 0.65rem; color: var(--dim); }
+
+  /* ── Security grid ── */
+  .security-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 600px) { .security-grid { grid-template-columns: 1fr; } }
+  .sec-item {
+    background: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 13px;
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .sec-icon { font-size: 1.1rem; line-height: 1; margin-top: 1px; }
+  .sec-title { font-size: 0.75rem; font-weight: 700; margin-bottom: 3px; }
+  .sec-desc  { font-size: 0.7rem; color: var(--dim); line-height: 1.4; }
+
+  /* ── Decision table ── */
+  .decision-row td:first-child { color: var(--text); font-weight: 600; font-size: 0.78rem; }
+  .decision-row td:last-child  { color: var(--dim); font-size: 0.75rem; }
+
+  /* ── Responsive ── */
+  @media (max-width: 640px) {
+    .arch-diagram { grid-template-columns: 1fr; }
+    .arch-arrow { display: none; }
+    .pipeline { flex-direction: column; }
+    .pipe-step { border-right: 1px solid var(--border); border-bottom: none; border-radius: 0; }
+    .pipe-step:first-child { border-radius: 8px 8px 0 0; }
+    .pipe-step:last-child  { border-bottom: 1px solid var(--border); border-radius: 0 0 8px 8px; }
+    .pipe-step::after { content: '▼'; right: auto; left: 50%; bottom: -11px; top: auto; transform: translateX(-50%); }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>⚡</div>
+  <div>
+    <h1>EnergySaver — Architecture</h1>
+    <div class="sub">Project model · APIs · Data pipelines · Persistence · Security</div>
+  </div>
+  <a class="back-link" href="/">← Dashboard</a>
+</div>
+
+<div class="content">
+
+  <!-- ── OVERVIEW ── -->
+  <div class="section">
+    <div class="section-title">Overview</div>
+    <div class="arch-diagram">
+      <div class="arch-box">
+        <div class="arch-box-title">🖥️ Frontend</div>
+        <ul>
+          <li>Single <code>index.html</code></li>
+          <li>Vanilla JS + Chart.js</li>
+          <li>3-tab layout</li>
+          <li>Live polling 60 s</li>
+          <li>No build step</li>
+        </ul>
+      </div>
+      <div class="arch-arrow">⇄</div>
+      <div class="arch-box">
+        <div class="arch-box-title">☁️ Serverless API</div>
+        <ul>
+          <li>Python 3.12 on Vercel</li>
+          <li>12 functions (Hobby limit)</li>
+          <li>Cron-triggered pipelines</li>
+          <li>External: Growatt, elpris, weather, eSett</li>
+        </ul>
+      </div>
+      <div class="arch-arrow">⇄</div>
+      <div class="arch-box">
+        <div class="arch-box-title">🗄️ Supabase</div>
+        <ul>
+          <li>PostgreSQL + REST API</li>
+          <li>5 tables</li>
+          <li>Row Level Security</li>
+          <li>EU region</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── REPOSITORY ── -->
+  <div class="section">
+    <div class="section-title">Repository &amp; Versioning</div>
+    <div class="card">
+      <table>
+        <tr><th>Item</th><th>Detail</th></tr>
+        <tr><td>Repo</td><td><code>github.com/olhias-lgtm/Eloptimering</code></td></tr>
+        <tr><td>Branch model</td><td>Single <code>main</code> branch — every push triggers a Vercel production deploy</td></tr>
+        <tr><td>Versioning</td><td>No semantic versioning — Git commit history is the changelog</td></tr>
+        <tr><td>CI/CD</td><td>Vercel GitHub integration; build status at <code>vercel.com</code> dashboard</td></tr>
+        <tr><td>Runtime</td><td>Python 3.12 (Vercel) &nbsp;·&nbsp; Static HTML served via CDN</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── FRONTEND ── -->
+  <div class="section">
+    <div class="section-title">Frontend</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="card">
+        <div class="card-title">⚡ Nu tab</div>
+        <p>Live KPI tiles · Battery TOU schedule · Smart TOU suggestion for tomorrow</p>
+      </div>
+      <div class="card">
+        <div class="card-title">📅 Dag tab</div>
+        <p>Selected-day power/cost chart · Spot price chart · Cost breakdown · Running cost</p>
+      </div>
+      <div class="card">
+        <div class="card-title">📈 Trender tab</div>
+        <p>Monthly summary table · All-time ROI · Swedish national grid production mix + price sparkline</p>
+      </div>
+      <div class="card">
+        <div class="card-title">🔝 Sticky chrome</div>
+        <p>Header · Date bar · Weather strip · Tab bar always visible. Live mini-strip on Dag &amp; Trender shows Solar · SOC · Battery kW · Spotpris · Elnät</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── API ENDPOINTS ── -->
+  <div class="section">
+    <div class="section-title">API Endpoints — <code>api/*.py</code></div>
+    <div class="card">
+      <table>
+        <tr><th>File</th><th>Method</th><th>Purpose</th><th>Cache / Notes</th></tr>
+        <tr>
+          <td><code>live.py</code></td>
+          <td><span class="badge badge-blue">GET</span></td>
+          <td>Latest inverter reading from Supabase; direct Growatt fallback</td>
+          <td>Reads row written by cron — saves ~4 000 Growatt calls/day</td>
+        </tr>
+        <tr>
+          <td><code>energy.py</code></td>
+          <td><span class="badge badge-blue">GET</span></td>
+          <td>All 5-min readings for <code>?date=</code></td>
+          <td>5 min TTL for today; indefinite for past dates</td>
+        </tr>
+        <tr>
+          <td><code>collect.py</code></td>
+          <td><span class="badge badge-blue">GET</span></td>
+          <td>Write live reading to Supabase; autofill historical gaps</td>
+          <td>Called by cron-job.org every 5 min</td>
+        </tr>
+        <tr>
+          <td><code>save_summary.py</code></td>
+          <td><span class="badge badge-orange">POST</span></td>
+          <td>Upsert daily cost/earn summary</td>
+          <td>Server-side guard rejects today / future dates</td>
+        </tr>
+        <tr>
+          <td><code>monthly.py</code></td>
+          <td><span class="badge badge-blue">GET</span></td>
+          <td>All daily_summary rows for a month + all-time ROI</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td><code>prices.py</code></td>
+          <td><span class="badge badge-blue">GET</span></td>
+          <td>Spot prices for <code>?date=&amp;area=</code> from Supabase</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td><code>save_prices.py</code></td>
+          <td><span class="badge badge-blue">GET</span></td>
+          <td>Fetch prices from elprisetjustnu.se → upsert <code>spot_prices</code></td>
+          <td>Safe to re-run (upsert on ts + area)</td>
+        </tr>
+        <tr>
+          <td><code>weather.py</code></td>
+          <td><span class="badge badge-blue">GET</span></td>
+          <td>Open-Meteo GTI + met.no cloud correction forecast</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td><code>solar_model.py</code></td>
+          <td><span class="badge badge-blue">GET</span></td>
+          <td>Serve / rebuild per-slot GTI→kW correction ratios</td>
+          <td>Rebuilt nightly from 90 days history</td>
+        </tr>
+        <tr>
+          <td><code>growatt_tou.py</code></td>
+          <td><span class="badge badge-blue">GET</span> <span class="badge badge-orange">POST</span></td>
+          <td>Read/write Growatt TOU schedule; build smart daily suggestion</td>
+          <td>Write requires UI password</td>
+        </tr>
+        <tr>
+          <td><code>grid.py</code></td>
+          <td><span class="badge badge-blue">GET</span></td>
+          <td>Fetch Swedish production from eSett → Supabase; serve to frontend</td>
+          <td>1 h in-process cache; ~1–2 day data lag</td>
+        </tr>
+        <tr>
+          <td><code>status.py</code></td>
+          <td><span class="badge badge-blue">GET</span></td>
+          <td>Growatt session health check</td>
+          <td></td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── EXTERNAL INTEGRATIONS ── -->
+  <div class="section">
+    <div class="section-title">External Integrations</div>
+    <div class="card">
+      <table>
+        <tr><th>Service</th><th>Auth</th><th>Purpose</th></tr>
+        <tr><td><strong>Growatt Cloud API</strong></td><td><span class="badge badge-red">User + Pass</span></td><td>Inverter live data, historical charts, TOU read/write</td></tr>
+        <tr><td><strong>elprisetjustnu.se</strong></td><td><span class="badge badge-green">Public</span></td><td>Swedish hourly Nord Pool spot prices (SE1–SE4)</td></tr>
+        <tr><td><strong>Open-Meteo</strong></td><td><span class="badge badge-green">Public</span></td><td>GTI solar irradiance forecast + 90-day historical</td></tr>
+        <tr><td><strong>met.no</strong></td><td><span class="badge badge-green">Public</span></td><td>Cloud cover correction for solar forecast</td></tr>
+        <tr><td><strong>eSett Open Data</strong></td><td><span class="badge badge-green">Public</span></td><td>Swedish national production mix, 15-min, ~1–2 day lag</td></tr>
+        <tr><td><strong>cron-job.org</strong></td><td><span class="badge badge-dim">URL secret</span></td><td>5-min trigger for <code>collect.py</code> (Vercel Hobby has no sub-daily crons)</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── CRON PIPELINE ── -->
+  <div class="section">
+    <div class="section-title">Cron Pipeline</div>
+
+    <div class="card" style="margin-bottom:10px">
+      <div class="card-title">Every 5 minutes — cron-job.org</div>
+      <div class="pipeline">
+        <div class="pipe-step">
+          <div class="pipe-label">cron-job.org</div>
+          <div class="pipe-val">⏱ Every 5 min</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-label">collect.py</div>
+          <div class="pipe-val">Growatt API</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-label">Supabase</div>
+          <div class="pipe-val">energy_readings</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-label">live.py reads</div>
+          <div class="pipe-val">Frontend polls</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Vercel Native Crons (UTC)</div>
+      <table>
+        <tr><th>Time (UTC)</th><th>Endpoint</th><th>Purpose</th></tr>
+        <tr><td><span class="cron-time">01:00</span></td><td><code>collect?action=autofill&amp;days=3</code></td><td>Fill any data gaps in the last 3 days</td></tr>
+        <tr><td><span class="cron-time">03:00</span></td><td><code>weather</code></td><td>Pre-cache tomorrow's solar + cloud forecast</td></tr>
+        <tr><td><span class="cron-time">04:00</span></td><td><code>solar_model?action=build</code></td><td>Rebuild GTI→kW correction model from 90 days</td></tr>
+        <tr><td><span class="cron-time">06:00</span></td><td><code>save_prices?area=SE3</code></td><td>Save today's spot prices to Supabase</td></tr>
+        <tr><td><span class="cron-time">08:00</span></td><td><code>grid?action=fetch</code></td><td>Fetch 9 days of Swedish grid production from eSett</td></tr>
+        <tr><td><span class="cron-time">13:00</span></td><td><code>save_prices?area=SE3&amp;date=tomorrow</code></td><td>Save tomorrow's prices (Nord Pool publishes ~12:00 CET)</td></tr>
+        <tr><td><span class="cron-time">20:00</span></td><td><code>growatt_tou?action=notify_reset</code></td><td>Daily TOU notification / reset</td></tr>
+        <tr><td><span class="cron-time">22:10</span></td><td><code>growatt_tou?action=build_suggest</code></td><td>Build tomorrow's smart TOU suggestion (00:10 CEST)</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── TOU ALGORITHM ── -->
+  <div class="section">
+    <div class="section-title">Smart TOU Suggestion Algorithm</div>
+    <div class="pipeline">
+      <div class="pipe-step">
+        <div class="pipe-label">Step 1</div>
+        <div class="pipe-val">Spot prices</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-label">Step 2</div>
+        <div class="pipe-val">Solar forecast × model − 15%</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-label">Step 3</div>
+        <div class="pipe-val">Classify hours</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-label">Step 4</div>
+        <div class="pipe-val">Merge to ≤9 segments</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-label">Step 5</div>
+        <div class="pipe-val">Upsert + notify</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px">
+      <div class="card">
+        <div class="card-title" style="color:var(--blue)">🔋 Battery First</div>
+        <p>Cheap hour + low solar. Stock up from grid at low price.</p>
+      </div>
+      <div class="card">
+        <div class="card-title" style="color:var(--import)">⚡ Grid First</div>
+        <p>Expensive hour + low solar. Discharge battery, avoid import.</p>
+      </div>
+      <div class="card">
+        <div class="card-title" style="color:var(--solar)">☀️ Load First</div>
+        <p>Solar hour or neutral. Self-consume solar, don't force charge.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── DATABASE ── -->
+  <div class="section">
+    <div class="section-title">Database Schema — Supabase (PostgreSQL)</div>
+    <div class="schema-grid">
+
+      <div class="schema-table">
+        <div class="schema-table-header">energy_readings <span class="pk">PK: ts</span></div>
+        <div class="schema-col"><span class="schema-col-name">ts</span><span class="schema-col-type">TIMESTAMPTZ</span></div>
+        <div class="schema-col"><span class="schema-col-name">solar_kw</span><span class="schema-col-type">NUMERIC</span></div>
+        <div class="schema-col"><span class="schema-col-name">load_kw</span><span class="schema-col-type">NUMERIC</span></div>
+        <div class="schema-col"><span class="schema-col-name">import_kw</span><span class="schema-col-type">NUMERIC</span></div>
+        <div class="schema-col"><span class="schema-col-name">export_kw</span><span class="schema-col-type">NUMERIC</span></div>
+        <div class="schema-col"><span class="schema-col-name">discharge_kw</span><span class="schema-col-type">NUMERIC</span></div>
+        <div class="schema-col"><span class="schema-col-name">soc_pct</span><span class="schema-col-type">NUMERIC · nullable</span></div>
+        <div class="schema-col"><span class="schema-col-name">source</span><span class="schema-col-type">TEXT</span></div>
+      </div>
+
+      <div class="schema-table">
+        <div class="schema-table-header">daily_summary <span class="pk">PK: date</span></div>
+        <div class="schema-col"><span class="schema-col-name">date</span><span class="schema-col-type">DATE</span></div>
+        <div class="schema-col"><span class="schema-col-name">solar_kwh</span><span class="schema-col-type">NUMERIC</span></div>
+        <div class="schema-col"><span class="schema-col-name">export_kwh</span><span class="schema-col-type">NUMERIC</span></div>
+        <div class="schema-col"><span class="schema-col-name">import_kwh</span><span class="schema-col-type">NUMERIC</span></div>
+        <div class="schema-col"><span class="schema-col-name">cost_kr</span><span class="schema-col-type">NUMERIC</span></div>
+        <div class="schema-col"><span class="schema-col-name">earn_kr</span><span class="schema-col-type">NUMERIC</span></div>
+        <div class="schema-col"><span class="schema-col-name">fixed_kr</span><span class="schema-col-type">NUMERIC</span></div>
+        <div class="schema-col"><span class="schema-col-name">net_kr</span><span class="schema-col-type">NUMERIC</span></div>
+      </div>
+
+      <div class="schema-table">
+        <div class="schema-table-header">spot_prices <span class="pk">PK: (ts, area)</span></div>
+        <div class="schema-col"><span class="schema-col-name">ts</span><span class="schema-col-type">TIMESTAMPTZ</span></div>
+        <div class="schema-col"><span class="schema-col-name">area</span><span class="schema-col-type">TEXT · SE1–SE4</span></div>
+        <div class="schema-col"><span class="schema-col-name">sek_per_kwh</span><span class="schema-col-type">NUMERIC · excl. VAT</span></div>
+      </div>
+
+      <div class="schema-table">
+        <div class="schema-table-header">solar_model <span class="pk">PK: slot</span></div>
+        <div class="schema-col"><span class="schema-col-name">slot</span><span class="schema-col-type">INT · 0–287</span></div>
+        <div class="schema-col"><span class="schema-col-name">ratio</span><span class="schema-col-type">NUMERIC · nullable</span></div>
+        <div class="schema-col"><span class="schema-col-name">day_count</span><span class="schema-col-type">INT</span></div>
+      </div>
+
+      <div class="schema-table">
+        <div class="schema-table-header">tou_suggestions <span class="pk">PK: date</span></div>
+        <div class="schema-col"><span class="schema-col-name">date</span><span class="schema-col-type">DATE</span></div>
+        <div class="schema-col"><span class="schema-col-name">segments</span><span class="schema-col-type">JSONB</span></div>
+        <div class="schema-col"><span class="schema-col-name">reasoning</span><span class="schema-col-type">TEXT</span></div>
+        <div class="schema-col"><span class="schema-col-name">sim_kpis</span><span class="schema-col-type">JSONB</span></div>
+      </div>
+
+      <div class="schema-table">
+        <div class="schema-table-header">grid_production <span class="pk">PK: ts</span></div>
+        <div class="schema-col"><span class="schema-col-name">ts</span><span class="schema-col-type">TIMESTAMPTZ</span></div>
+        <div class="schema-col"><span class="schema-col-name">nuclear_mw</span><span class="schema-col-type">NUMERIC(8,2)</span></div>
+        <div class="schema-col"><span class="schema-col-name">hydro_mw</span><span class="schema-col-type">NUMERIC(8,2)</span></div>
+        <div class="schema-col"><span class="schema-col-name">wind_mw</span><span class="schema-col-type">NUMERIC(8,2)</span></div>
+        <div class="schema-col"><span class="schema-col-name">solar_mw</span><span class="schema-col-type">NUMERIC(8,2)</span></div>
+        <div class="schema-col"><span class="schema-col-name">thermal_mw</span><span class="schema-col-type">NUMERIC(8,2)</span></div>
+        <div class="schema-col"><span class="schema-col-name">other_mw</span><span class="schema-col-type">NUMERIC(8,2)</span></div>
+        <div class="schema-col"><span class="schema-col-name">total_mw</span><span class="schema-col-type">NUMERIC(8,2)</span></div>
+      </div>
+
+    </div>
+    <div class="card" style="margin-top:12px">
+      <p>Row Level Security enabled on all tables. Public SELECT, INSERT, UPDATE permitted — personal single-user dashboard, no multi-user auth required. Anon key stored as Vercel environment variable, never exposed in source code.</p>
+    </div>
+  </div>
+
+  <!-- ── SECURITY ── -->
+  <div class="section">
+    <div class="section-title">Security</div>
+    <div class="security-grid">
+      <div class="sec-item">
+        <div class="sec-icon">🔑</div>
+        <div>
+          <div class="sec-title">Credentials</div>
+          <div class="sec-desc"><code>GROWATT_USER</code>, <code>GROWATT_PASS</code>, <code>SUPABASE_URL</code>, <code>SUPABASE_ANON_KEY</code> stored as Vercel env vars. Never in source code or client.</div>
+        </div>
+      </div>
+      <div class="sec-item">
+        <div class="sec-icon">🛡️</div>
+        <div>
+          <div class="sec-title">Row Level Security</div>
+          <div class="sec-desc">Enabled on all Supabase tables. Anon key allows read + write but nothing outside defined RLS policies.</div>
+        </div>
+      </div>
+      <div class="sec-item">
+        <div class="sec-icon">🔒</div>
+        <div>
+          <div class="sec-title">TOU write gate</div>
+          <div class="sec-desc">Growatt inverter writes require a password entered in the UI. Validated server-side before any TOU segment is pushed to the inverter.</div>
+        </div>
+      </div>
+      <div class="sec-item">
+        <div class="sec-icon">📅</div>
+        <div>
+          <div class="sec-title">Data integrity guard</div>
+          <div class="sec-desc"><code>save_summary.py</code> has a server-side CEST date check — refuses writes for today or future dates regardless of client behaviour or stale cache.</div>
+        </div>
+      </div>
+      <div class="sec-item">
+        <div class="sec-icon">🌐</div>
+        <div>
+          <div class="sec-title">CORS</div>
+          <div class="sec-desc">All API handlers return <code>Access-Control-Allow-Origin: *</code>. Acceptable for a personal tool with no sensitive write endpoints exposed without auth.</div>
+        </div>
+      </div>
+      <div class="sec-item">
+        <div class="sec-icon">⏱️</div>
+        <div>
+          <div class="sec-title">Growatt rate limiting</div>
+          <div class="sec-desc"><code>live.py</code> reads from Supabase instead of Growatt, eliminating ~4 000 direct API calls per day and reducing account lockout risk.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── DESIGN DECISIONS ── -->
+  <div class="section">
+    <div class="section-title">Key Design Decisions</div>
+    <div class="card">
+      <table>
+        <tr><th>Decision</th><th>Rationale</th></tr>
+        <tr class="decision-row"><td>Single <code>index.html</code>, no build step</td><td>Zero toolchain — instant deploy, trivial to inspect, works in any browser without npm.</td></tr>
+        <tr class="decision-row"><td>Vercel Hobby + cron-job.org hybrid</td><td>Vercel Hobby only supports daily crons natively. 5-min live data requires an external scheduler.</td></tr>
+        <tr class="decision-row"><td>Supabase anon key, no user auth</td><td>Personal single-user dashboard. Full auth would add complexity with zero benefit.</td></tr>
+        <tr class="decision-row"><td>eSett instead of ENTSO-E</td><td>eSett requires no token and returns clean JSON. ENTSO-E requires registration and returns XML.</td></tr>
+        <tr class="decision-row"><td>Nuclear nominal = 6 804 MW hardcoded</td><td>Forsmark 1+2+3 + Ringhals 3+4 + Oskarshamn 3. Changes only if reactors open or permanently close.</td></tr>
+        <tr class="decision-row"><td>12-function Vercel limit awareness</td><td>Drove deletion of <code>backfill.py</code> to add <code>grid.py</code>. Helper modules use <code>_</code> prefix to avoid counting.</td></tr>
+        <tr class="decision-row"><td>−15% solar forecast haircut</td><td>Safety margin on TOU suggestion to avoid over-relying on solar that may not materialise (clouds, dust, shading).</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div style="text-align:center;font-size:0.65rem;color:var(--dim);margin-top:20px">
+    EnergySaver · Generated from source · <a href="https://github.com/olhias-lgtm/Eloptimering" style="color:var(--dim)">github.com/olhias-lgtm/Eloptimering</a>
+  </div>
+
+</div>
+</body>
+</html>
