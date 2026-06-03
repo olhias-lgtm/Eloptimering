@@ -109,10 +109,16 @@ Vercel Hobby does not support sub-daily cron intervals natively.
 
 ---
 
-## Persistence — Supabase (PostgreSQL)
+## Persistence — Supabase · PostgreSQL · PostgREST
+
+| Layer | Technology | Role |
+|-------|-----------|------|
+| Platform | **Supabase** | BaaS — hosts the DB, manages credentials, RLS policies and admin dashboard |
+| Database engine | **PostgreSQL** | Relational storage; primary keys, TIMESTAMPTZ, JSONB, NUMERIC |
+| REST layer | **PostgREST** | Auto-generates REST endpoints from the schema; all `SUPABASE_URL/rest/v1/…` calls hit PostgREST |
+| Access control | **Row Level Security** | PostgreSQL-native RLS; anon key is safe client-side because RLS limits its reach |
 
 **Project:** `ltajsyuwfxoufmogfevj` (EU region)
-**Auth model:** Anon key used by both backend (env var) and read operations; Row Level Security enabled on all tables.
 
 ### Tables
 

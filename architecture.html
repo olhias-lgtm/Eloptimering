@@ -269,12 +269,12 @@
       </div>
       <div class="arch-arrow">⇄</div>
       <div class="arch-box">
-        <div class="arch-box-title">🗄️ Supabase</div>
+        <div class="arch-box-title">🗄️ Supabase (BaaS)</div>
         <ul>
-          <li>PostgreSQL + REST API</li>
-          <li>5 tables</li>
-          <li>Row Level Security</li>
-          <li>EU region</li>
+          <li>PostgreSQL — relational engine</li>
+          <li>PostgREST — auto REST from schema</li>
+          <li>Row Level Security (PG native)</li>
+          <li>5 tables · EU region</li>
         </ul>
       </div>
     </div>
@@ -501,7 +501,17 @@
 
   <!-- ── DATABASE ── -->
   <div class="section">
-    <div class="section-title">Database Schema — Supabase (PostgreSQL)</div>
+    <div class="section-title">Database — Supabase · PostgreSQL · PostgREST</div>
+    <div class="card" style="margin-bottom:12px">
+      <table>
+        <tr><th>Layer</th><th>Technology</th><th>Role</th></tr>
+        <tr><td>Platform</td><td><strong>Supabase</strong></td><td>Backend-as-a-Service — hosts the DB, manages credentials, RLS policies and the admin dashboard</td></tr>
+        <tr><td>Database engine</td><td><strong>PostgreSQL</strong></td><td>Relational storage with primary keys, unique constraints, TIMESTAMPTZ, JSONB and NUMERIC types</td></tr>
+        <tr><td>REST layer</td><td><strong>PostgREST</strong></td><td>Auto-generates REST endpoints from the PostgreSQL schema. All <code>SUPABASE_URL/rest/v1/…</code> calls in the API hit PostgREST — no custom query logic needed</td></tr>
+        <tr><td>Access control</td><td><strong>Row Level Security</strong></td><td>PostgreSQL-native RLS policies; the anon key is safe to use client-side because RLS limits what it can reach</td></tr>
+      </table>
+    </div>
+    <div class="section-title" style="margin-top:4px">Schema</div>
     <div class="schema-grid">
 
       <div class="schema-table">
