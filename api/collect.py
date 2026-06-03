@@ -162,6 +162,36 @@ def _expected_live_slots(date_str: str) -> int:
     return max(1, (now_local.hour * 60 + now_local.minute) // 5)
 
 
+def _delete_future_chart_zeros(today: "date") -> int:
+    """Delete chart rows for today where ts is in the future (fake zeros from mid-day backfill).
+    Returns the number of rows deleted."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return 0
+    try:
+        # Use current UTC time as the cutoff — anything after now is a future slot
+        now_utc = datetime.now(timezone.utc).isoformat()
+        url = (
+            f"{SUPABASE_URL}/rest/v1/energy_readings"
+            f"?ts=gt.{urllib.parse.quote(now_utc)}"
+            f"&soc_pct=is.null"
+        )
+        req = urllib.request.Request(url, method="DELETE", headers={
+            "apikey":        SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Prefer":        "return=representation",
+            "Content-Type":  "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=10) as r:
+            deleted = json.loads(r.read())
+            count = len(deleted) if isinstance(deleted, list) else 0
+            if count:
+                print(f"[autofill] deleted {count} future chart-zero rows for {today}")
+            return count
+    except Exception as e:
+        print(f"[autofill] clean_zeros error: {e}")
+        return 0
+
+
 def _do_autofill(days: int, dry_run: bool) -> tuple[int, dict]:
     utc_offset_h = _cest_offset(datetime.now(timezone.utc).date())
     tz_local = timezone(timedelta(hours=utc_offset_h))
@@ -193,12 +223,20 @@ def _do_autofill(days: int, dry_run: bool) -> tuple[int, dict]:
 
         results.append(entry)
 
+    # Clean up fake-zero chart rows for today: future slots stored by a previous
+    # mid-day backfill. A chart row with ts > now cannot have real data, so it is
+    # safe to delete unconditionally (live rows have soc_pct IS NOT NULL → kept).
+    zeros_deleted = 0
+    if not dry_run:
+        zeros_deleted = _delete_future_chart_zeros(today_local)
+
     return 200, {
-        "ok":           True,
-        "dry_run":      dry_run,
-        "days_checked": len(results),
-        "filled":       filled_dates,
-        "results":      results,
+        "ok":              True,
+        "dry_run":         dry_run,
+        "days_checked":    len(results),
+        "filled":          filled_dates,
+        "zeros_deleted":   zeros_deleted,
+        "results":         results,
     }
 
 
