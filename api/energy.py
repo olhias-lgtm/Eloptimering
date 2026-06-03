@@ -40,7 +40,7 @@ def _fetch_readings(date_str: str) -> list:
             f"{SUPABASE_URL}/rest/v1/energy_readings"
             f"?ts=gte.{urllib.parse.quote(start)}"
             f"&ts=lte.{urllib.parse.quote(end)}"
-            f"&order=ts.asc"
+            f"&order=ts.asc,ppv_kw.desc.nullslast"
             f"&select=ts,ppv_kw,load_kw,export_kw,import_kw,charge_kw,discharge_kw,"
             f"soc_pct,{','.join(DAILY_TOTALS_FIELDS.values())}"
         )
