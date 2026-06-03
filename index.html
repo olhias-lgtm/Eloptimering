@@ -2222,9 +2222,9 @@ async function buildTomorrowForecast(tomorrowStr, c) {
     + `&tilt=${c.panelTilt}&azimuth=${c.panelAzimuth}`
     + `&timezone=Europe%2FStockholm&forecast_days=2`
   );
-  let gtiHourly;
+  let gtiHourly, gtiResp;
   try {
-    const gtiResp = await fetchJSON(gtiUrl);
+    gtiResp   = await fetchJSON(gtiUrl);
     gtiHourly = extractHourlyGTI(gtiResp, tomorrowStr);
   } catch(e) {
     throw new Error(`GTI fetch failed: ${e.message}`);
@@ -2254,30 +2254,62 @@ async function buildTomorrowForecast(tomorrowStr, c) {
   // 3. Convert GTI to solar power, accounting for panel geometry (zeros out when sun is behind panel)
   const solarProfile = gtiToSolarProfile(gtiHourly, c.solarKwp, c.panelTilt, c.panelAzimuth, tomorrowStr);
 
-  // 4. Compute starting SoC at midnight from latest real SoC, discharging at 1 kW until 00:00
-  const cap    = c.batteryKwh;
+  // 4. Compute starting SoC at midnight by simulating today's remaining slots with solar.
+  //    yesterdayStr here is actually today (one day before tomorrowStr).
+  //    We extract today's GTI from the same 2-day gtiResp already fetched above.
+  const cap  = c.batteryKwh;
   const socMin = cap * 0.10;
-  const effD   = c.batteryEff;
+  const effC = c.batteryEff;
+  const effD = c.batteryEff;
+  const kwh5 = 5 / 60;
 
-  // Latest real SoC from today's data (last non-null reading)
-  let latestSocPct = c.socStart;  // fallback to manual config
+  // Latest real SoC from today's actual readings
+  let latestSocPct = c.socStart;
   if (state.energyData) {
     const socRows = state.energyData.filter(r => r.soc_pct != null);
     if (socRows.length > 0) latestSocPct = socRows[socRows.length - 1].soc_pct;
   }
 
-  // Hours remaining from now until midnight CEST
-  const nowCEST          = new Date(new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' }));
-  const hoursUntilMidnight = (24 * 60 - (nowCEST.getHours() * 60 + nowCEST.getMinutes())) / 60;
+  // Current 5-min slot in CEST
+  const nowCEST = new Date(new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' }));
+  const nowSlot = Math.min(287, Math.floor((nowCEST.getHours() * 60 + nowCEST.getMinutes()) / 5));
 
-  // Drain battery at 1 kW base load, respecting 10% floor; grid covers any shortfall
-  let soc_kwh_now    = cap * (latestSocPct / 100);
-  const kwhNeeded    = 1.0 * hoursUntilMidnight;           // 1 kW base load × hours
-  const kwhFromBatt  = Math.min(Math.max(0, soc_kwh_now - socMin), kwhNeeded / effD * effD);
-  const soc_kwh_mid  = Math.max(socMin, soc_kwh_now - kwhFromBatt / effD);
-  const midnightSoc  = Math.round((soc_kwh_mid / cap) * 100);
+  // Today's solar profile from the same 2-day GTI response (yesterdayStr = today in this fn)
+  const gtiTodayHourly  = extractHourlyGTI(gtiResp, yesterdayStr);
+  const solarTodayProfile = gtiTodayHourly
+    ? gtiToSolarProfile(gtiTodayHourly, c.solarKwp, c.panelTilt, c.panelAzimuth, yesterdayStr)
+    : new Array(288).fill(0);
 
-  console.log(`[forecast] Latest SoC: ${latestSocPct}% → midnight SoC: ${midnightSoc}% (${hoursUntilMidnight.toFixed(1)}h drain)`);
+  // Today's actual slot lookup so we anchor to the latest real SoC
+  const todayBySlot = {};
+  if (state.energyData) {
+    state.energyData.forEach(r => { todayBySlot[Math.round(r.minutes / 5)] = r; });
+  }
+
+  // Simulate today from nowSlot to midnight to get an accurate midnight SoC
+  let soc_kwh = cap * (latestSocPct / 100);
+  for (let i = nowSlot; i < 288; i++) {
+    // Anchor to real SoC if the current slot has one
+    const real = todayBySlot[i];
+    if (real?.soc_pct != null && i === nowSlot) {
+      soc_kwh = cap * (real.soc_pct / 100);
+    }
+    const solar_kw = solarTodayProfile[i];
+    const load_kw  = loadProfile[i] || 1.0;
+    const net_kw   = solar_kw - load_kw;
+    if (net_kw >= 0) {
+      const chargeRoom_kw = ((cap - soc_kwh) / kwh5) / effC;
+      const charge_kw     = Math.min(net_kw, Math.max(0, chargeRoom_kw));
+      soc_kwh = Math.min(cap, soc_kwh + charge_kw * kwh5 * effC);
+    } else {
+      const availKwh    = Math.max(0, soc_kwh - socMin);
+      const discharge_kw = Math.min(-net_kw, Math.max(0, (availKwh / kwh5) * effD));
+      soc_kwh = Math.max(socMin, soc_kwh - (discharge_kw / effD) * kwh5);
+    }
+  }
+  const midnightSoc = Math.round((soc_kwh / cap) * 100);
+
+  console.log(`[forecast] SoC now: ${latestSocPct}% → simulated midnight SoC: ${midnightSoc}% (slot ${nowSlot}→287 with solar)`);
 
   // Override socStart with the computed midnight value
   const cForecast = { ...c, socStart: midnightSoc };
