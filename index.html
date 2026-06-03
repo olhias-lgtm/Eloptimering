@@ -1174,7 +1174,10 @@
     <div class="chart-wrap" style="height:220px;position:relative">
       <canvas id="grid-chart"></canvas>
     </div>
-    <div style="font-size:0.68rem;opacity:0.4;margin-top:6px;text-align:right">
+    <div style="height:80px;position:relative;margin-top:6px">
+      <canvas id="grid-price-chart"></canvas>
+    </div>
+    <div style="font-size:0.68rem;opacity:0.4;margin-top:4px;text-align:right">
       Källa: eSett Open Data · 1–2 dagars fördröjning
     </div>
   </div>
@@ -4198,18 +4201,12 @@ function renderGridChart(rows, priceMap = {}) {
   const hasPrices = priceData.some(v => v != null);
 
   const datasets = [
-    { label: 'Kärnkraft', data: sampled.map(r => r.nuclear),  backgroundColor: 'rgba(167,139,250,0.6)', borderColor: 'rgba(167,139,250,0.9)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
-    { label: 'Vattenkraft', data: sampled.map(r => r.hydro),  backgroundColor: 'rgba(96,165,250,0.55)', borderColor: 'rgba(96,165,250,0.85)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
-    { label: 'Vind',        data: sampled.map(r => r.wind),   backgroundColor: 'rgba(52,211,153,0.5)',  borderColor: 'rgba(52,211,153,0.8)',  fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
-    { label: 'Sol',         data: sampled.map(r => r.solar),  backgroundColor: 'rgba(245,158,11,0.55)', borderColor: 'rgba(245,158,11,0.85)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
+    { label: 'Kärnkraft', data: sampled.map(r => r.nuclear),  backgroundColor: 'rgba(167,139,250,0.6)', borderColor: 'rgba(167,139,250,0.9)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
+    { label: 'Vattenkraft', data: sampled.map(r => r.hydro),  backgroundColor: 'rgba(96,165,250,0.55)', borderColor: 'rgba(96,165,250,0.85)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
+    { label: 'Vind',        data: sampled.map(r => r.wind),   backgroundColor: 'rgba(52,211,153,0.5)',  borderColor: 'rgba(52,211,153,0.8)',  fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
+    { label: 'Sol',         data: sampled.map(r => r.solar),  backgroundColor: 'rgba(245,158,11,0.55)', borderColor: 'rgba(245,158,11,0.85)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
     { label: 'Termisk+Övrigt', data: sampled.map(r => (r.thermal||0) + (r.other||0)),
-      backgroundColor: 'rgba(156,163,175,0.4)', borderColor: 'rgba(156,163,175,0.7)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
-    ...(hasPrices ? [{
-      label: 'Spotpris', data: priceData, yAxisID: 'y2',
-      borderColor: 'rgba(251,146,60,0.9)', backgroundColor: 'transparent',
-      fill: false, borderWidth: 2, pointRadius: 0, tension: 0.3,
-      borderDash: [],
-    }] : []),
+      backgroundColor: 'rgba(156,163,175,0.4)', borderColor: 'rgba(156,163,175,0.7)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
   ];
 
   upsertChart('grid-chart', 'grid', {
@@ -4226,9 +4223,7 @@ function renderGridChart(rows, priceMap = {}) {
         },
         tooltip: {
           callbacks: {
-            label: ctx => ctx.dataset.yAxisID === 'y2'
-              ? `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'} öre/kWh`
-              : `${ctx.dataset.label}: ${Math.round(ctx.parsed.y).toLocaleString('sv-SE')} MW`,
+            label: ctx => `${ctx.dataset.label}: ${Math.round(ctx.parsed.y).toLocaleString('sv-SE')} MW`,
           },
         },
       },
@@ -4244,12 +4239,55 @@ function renderGridChart(rows, priceMap = {}) {
             callback: v => v >= 1000 ? `${(v/1000).toFixed(1)} GW` : `${v} MW` },
           grid: { color: 'rgba(255,255,255,0.04)' },
         },
-        y2: {
+      },
+    },
+  });
+
+  // Companion spot price chart — shares same X labels, own vertical space
+  renderGridPriceChart(labels, priceData);
+}
+
+function renderGridPriceChart(labels, priceData) {
+  if (!priceData.some(v => v != null)) return;
+
+  upsertChart('grid-price-chart', 'grid-price', {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Spotpris',
+        data: priceData,
+        borderColor: 'rgba(251,146,60,0.9)',
+        backgroundColor: 'rgba(251,146,60,0.12)',
+        fill: true,
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.3,
+        spanGaps: true,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => `Spotpris: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'} öre/kWh`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { display: false },
+          grid:  { color: 'rgba(255,255,255,0.04)' },
+        },
+        y: {
           position: 'right',
-          display: hasPrices,
           title: { display: true, text: 'öre/kWh', font: { size: 9 }, color: 'rgba(251,146,60,0.65)' },
-          ticks: { font: { size: 10 }, color: 'rgba(251,146,60,0.75)', callback: v => Math.round(v) },
-          grid: { drawOnChartArea: false },
+          ticks: { font: { size: 9 }, color: 'rgba(251,146,60,0.75)', maxTicksLimit: 3, callback: v => Math.round(v) },
+          grid: { color: 'rgba(255,255,255,0.04)' },
         },
       },
     },
