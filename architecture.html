@@ -443,17 +443,17 @@
     </div>
 
     <div class="card">
-      <div class="card-title">Vercel Native Crons (UTC)</div>
+      <div class="card-title">Vercel Native Crons (CEST / Europe·Stockholm)</div>
       <table>
-        <tr><th>Time (UTC)</th><th>Endpoint</th><th>Purpose</th></tr>
-        <tr><td><span class="cron-time">01:00</span></td><td><code>collect?action=autofill&amp;days=3</code></td><td>Fill any data gaps in the last 3 days</td></tr>
-        <tr><td><span class="cron-time">03:00</span></td><td><code>weather</code></td><td>Pre-cache tomorrow's solar + cloud forecast</td></tr>
-        <tr><td><span class="cron-time">04:00</span></td><td><code>solar_model?action=build</code></td><td>Rebuild GTI→kW correction model from 90 days</td></tr>
-        <tr><td><span class="cron-time">06:00</span></td><td><code>save_prices?area=SE3</code></td><td>Save today's spot prices to Supabase</td></tr>
-        <tr><td><span class="cron-time">08:00</span></td><td><code>grid?action=fetch</code></td><td>Fetch 9 days of Swedish grid production from eSett</td></tr>
-        <tr><td><span class="cron-time">13:00</span></td><td><code>save_prices?area=SE3&amp;date=tomorrow</code></td><td>Save tomorrow's prices (Nord Pool publishes ~12:00 CET)</td></tr>
-        <tr><td><span class="cron-time">20:00</span></td><td><code>growatt_tou?action=notify_reset</code></td><td>Daily TOU notification / reset</td></tr>
-        <tr><td><span class="cron-time">22:10</span></td><td><code>growatt_tou?action=build_suggest</code></td><td>Build tomorrow's smart TOU suggestion (00:10 CEST)</td></tr>
+        <tr><th>Time (CEST)</th><th>Endpoint</th><th>Purpose</th></tr>
+        <tr><td><span class="cron-time">03:00</span></td><td><code>collect?action=autofill&amp;days=3</code></td><td>Fill any data gaps in the last 3 days</td></tr>
+        <tr><td><span class="cron-time">05:00</span></td><td><code>weather</code></td><td>Pre-cache tomorrow's solar + cloud forecast</td></tr>
+        <tr><td><span class="cron-time">06:00</span></td><td><code>solar_model?action=build</code></td><td>Rebuild GTI→kW correction model from 90 days</td></tr>
+        <tr><td><span class="cron-time">08:00</span></td><td><code>save_prices?area=SE3</code></td><td>Save today's spot prices to Supabase</td></tr>
+        <tr><td><span class="cron-time">10:00</span></td><td><code>grid?action=fetch</code></td><td>Fetch 9 days of Swedish grid production from eSett</td></tr>
+        <tr><td><span class="cron-time">15:00</span></td><td><code>save_prices?area=SE3&amp;date=tomorrow</code></td><td>Save tomorrow's prices (Nord Pool publishes ~14:00 CEST)</td></tr>
+        <tr><td><span class="cron-time">22:00</span></td><td><code>growatt_tou?action=notify_reset</code></td><td>Daily TOU notification / reset</td></tr>
+        <tr><td><span class="cron-time">00:10</span></td><td><code>growatt_tou?action=build_suggest</code></td><td>Build smart TOU suggestion for the coming day</td></tr>
       </table>
     </div>
   </div>
