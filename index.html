@@ -4167,12 +4167,6 @@ function renderGridChart(rows) {
     { label: 'Sol',         data: sampled.map(r => r.solar),  backgroundColor: 'rgba(245,158,11,0.55)', borderColor: 'rgba(245,158,11,0.85)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
     { label: 'Termisk+Övrigt', data: sampled.map(r => (r.thermal||0) + (r.other||0)),
       backgroundColor: 'rgba(156,163,175,0.4)', borderColor: 'rgba(156,163,175,0.7)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
-    // Nuclear nominal reference line
-    { label: `Kärnkraft nominell (${NUCLEAR_NOMINAL_MW} MW)`,
-      data: sampled.map(() => NUCLEAR_NOMINAL_MW),
-      borderColor: 'rgba(167,139,250,0.5)', borderDash: [6,4],
-      borderWidth: 1.5, fill: false, pointRadius: 0, tension: 0,
-      yAxisID: 'y' },
   ];
 
   upsertChart('grid-chart', 'grid', {
