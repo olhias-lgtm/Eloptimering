@@ -2,6 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Harness: Electricity Dashboard
+
+**Goal:** Coordinate backend, frontend, and infra changes without breaking the data contract between layers.
+
+**Trigger:** For tasks that touch more than one axis (Python + HTML, or schema + code), use the `orchestrate` skill. Single-file fixes can be handled directly.
+
+**Agents:** `.claude/agents/` — `orchestrator`, `backend-agent`, `frontend-agent`, `infra-agent`
+**Skills:** `.claude/skills/` — `orchestrate`, `backend`, `frontend`, `infra`
+
+**Change history:**
+| Date | Change | Target | Reason |
+|------|--------|--------|--------|
+| 2026-06-03 | Initial harness setup | All | First configuration |
+
 ## What this project is
 
 Real-time electricity cost & earnings dashboard for a Swedish household with Growatt solar + battery inverter. Combines Growatt API data, Nordpool/Fortum spot prices, and Ellevio grid tariffs.
