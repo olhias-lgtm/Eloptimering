@@ -251,8 +251,9 @@ class handler(BaseHTTPRequestHandler):
             self._send({"ok": True, "ppv_kw": data.get("ppv_kw")})
         except Exception as e:
             print(f"[collect] error: {e}")
-            # Still return 200 so cron-job.org doesn't flag it as failing
-            self._send({"ok": False, "error": str(e)})
+            # Return 500 so cron-job.org can detect and alert on Growatt failures.
+            # (Previously 200 to avoid alerts — but silent failures are worse.)
+            self._send({"ok": False, "error": str(e)}, status=500)
 
     def _send(self, data, status=200):
         body = json.dumps(data).encode()
