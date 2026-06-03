@@ -618,6 +618,34 @@
 
   .last-updated { font-size: 9px; color: var(--dim); align-self: center; opacity: 0.7; }
 
+  /* Tab bar */
+  #tab-bar {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 90;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    border-radius: 10px 10px 0 0;
+    margin: 0 0 1rem;
+    overflow: hidden;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 11px 4px;
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    letter-spacing: 0.02em;
+  }
+  .tab-btn:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
   @media (max-width: 900px) {
     .kpi-row { grid-template-columns: repeat(3, 1fr); }
     .kpi-row-cost { grid-template-columns: repeat(3, 1fr); }
@@ -943,7 +971,14 @@
 
 <main>
 
-  <!-- Config row -->
+  <!-- Tab bar -->
+  <div id="tab-bar">
+    <button class="tab-btn active" id="tab-btn-nu"      onclick="switchTab('nu')">⚡ Nu</button>
+    <button class="tab-btn"        id="tab-btn-dag"     onclick="switchTab('dag')">📅 Dag</button>
+    <button class="tab-btn"        id="tab-btn-trender" onclick="switchTab('trender')">📈 Trender</button>
+  </div>
+
+  <!-- Config row — always visible, outside tab panels -->
   <div class="config-row">
     <div class="config-field">
       <label>Price Area</label>
@@ -978,6 +1013,9 @@
     </div>
     <button class="refresh-btn" id="refresh-btn" onclick="refresh()">↻ Refresh</button>
   </div>
+  <!-- ═══════ TAB: Nu ═══════ -->
+  <div id="tab-panel-nu">
+
   <!-- KPI row 1: energy -->
   <div class="kpi-row">
     <div class="kpi solar">
@@ -1081,6 +1119,11 @@
     <div id="suggest-reasoning" style="display:none;margin-top:10px;font-size:11px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px"></div>
   </div>
 
+  </div><!-- /tab-panel-nu -->
+
+  <!-- ═══════ TAB: Dag ═══════ -->
+  <div id="tab-panel-dag" style="display:none">
+
   <!-- Forecast notice -->
   <div class="forecast-notice" id="forecast-notice" style="display:none">
     📈 <span id="forecast-notice-text">Tomorrow's prices available — forecast shown for rest of today and tomorrow</span>
@@ -1152,6 +1195,10 @@
     </div>
   </div>
 
+  </div><!-- /tab-panel-dag -->
+
+  <!-- ═══════ TAB: Trender ═══════ -->
+  <div id="tab-panel-trender" style="display:none">
 
   <!-- Monthly Summary panel -->
   <div class="card" style="margin-bottom:14px">
@@ -1181,6 +1228,8 @@
       Källa: eSett Open Data · 1–2 dagars fördröjning
     </div>
   </div>
+
+  </div><!-- /tab-panel-trender -->
 
 </main>
 
@@ -4313,6 +4362,21 @@ function renderGridPriceChart(labels, priceData) {
 }
 
 // ---------------------------------------------------------------------------
+// Tab navigation
+// ---------------------------------------------------------------------------
+const TABS = ['nu', 'dag', 'trender'];
+
+function switchTab(name) {
+  TABS.forEach(t => {
+    document.getElementById('tab-panel-' + t).style.display = t === name ? '' : 'none';
+    document.getElementById('tab-btn-' + t).classList.toggle('active', t === name);
+  });
+  localStorage.setItem('activeTab', name);
+  // Resize all charts so any that were hidden on first render get correct dimensions
+  if (window.Chart) Object.values(state.charts).forEach(c => c?.resize?.());
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 document.getElementById('date-input').value = state.currentDate;
@@ -4327,6 +4391,8 @@ detectMode().then(() => {
   // Open-Meteo's Nordic model (most relevant for Stockholm) updates every hour.
   // Polling every 60 min matches the data cadence — no benefit in polling faster.
   setInterval(() => loadWeather(true), 60 * 60 * 1000);
+  // Restore last active tab (default: Nu)
+  switchTab(localStorage.getItem('activeTab') || 'nu');
 });
 
 // Auto-refresh every 5 minutes
