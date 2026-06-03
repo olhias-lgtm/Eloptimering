@@ -170,7 +170,7 @@ def _do_autofill(days: int, dry_run: bool) -> tuple[int, dict]:
     results = []
     filled_dates = []
 
-    for i in range(min(days, 7)):
+    for i in range(1, min(days, 7) + 1):   # start at 1 = yesterday; skip today
         target = today_local - timedelta(days=i)
         date_str = target.isoformat()
         live = _count_live_rows(date_str)
