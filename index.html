@@ -2727,41 +2727,108 @@ function updateSkyIcon() {
   const icon = document.getElementById('live-sky-icon');
   if (!icon) return;
 
-  // Determine if sun is up from weather data sunrise/sunset
+  // Day / night
   let sunIsUp = false;
   try {
     const daily = state.weatherData?.daily;
     if (daily?.sunrise?.[0] && daily?.sunset?.[0]) {
-      const now     = Date.now();
-      const sunrise = new Date(daily.sunrise[0]).getTime();
-      const sunset  = new Date(daily.sunset[0]).getTime();
-      sunIsUp = now >= sunrise && now <= sunset;
+      const now = Date.now();
+      sunIsUp = now >= new Date(daily.sunrise[0]).getTime() &&
+                now <= new Date(daily.sunset[0]).getTime();
     }
-  } catch(e) { /* fallback to sun */ }
+  } catch(e) {}
 
+  // Weather condition from current hour
+  let cloud = 0, radiation = 500;
+  try {
+    const h      = new Date().getHours();
+    const hourly = state.weatherData?.hourly;
+    if (hourly) {
+      cloud     = hourly.cloudcover?.[h]            ?? 0;
+      radiation = hourly.shortwave_radiation?.[h]   ?? (sunIsUp ? 400 : 0);
+    }
+  } catch(e) {}
+
+  const isRainy     = cloud > 75 && radiation < 60 && sunIsUp;
+  const isCloudy    = cloud > 60;   // partly-to-fully cloudy
+  const isPartCloud = cloud > 25 && !isCloudy;
+
+  // ── Shared SVG fragments ────────────────────────────────────────────
+  // Cloud body centred at (88, 62) — sits in front of / below the celestial body
+  const _cloudBody = (op = 1) => `
+    <circle cx="78"  cy="63" r="11"  fill="rgba(148,163,184,${(op*0.82).toFixed(2)})"/>
+    <circle cx="92"  cy="58" r="14"  fill="rgba(148,163,184,${(op*0.88).toFixed(2)})"/>
+    <circle cx="107" cy="63" r="11"  fill="rgba(148,163,184,${(op*0.82).toFixed(2)})"/>
+    <rect   x="78"   y="62" width="30" height="12" fill="rgba(148,163,184,${(op*0.85).toFixed(2)})"/>`;
+
+  const _rainDrops = `
+    <line x1="82"  y1="76" x2="79"  y2="85" stroke="rgba(147,197,253,0.7)" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="92"  y1="78" x2="89"  y2="87" stroke="rgba(147,197,253,0.65)" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="102" y1="76" x2="99"  y2="85" stroke="rgba(147,197,253,0.7)" stroke-width="1.5" stroke-linecap="round"/>`;
+
+  const _smallCloud = (op = 0.7) => `
+    <circle cx="84"  cy="57" r="8"   fill="rgba(148,163,184,${(op*0.75).toFixed(2)})"/>
+    <circle cx="94"  cy="53" r="10"  fill="rgba(148,163,184,${(op*0.80).toFixed(2)})"/>
+    <circle cx="104" cy="57" r="8"   fill="rgba(148,163,184,${(op*0.75).toFixed(2)})"/>
+    <rect   x="84"   y="56" width="21" height="10" fill="rgba(148,163,184,${(op*0.78).toFixed(2)})"/>`;
+
+  // ── Sun variants ────────────────────────────────────────────────────
+  const _sun = (cx, cy, r = 13, glowA = 0.12) => `
+    <circle cx="${cx}" cy="${cy}" r="${r+15}" fill="#fbbf24" opacity="${glowA}"/>
+    <circle cx="${cx}" cy="${cy}" r="${r+7}"  fill="#fde68a" opacity="${glowA+0.06}"/>
+    <line x1="${cx}"    y1="${cy-r-10}" x2="${cx}"    y2="${cy-r-2}"  stroke="#fde047" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="${cx}"    y1="${cy+r+2}"  x2="${cx}"    y2="${cy+r+10}" stroke="#fde047" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="${cx-r-10}" y1="${cy}"    x2="${cx-r-2}" y2="${cy}"     stroke="#fde047" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="${cx+r+2}"  y1="${cy}"    x2="${cx+r+10}" y2="${cy}"    stroke="#fde047" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="${cx-r-7}"  y1="${cy-r-7}"  x2="${cx-r-1}" y2="${cy-r-1}"  stroke="#fde047" stroke-width="2" stroke-linecap="round"/>
+    <line x1="${cx+r+1}"  y1="${cy+r+1}"  x2="${cx+r+7}" y2="${cy+r+7}"  stroke="#fde047" stroke-width="2" stroke-linecap="round"/>
+    <line x1="${cx+r+7}"  y1="${cy-r-7}"  x2="${cx+r+1}" y2="${cy-r-1}"  stroke="#fde047" stroke-width="2" stroke-linecap="round"/>
+    <line x1="${cx-r-1}"  y1="${cy+r+1}"  x2="${cx-r-7}" y2="${cy+r+7}"  stroke="#fde047" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="#fde047"/>`;
+
+  // ── Moon variants ───────────────────────────────────────────────────
+  const _moon = (cx, cy, bgFill = '#0a0f1a') => `
+    <circle cx="${cx+5}"  cy="${cy-2}"  r="22" fill="#e2e8f0" opacity="0.12"/>
+    <circle cx="${cx}"    cy="${cy}"    r="16" fill="#dde6f0" opacity="0.65"/>
+    <circle cx="${cx+11}" cy="${cy-8}"  r="14" fill="${bgFill}"/>
+    <circle cx="${cx-3}"  cy="${cy+8}"  r="3"  fill="#e2e8f0" opacity="0.4"/>
+    <circle cx="${cx+13}" cy="${cy+14}" r="2"  fill="#e2e8f0" opacity="0.3"/>
+    <circle cx="${cx-10}" cy="${cy-4}"  r="1.5" fill="#e2e8f0" opacity="0.3"/>`;
+
+  // ── Compose the right variant ───────────────────────────────────────
+  let svg;
   if (sunIsUp) {
-    icon.innerHTML = `
-      <circle cx="105" cy="42" r="28" fill="#fbbf24" opacity="0.12"/>
-      <circle cx="105" cy="42" r="20" fill="#fde68a" opacity="0.18"/>
-      <line x1="105" y1="10" x2="105" y2="18" stroke="#fde047" stroke-width="2.5" stroke-linecap="round"/>
-      <line x1="105" y1="66" x2="105" y2="74" stroke="#fde047" stroke-width="2.5" stroke-linecap="round"/>
-      <line x1="73"  y1="42" x2="81"  y2="42" stroke="#fde047" stroke-width="2.5" stroke-linecap="round"/>
-      <line x1="129" y1="42" x2="137" y2="42" stroke="#fde047" stroke-width="2.5" stroke-linecap="round"/>
-      <line x1="82"  y1="19" x2="88"  y2="25" stroke="#fde047" stroke-width="2.5" stroke-linecap="round"/>
-      <line x1="122" y1="59" x2="128" y2="65" stroke="#fde047" stroke-width="2.5" stroke-linecap="round"/>
-      <line x1="128" y1="19" x2="122" y2="25" stroke="#fde047" stroke-width="2.5" stroke-linecap="round"/>
-      <line x1="82"  y1="59" x2="88"  y2="65" stroke="#fde047" stroke-width="2.5" stroke-linecap="round"/>
-      <circle cx="105" cy="42" r="13" fill="#fde047"/>`;
+    if (isRainy) {
+      // Rain cloud, sun barely peeks top-right
+      svg = _sun(112, 30, 10, 0.07) + _cloudBody(1.0) + _rainDrops;
+    } else if (isCloudy) {
+      // Cloud dominates, sun partially behind
+      svg = _sun(110, 32, 11, 0.09) + _cloudBody(0.95);
+    } else if (isPartCloud) {
+      // Small cloud drifts across lower sun
+      svg = _sun(105, 38, 13, 0.12) + _smallCloud(0.85);
+    } else {
+      // Clear sky
+      svg = _sun(105, 42, 13, 0.12);
+    }
   } else {
-    // Crescent moon
-    icon.innerHTML = `
-      <circle cx="110" cy="40" r="22" fill="#e2e8f0" opacity="0.15"/>
-      <circle cx="105" cy="38" r="16" fill="#dde6f0" opacity="0.65"/>
-      <circle cx="116" cy="30" r="14" fill="#0a0f1a"/>
-      <circle cx="102" cy="46" r="3"  fill="#e2e8f0" opacity="0.4"/>
-      <circle cx="118" cy="52" r="2"  fill="#e2e8f0" opacity="0.3"/>
-      <circle cx="95"  cy="34" r="1.5" fill="#e2e8f0" opacity="0.3"/>`;
+    // Determine bg colour to cut crescent from (matches night sky)
+    const bg = '#06080f';
+    if (isRainy) {
+      // Cloud + rain, moon glow behind
+      const moonGlow = `<circle cx="112" cy="32" r="20" fill="#e2e8f0" opacity="0.06"/>`;
+      svg = moonGlow + _cloudBody(0.85) + _rainDrops;
+    } else if (isCloudy) {
+      const moonGlow = `<circle cx="112" cy="32" r="18" fill="#e2e8f0" opacity="0.08"/>`;
+      svg = moonGlow + _cloudBody(0.80);
+    } else if (isPartCloud) {
+      svg = _moon(105, 38, bg) + _smallCloud(0.70);
+    } else {
+      svg = _moon(105, 38, bg);
+    }
   }
+
+  icon.innerHTML = svg;
   updateLiveBg();
 }
 
