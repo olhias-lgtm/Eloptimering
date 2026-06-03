@@ -358,6 +358,18 @@ def _rows_to_combined(rows: list) -> dict:
         gti_om_arr.append(r.get("gti_om"))
         gti_adj_arr.append(r.get("gti_adj"))
 
+    # Derive sunrise/sunset from shortwave radiation crossings
+    # (first hour where sw goes above / drops below 10 W/m²)
+    sunrise_str = None
+    sunset_str  = None
+    for i in range(len(sw) - 1):
+        prev = float(sw[i]   or 0)
+        nxt  = float(sw[i+1] or 0)
+        if not sunrise_str and prev <= 10 and nxt > 10:
+            sunrise_str = times[i + 1]   # local Stockholm "YYYY-MM-DDTHH:MM"
+        if sunrise_str and not sunset_str and prev > 10 and nxt <= 10:
+            sunset_str = times[i]
+
     return {
         "hourly": {
             "time":                     times,
@@ -371,7 +383,10 @@ def _rows_to_combined(rows: list) -> dict:
             "global_tilted_irradiance": gti_om_arr,
             "gti_adjusted":             gti_adj_arr,
         },
-        "daily":  {},
+        "daily": {
+            "sunrise": [sunrise_str] if sunrise_str else [],
+            "sunset":  [sunset_str]  if sunset_str  else [],
+        },
         "source": "supabase",
     }
 

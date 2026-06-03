@@ -2737,7 +2737,7 @@ function updateSkyIcon() {
   const icon = document.getElementById('live-sky-icon');
   if (!icon) return;
 
-  // Day / night
+  // Day / night — primary: weather daily sunrise/sunset; fallback: clock time
   let sunIsUp = false;
   try {
     const daily = state.weatherData?.daily;
@@ -2745,8 +2745,17 @@ function updateSkyIcon() {
       const now = Date.now();
       sunIsUp = now >= new Date(daily.sunrise[0]).getTime() &&
                 now <= new Date(daily.sunset[0]).getTime();
+    } else {
+      // No sunrise/sunset data (weather unavailable or Supabase serving stale).
+      // Fall back to clock time — Stockholm: sun up ~05:00–21:30 in summer,
+      // ~08:00–15:30 in deep winter. Simple heuristic is better than always-night.
+      const h = new Date().getHours();
+      sunIsUp = h >= 5 && h < 22;
     }
-  } catch(e) {}
+  } catch(e) {
+    const h = new Date().getHours();
+    sunIsUp = h >= 5 && h < 22;
+  }
 
   // Weather condition from current hour
   let cloud = 0, radiation = 500;
