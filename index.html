@@ -621,13 +621,9 @@
   /* Tab bar */
   #tab-bar {
     display: flex;
-    position: sticky;
-    top: 0;
-    z-index: 90;
     background: var(--bg);
-    padding: 8px 4px;
+    padding: 8px 12px;
     gap: 6px;
-    margin: 0 0 1rem;
     border-bottom: 1px solid var(--border);
   }
   .tab-btn {
@@ -795,6 +791,13 @@
 
 <div class="weather-strip" id="weather-strip">
   <span style="color:var(--dim);font-size:10px">Loading weather…</span>
+</div>
+
+<!-- Tab bar — outside <main> so it stays at same position on all tabs -->
+<div id="tab-bar">
+  <button class="tab-btn active" id="tab-btn-nu"      onclick="switchTab('nu')">⚡ Nu</button>
+  <button class="tab-btn"        id="tab-btn-dag"     onclick="switchTab('dag')">📅 Dag</button>
+  <button class="tab-btn"        id="tab-btn-trender" onclick="switchTab('trender')">📈 Trender</button>
 </div>
 
 <div class="live-strip hidden" id="live-strip">
@@ -1002,13 +1005,6 @@
 </div>
 
 <main>
-
-  <!-- Tab bar -->
-  <div id="tab-bar">
-    <button class="tab-btn active" id="tab-btn-nu"      onclick="switchTab('nu')">⚡ Nu</button>
-    <button class="tab-btn"        id="tab-btn-dag"     onclick="switchTab('dag')">📅 Dag</button>
-    <button class="tab-btn"        id="tab-btn-trender" onclick="switchTab('trender')">📈 Trender</button>
-  </div>
 
   <!-- Config row — always visible, outside tab panels -->
   <div class="config-row">
@@ -3355,9 +3351,8 @@ function _updateMiniLive(d) {
 
   // Grid: positive = import (cost), negative = export (earn)
   const netKw = (d.import_kw || 0) - (d.export_kw || 0);
-  const absW  = Math.round(Math.abs(netKw) * 1000);
-  const absStr = absW >= 1000 ? `${(absW/1000).toFixed(1)} kW` : `${absW} W`;
-  const gridStr = netKw > 0.01 ? `↓ ${absStr}` : netKw < -0.01 ? `↑ ${absStr}` : '≈ 0';
+  const absStr = `${Math.abs(netKw).toFixed(2)} kW`;
+  const gridStr = netKw > 0.005 ? `↓ ${absStr}` : netKw < -0.005 ? `↑ ${absStr}` : '≈ 0 kW';
 
   // Spot price for current hour
   let priceStr = '—';
