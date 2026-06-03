@@ -93,7 +93,10 @@ def _sb_upsert_rows(rows: list):
         batch = rows[i:i+100]
         body = json.dumps(batch).encode()
         req = urllib.request.Request(
-            f"{SUPABASE_URL}/rest/v1/energy_readings",
+            # on_conflict=ts tells PostgREST to apply ON CONFLICT (ts) DO NOTHING,
+            # targeting the UNIQUE(ts) constraint we added. Without this, PostgREST
+            # only targets the PK and returns 409 for UNIQUE constraint violations.
+            f"{SUPABASE_URL}/rest/v1/energy_readings?on_conflict=ts",
             data=body,
             method="POST",
             headers={
