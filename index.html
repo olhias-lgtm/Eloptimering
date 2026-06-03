@@ -1164,6 +1164,20 @@
     <div id="roi-card" style="margin-top:16px;padding:14px 12px;background:rgba(52,211,153,0.06);border:1px solid rgba(52,211,153,0.2);border-radius:10px"></div>
   </div>
 
+  <!-- Swedish Grid Production -->
+  <div class="card" style="margin-top:1.5rem" id="grid-section">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+      <span style="font-weight:600;font-size:0.95rem">🇸🇪 Svensk elproduktion</span>
+      <span id="grid-data-age" style="font-size:0.72rem;opacity:0.5"></span>
+    </div>
+    <div id="grid-kpis" style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem"></div>
+    <div class="chart-wrap" style="height:220px;position:relative">
+      <canvas id="grid-chart"></canvas>
+    </div>
+    <div style="font-size:0.68rem;opacity:0.4;margin-top:6px;text-align:right">
+      Källa: eSett Open Data · 1–2 dagars fördröjning
+    </div>
+  </div>
 
 </main>
 
@@ -4089,6 +4103,114 @@ document.getElementById('power-legend-show-all').addEventListener('click', () =>
 });
 
 // ---------------------------------------------------------------------------
+// Swedish Grid Production
+// ---------------------------------------------------------------------------
+const NUCLEAR_NOMINAL_MW = 6804;
+
+async function loadGridData() {
+  try {
+    const rows = await fetchJSON('/api/grid?days=7');
+    if (!Array.isArray(rows) || rows.length === 0) return;
+    const latest = rows[rows.length - 1];
+    renderGridKpis(latest);
+    renderGridChart(rows);
+    const ageEl = document.getElementById('grid-data-age');
+    if (ageEl && latest.ts) {
+      // ts is UTC ISO — convert to CEST date for display
+      const d = new Date(latest.ts);
+      const cest = new Date(d.toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' }));
+      ageEl.textContent = `senaste data: ${cest.toLocaleDateString('sv-SE')} ${String(cest.getHours()).padStart(2,'0')}:00`;
+    }
+  } catch(e) {
+    console.warn('[grid]', e);
+  }
+}
+
+function renderGridKpis(row) {
+  const el = document.getElementById('grid-kpis');
+  if (!el || !row) return;
+
+  const nucPct = Math.round((row.nuclear / NUCLEAR_NOMINAL_MW) * 100);
+  const nucColor = nucPct >= 70 ? 'rgba(52,211,153,0.15)' : nucPct >= 40 ? 'rgba(251,146,60,0.15)' : 'rgba(239,68,68,0.15)';
+  const nucBorder = nucPct >= 70 ? 'rgba(52,211,153,0.4)' : nucPct >= 40 ? 'rgba(251,146,60,0.4)' : 'rgba(239,68,68,0.4)';
+
+  const chips = [
+    { icon: '⚛️', label: 'Kärnkraft', val: `${Math.round(row.nuclear)} MW`, sub: `${nucPct}% av ${NUCLEAR_NOMINAL_MW} MW`, bg: nucColor, border: nucBorder },
+    { icon: '💧', label: 'Vatten',    val: `${Math.round(row.hydro)} MW`,   sub: null, bg: 'rgba(96,165,250,0.1)', border: 'rgba(96,165,250,0.3)' },
+    { icon: '💨', label: 'Vind',      val: `${Math.round(row.wind)} MW`,    sub: null, bg: 'rgba(34,197,94,0.1)',  border: 'rgba(34,197,94,0.3)' },
+    { icon: '☀️', label: 'Sol',       val: `${Math.round(row.solar)} MW`,   sub: null, bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.3)' },
+    { icon: '🔥', label: 'Termisk',   val: `${Math.round(row.thermal)} MW`, sub: null, bg: 'rgba(156,163,175,0.1)', border: 'rgba(156,163,175,0.3)' },
+    { icon: '⚡', label: 'Totalt',    val: `${Math.round(row.total).toLocaleString('sv-SE')} MW`, sub: null, bg: 'rgba(167,139,250,0.1)', border: 'rgba(167,139,250,0.3)' },
+  ];
+
+  el.innerHTML = chips.map(c => `
+    <div style="background:${c.bg};border:1px solid ${c.border};border-radius:8px;padding:6px 10px;min-width:90px">
+      <div style="font-size:0.68rem;opacity:0.6;margin-bottom:2px">${c.icon} ${c.label}</div>
+      <div style="font-size:0.82rem;font-weight:600">${c.val}</div>
+      ${c.sub ? `<div style="font-size:0.65rem;opacity:0.55">${c.sub}</div>` : ''}
+    </div>`).join('');
+}
+
+function renderGridChart(rows) {
+  // Subsample to one point per 2 hours for a clean 7-day view
+  const sampled = rows.filter((_, i) => i % 2 === 0);
+  const labels  = sampled.map(r => {
+    const d = new Date(r.ts);
+    const c = new Date(d.toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' }));
+    return `${String(c.getDate()).padStart(2,'0')}/${String(c.getMonth()+1).padStart(2,'0')} ${String(c.getHours()).padStart(2,'0')}:00`;
+  });
+
+  const datasets = [
+    { label: 'Kärnkraft', data: sampled.map(r => r.nuclear),  backgroundColor: 'rgba(167,139,250,0.6)', borderColor: 'rgba(167,139,250,0.9)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
+    { label: 'Vattenkraft', data: sampled.map(r => r.hydro),  backgroundColor: 'rgba(96,165,250,0.55)', borderColor: 'rgba(96,165,250,0.85)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
+    { label: 'Vind',        data: sampled.map(r => r.wind),   backgroundColor: 'rgba(52,211,153,0.5)',  borderColor: 'rgba(52,211,153,0.8)',  fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
+    { label: 'Sol',         data: sampled.map(r => r.solar),  backgroundColor: 'rgba(245,158,11,0.55)', borderColor: 'rgba(245,158,11,0.85)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
+    { label: 'Termisk+Övrigt', data: sampled.map(r => (r.thermal||0) + (r.other||0)),
+      backgroundColor: 'rgba(156,163,175,0.4)', borderColor: 'rgba(156,163,175,0.7)', fill: true, borderWidth: 1, pointRadius: 0, tension: 0.3 },
+    // Nuclear nominal reference line
+    { label: `Kärnkraft nominell (${NUCLEAR_NOMINAL_MW} MW)`,
+      data: sampled.map(() => NUCLEAR_NOMINAL_MW),
+      borderColor: 'rgba(167,139,250,0.5)', borderDash: [6,4],
+      borderWidth: 1.5, fill: false, pointRadius: 0, tension: 0,
+      yAxisID: 'y' },
+  ];
+
+  upsertChart('grid-chart', 'grid', {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          display: true, position: 'top',
+          labels: { boxWidth: 10, padding: 8, font: { size: 10 } },
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${Math.round(ctx.parsed.y).toLocaleString('sv-SE')} MW`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { maxTicksLimit: 8, font: { size: 10 }, color: 'rgba(156,163,175,0.8)' },
+          grid:  { color: 'rgba(255,255,255,0.04)' },
+        },
+        y: {
+          stacked: true,
+          title: { display: false },
+          ticks: { font: { size: 10 }, color: 'rgba(156,163,175,0.8)',
+            callback: v => v >= 1000 ? `${(v/1000).toFixed(1)} GW` : `${v} MW` },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+        },
+      },
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 document.getElementById('date-input').value = state.currentDate;
@@ -4096,6 +4218,7 @@ detectMode().then(() => {
   loadDate(state.currentDate);
   loadWeather();
   loadMonthly();
+  loadGridData();
   loadTou();
   loadTouSuggestion();
   startLivePolling();
