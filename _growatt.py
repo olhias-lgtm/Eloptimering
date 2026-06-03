@@ -376,73 +376,115 @@ class GrowattSession:
                 self._handle_expiry()
         return data
 
+    @staticmethod
+    def _looks_like_html(resp) -> bool:
+        """Return True when the response is a login-page redirect, not JSON."""
+        ct = resp.headers.get("Content-Type", "")
+        if "text/html" in ct:
+            return True
+        text = resp.text.lstrip()
+        return text.startswith("<")
+
     def get_live(self) -> dict:
         self.ensure_ready()
-        print(f"[GROWATT LIVE CALL] get_live plant={self.plant_id} serial={self.mix_serial}")
 
-        detail_resp = self._s.get(
-            GROWATT_API + "/newTlxApi.do",
-            params={"op": "getTlxDetailData", "id": self.mix_serial},
-            timeout=10,
-        )
-        print(f"[live] detail status={detail_resp.status_code} body={detail_resp.text[:200]!r}")
-        try:
-            detail = detail_resp.json().get("data", {}) or {}
-        except Exception as e:
-            raise RuntimeError(f"detail parse failed ({detail_resp.status_code}): {detail_resp.text[:300]!r}") from e
+        for attempt in range(2):
+            print(f"[GROWATT LIVE CALL] get_live attempt={attempt+1} "
+                  f"plant={self.plant_id} serial={self.mix_serial}")
 
-        status_resp = self._s.post(
-            GROWATT_API + "/newTlxApi.do",
-            params={"op": "getSystemStatus_KW"},
-            data={"plantId": self.plant_id, "id": self.mix_serial},
-            timeout=10,
-        )
-        print(f"[live] sysStatus={status_resp.status_code} body={status_resp.text[:200]!r}")
-        try:
-            status = status_resp.json().get("obj", {}) or {}
-        except Exception as e:
-            raise RuntimeError(f"status parse failed ({status_resp.status_code}): {status_resp.text[:300]!r}") from e
+            detail_resp = self._s.get(
+                GROWATT_API + "/newTlxApi.do",
+                params={"op": "getTlxDetailData", "id": self.mix_serial},
+                timeout=10,
+            )
+            print(f"[live] detail status={detail_resp.status_code} body={detail_resp.text[:200]!r}")
 
-        overview_resp = self._s.post(
-            GROWATT_API + "/newTlxApi.do",
-            params={"op": "getEnergyOverview"},
-            data={"plantId": self.plant_id, "id": self.mix_serial},
-            timeout=10,
-        )
-        print(f"[live] overview={overview_resp.status_code} body={overview_resp.text[:200]!r}")
-        try:
-            overview = overview_resp.json().get("obj", {}) or {}
-        except Exception as e:
-            raise RuntimeError(f"overview parse failed ({overview_resp.status_code}): {overview_resp.text[:300]!r}") from e
+            # Detect session expiry: HTML login page OR explicit auth message in JSON
+            if self._looks_like_html(detail_resp):
+                if attempt == 0:
+                    print("[live] detail returned HTML — session expired, re-logging in")
+                    self._handle_expiry()
+                    continue
+                raise RuntimeError(
+                    f"detail returned HTML after re-login: {detail_resp.text[:300]!r}"
+                )
+            try:
+                detail_data = detail_resp.json()
+            except Exception as e:
+                raise RuntimeError(
+                    f"detail parse failed ({detail_resp.status_code}): "
+                    f"{detail_resp.text[:300]!r}"
+                ) from e
 
-        def _w(d, k):
-            try: return round(float(d.get(k, 0) or 0) / 1000, 3)
-            except: return 0.0
+            if self._session_expired(detail_data):
+                if attempt == 0:
+                    print("[live] detail returned session-expired JSON — re-logging in")
+                    self._handle_expiry()
+                    continue
+                raise RuntimeError("Session expired even after re-login attempt")
 
-        def _kwh(d, k):
-            try: return round(float(d.get(k, 0) or 0), 2)
-            except: return 0.0
+            detail = detail_data.get("data", {}) or {}
 
-        return {
-            "ppv_kw":           _w(detail, "ppv"),
-            "ppv1_kw":          _w(detail, "ppv1"),
-            "ppv2_kw":          _w(detail, "ppv2"),
-            "pac_kw":           _w(detail, "pac"),
-            "load_kw":          _w(detail, "pacToLocalLoad"),
-            "export_kw":        _w(detail, "pacToGridTotal"),
-            "import_kw":        _w(detail, "pacToUserTotal"),
-            "self_kw":          _w(detail, "pself"),
-            "discharge_kw":     _kwh(status, "pdisCharge"),
-            "charge_kw":        _kwh(status, "chargePower"),
-            "epv_today":        _kwh(overview, "epvToday"),
-            "eac_today":        _kwh(detail, "eacToday"),
-            "echarge_today":    _kwh(detail, "echargeToday"),
-            "edischarge_today": _kwh(detail, "edischargeToday"),
-            "eload_today":      _kwh(detail, "elocalLoadToday"),
-            "export_today":     _kwh(detail, "etoGridToday"),
-            "import_today":     _kwh(detail, "etoUserToday"),
-            "soc_pct":          int(detail.get("bmsSoc") or 0) or None,
-        }
+            status_resp = self._s.post(
+                GROWATT_API + "/newTlxApi.do",
+                params={"op": "getSystemStatus_KW"},
+                data={"plantId": self.plant_id, "id": self.mix_serial},
+                timeout=10,
+            )
+            print(f"[live] sysStatus={status_resp.status_code} body={status_resp.text[:200]!r}")
+            try:
+                status = status_resp.json().get("obj", {}) or {}
+            except Exception as e:
+                raise RuntimeError(
+                    f"status parse failed ({status_resp.status_code}): "
+                    f"{status_resp.text[:300]!r}"
+                ) from e
+
+            overview_resp = self._s.post(
+                GROWATT_API + "/newTlxApi.do",
+                params={"op": "getEnergyOverview"},
+                data={"plantId": self.plant_id, "id": self.mix_serial},
+                timeout=10,
+            )
+            print(f"[live] overview={overview_resp.status_code} body={overview_resp.text[:200]!r}")
+            try:
+                overview = overview_resp.json().get("obj", {}) or {}
+            except Exception as e:
+                raise RuntimeError(
+                    f"overview parse failed ({overview_resp.status_code}): "
+                    f"{overview_resp.text[:300]!r}"
+                ) from e
+
+            def _w(d, k):
+                try: return round(float(d.get(k, 0) or 0) / 1000, 3)
+                except: return 0.0
+
+            def _kwh(d, k):
+                try: return round(float(d.get(k, 0) or 0), 2)
+                except: return 0.0
+
+            return {
+                "ppv_kw":           _w(detail, "ppv"),
+                "ppv1_kw":          _w(detail, "ppv1"),
+                "ppv2_kw":          _w(detail, "ppv2"),
+                "pac_kw":           _w(detail, "pac"),
+                "load_kw":          _w(detail, "pacToLocalLoad"),
+                "export_kw":        _w(detail, "pacToGridTotal"),
+                "import_kw":        _w(detail, "pacToUserTotal"),
+                "self_kw":          _w(detail, "pself"),
+                "discharge_kw":     _kwh(status, "pdisCharge"),
+                "charge_kw":        _kwh(status, "chargePower"),
+                "epv_today":        _kwh(overview, "epvToday"),
+                "eac_today":        _kwh(detail, "eacToday"),
+                "echarge_today":    _kwh(detail, "echargeToday"),
+                "edischarge_today": _kwh(detail, "edischargeToday"),
+                "eload_today":      _kwh(detail, "elocalLoadToday"),
+                "export_today":     _kwh(detail, "etoGridToday"),
+                "import_today":     _kwh(detail, "etoUserToday"),
+                "soc_pct":          int(detail.get("bmsSoc") or 0) or None,
+            }
+
+        raise RuntimeError("get_live: exhausted retries without returning data")
 
     def _normalize_tlx(self, data: dict) -> dict:
         obj = data.get("obj", {})
