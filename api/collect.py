@@ -88,10 +88,12 @@ def _chart_to_rows(chart_data: dict, target_date: date, utc_offset_h: int) -> li
 
 
 def _sb_upsert_rows(rows: list):
-    """Batch-upsert rows into energy_readings, conflicting on ts."""
+    """Insert rows into energy_readings, skipping any that already exist (by ts).
+    Uses ignore-duplicates so live cron rows (with soc_pct, counters, etc.) are
+    never overwritten by chart rows that have soc_pct=NULL."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise RuntimeError("Supabase env vars not set")
-    # Upsert in batches of 100
+    # Insert in batches of 100
     for i in range(0, len(rows), 100):
         batch = rows[i:i+100]
         body = json.dumps(batch).encode()
@@ -103,7 +105,7 @@ def _sb_upsert_rows(rows: list):
                 "apikey":        SUPABASE_KEY,
                 "Authorization": f"Bearer {SUPABASE_KEY}",
                 "Content-Type":  "application/json",
-                "Prefer":        "resolution=merge-duplicates,return=minimal",
+                "Prefer":        "resolution=ignore-duplicates,return=minimal",
             },
         )
         urllib.request.urlopen(req, timeout=15).read()
