@@ -1,11 +1,16 @@
 """
 Data collection endpoint — called by cron-job.org every 5 minutes.
 Fetches live Growatt data and persists it to Supabase energy_readings.
-Always returns 200 so the cron service doesn't treat throttling as a failure.
+Returns 500 on Growatt errors so cron-job.org can detect and alert.
 
-Historical import:
+Historical import (manual backfill):
   GET /api/collect?date=YYYY-MM-DD           → dry-run preview (no writes)
   GET /api/collect?date=YYYY-MM-DD&confirm=1 → import + write to Supabase
+
+Automatic gap filling:
+  GET /api/collect?action=autofill            → fill gaps in last 2 days
+  GET /api/collect?action=autofill&days=N     → fill gaps in last N days (max 7)
+  GET /api/collect?action=autofill&dry_run=1  → report gaps without writing
 """
 import json
 import os
@@ -99,6 +104,95 @@ def _sb_upsert_rows(rows: list):
             },
         )
         urllib.request.urlopen(req, timeout=15).read()
+
+
+# ---------------------------------------------------------------------------
+# Autofill helpers
+# ---------------------------------------------------------------------------
+
+# A day needs filling if fewer than this fraction of expected live slots exist.
+_GAP_THRESHOLD = 0.85
+
+
+def _count_live_rows(date_str: str) -> int:
+    """Count live rows (soc_pct IS NOT NULL) for a CEST calendar date."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return 0
+    try:
+        d = date.fromisoformat(date_str)
+        utc_offset_h = _cest_offset(d)
+        tz_local = timezone(timedelta(hours=utc_offset_h))
+        start = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=tz_local).isoformat()
+        end   = (datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=tz_local)
+                 + timedelta(minutes=5)).isoformat()
+        url = (
+            f"{SUPABASE_URL}/rest/v1/energy_readings"
+            f"?ts=gte.{urllib.parse.quote(start)}"
+            f"&ts=lte.{urllib.parse.quote(end)}"
+            f"&soc_pct=not.is.null"
+            f"&select=ts"
+            f"&limit=300"
+        )
+        req = urllib.request.Request(url, headers={
+            "apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
+        })
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return len(json.loads(r.read()))
+    except Exception as e:
+        print(f"[autofill] count error for {date_str}: {e}")
+        return 0
+
+
+def _expected_live_slots(date_str: str) -> int:
+    """Expected live rows for a CEST date: full day=288, today=slots up to now."""
+    d = date.fromisoformat(date_str)
+    utc_offset_h = _cest_offset(d)
+    tz_local = timezone(timedelta(hours=utc_offset_h))
+    today_local = datetime.now(timezone.utc).astimezone(tz_local).date()
+    if d < today_local:
+        return 288
+    now_local = datetime.now(timezone.utc).astimezone(tz_local)
+    return max(1, (now_local.hour * 60 + now_local.minute) // 5)
+
+
+def _do_autofill(days: int, dry_run: bool) -> tuple[int, dict]:
+    utc_offset_h = _cest_offset(datetime.now(timezone.utc).date())
+    tz_local = timezone(timedelta(hours=utc_offset_h))
+    today_local = datetime.now(timezone.utc).astimezone(tz_local).date()
+
+    results = []
+    filled_dates = []
+
+    for i in range(min(days, 7)):
+        target = today_local - timedelta(days=i)
+        date_str = target.isoformat()
+        live = _count_live_rows(date_str)
+        expected = _expected_live_slots(date_str)
+        needs = live < expected * _GAP_THRESHOLD
+        entry = {"date": date_str, "live_rows": live, "expected": expected,
+                 "missing": max(0, expected - live), "needs_fill": needs}
+
+        if needs:
+            print(f"[autofill] {date_str}: {live}/{expected} live rows — {'dry run' if dry_run else 'filling'}")
+            if not dry_run:
+                status, resp = _do_historical(date_str, confirm=True)
+                entry["fill_status"]  = status
+                entry["fill_written"] = resp.get("written", 0)
+                entry["fill_error"]   = resp.get("error") if status != 200 else None
+                if status == 200:
+                    filled_dates.append(date_str)
+        else:
+            print(f"[autofill] {date_str}: {live}/{expected} live rows — OK")
+
+        results.append(entry)
+
+    return 200, {
+        "ok":           True,
+        "dry_run":      dry_run,
+        "days_checked": len(results),
+        "filled":       filled_dates,
+        "results":      results,
+    }
 
 
 def _sb_insert(data: dict):
@@ -230,6 +324,23 @@ class handler(BaseHTTPRequestHandler):
         parsed  = urlparse(self.path)
         params  = parse_qs(parsed.query)
         date_str = (params.get("date") or [None])[0]
+
+        action = (params.get("action") or [None])[0]
+
+        if action == "autofill":
+            # Automatic gap detection + chart backfill
+            dry_run = (params.get("dry_run") or ["0"])[0] in ("1", "true", "yes")
+            try:
+                days = min(7, max(1, int((params.get("days") or ["2"])[0])))
+            except ValueError:
+                days = 2
+            try:
+                status, resp = _do_autofill(days, dry_run)
+            except Exception as e:
+                print(f"[autofill] error: {e}")
+                status, resp = 500, {"ok": False, "error": str(e)}
+            self._send(resp, status=status)
+            return
 
         if date_str is not None:
             # Historical import branch
