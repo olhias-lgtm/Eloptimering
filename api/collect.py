@@ -106,7 +106,11 @@ def _sb_upsert_rows(rows: list):
                 "Prefer":        "resolution=ignore-duplicates,return=minimal",
             },
         )
-        urllib.request.urlopen(req, timeout=15).read()
+        try:
+            urllib.request.urlopen(req, timeout=15).read()
+        except urllib.error.HTTPError as e:
+            body_err = e.read().decode(errors="replace")
+            raise RuntimeError(f"Supabase upsert HTTP {e.code}: {body_err[:400]}") from e
 
 
 # ---------------------------------------------------------------------------
