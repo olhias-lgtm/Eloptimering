@@ -1575,8 +1575,15 @@ function renderKPIs(rows, priceMap, c, dateStr) {
   }
   netEl.style.color = hasPrices ? 'var(--export)' : '';
 
-  // Auto-save daily summary to Supabase when prices are available
-  if (hasPrices) {
+  // Auto-save daily summary to Supabase — only for fully completed days.
+  // Never write forecast rows (tomorrow) or today's in-progress partial data.
+  // Exception: if it's today and past 23:50 CEST the day is essentially complete.
+  const _today = todayStr();
+  const _nowCestH = new Date(new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' })).getHours();
+  const _nowCestM = new Date(new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' })).getMinutes();
+  const isTodayEod = dateStr === _today && (_nowCestH * 60 + _nowCestM) >= 23 * 60 + 50;
+  const isDayComplete = dateStr < _today || isTodayEod;
+  if (hasPrices && isDayComplete) {
     const varCost = totalCost - fixedDay;  // variable cost only
     saveDailySummary({
       date:       dateStr,
