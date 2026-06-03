@@ -4454,6 +4454,9 @@ function switchTab(name) {
     document.getElementById('tab-panel-' + t).style.display = t === name ? '' : 'none';
     document.getElementById('tab-btn-' + t).classList.toggle('active', t === name);
   });
+  // Live flow diagram only relevant on Nu tab
+  const liveStrip = document.getElementById('live-strip');
+  if (liveStrip) liveStrip.style.display = name === 'nu' ? '' : 'none';
   localStorage.setItem('activeTab', name);
   // Resize all charts so any that were hidden on first render get correct dimensions
   if (window.Chart) Object.values(state.charts).forEach(c => c?.resize?.());
