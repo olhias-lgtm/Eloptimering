@@ -4117,12 +4117,29 @@ async function loadGridData() {
     const latest = rows[rows.length - 1];
     renderGridKpis(latest);
 
-    // Collect unique local dates covered by grid rows
+    // Collect unique CEST calendar dates covered by grid rows.
+    // Use Intl to reliably convert UTC ts → Stockholm date.
     const area = cfg().area || 'SE3';
-    const dates = [...new Set(rows.map(r => {
-      const loc = new Date(new Date(r.ts).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' }));
-      return `${loc.getFullYear()}-${String(loc.getMonth()+1).padStart(2,'0')}-${String(loc.getDate()).padStart(2,'0')}`;
-    }))];
+    const _fmt2 = n => String(n).padStart(2, '0');
+    const _cestParts = utcDate => {
+      const p = {};
+      for (const {type,value} of new Intl.DateTimeFormat('sv-SE', {
+        timeZone: 'Europe/Stockholm', year:'numeric', month:'2-digit',
+        day:'2-digit', hour:'2-digit', hour12: false
+      }).formatToParts(utcDate)) p[type] = value;
+      return p; // {year,month,day,hour}
+    };
+
+    const dateSet = new Set(rows.map(r => {
+      const p = _cestParts(new Date(r.ts));
+      return `${p.year}-${p.month}-${p.day}`;
+    }));
+    // Also include the previous calendar day to catch the CEST midnight wrap
+    const minTs = new Date(rows[0].ts);
+    minTs.setUTCDate(minTs.getUTCDate() - 1);
+    const prevP = _cestParts(minTs);
+    dateSet.add(`${prevP.year}-${prevP.month}-${prevP.day}`);
+    const dates = [...dateSet];
 
     // Fetch spot prices for each date in parallel (elprisetjustnu supports CORS)
     const priceArrays = await Promise.all(dates.map(async dt => {
@@ -4132,13 +4149,13 @@ async function loadGridData() {
       } catch { return []; }
     }));
 
-    // Build map: "YYYY-MM-DDTHH" (local CEST) → öre/kWh
+    // Build map: UTC ISO hour string "YYYY-MM-DDTHH" → öre/kWh
+    // time_start from elprisetjustnu includes timezone offset — new Date() normalises to UTC.
     const priceMap = {};
     for (const arr of priceArrays) {
       for (const row of (arr || [])) {
         try {
-          const loc = new Date(new Date(row.time_start).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' }));
-          const key = `${loc.getFullYear()}-${String(loc.getMonth()+1).padStart(2,'0')}-${String(loc.getDate()).padStart(2,'0')}T${String(loc.getHours()).padStart(2,'0')}`;
+          const key = new Date(row.time_start).toISOString().slice(0, 13); // "2026-06-01T22"
           priceMap[key] = row.SEK_per_kWh * 100; // → öre/kWh
         } catch {}
       }
@@ -4191,10 +4208,9 @@ function renderGridChart(rows, priceMap = {}) {
     return `${String(c.getDate()).padStart(2,'0')}/${String(c.getMonth()+1).padStart(2,'0')} ${String(c.getHours()).padStart(2,'0')}:00`;
   });
 
-  // Map each sampled row to its spot price using local CEST hour key
+  // Map each sampled row to its spot price using UTC ISO hour key
   const priceData = sampled.map(r => {
-    const loc = new Date(new Date(r.ts).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' }));
-    const key = `${loc.getFullYear()}-${String(loc.getMonth()+1).padStart(2,'0')}-${String(loc.getDate()).padStart(2,'0')}T${String(loc.getHours()).padStart(2,'0')}`;
+    const key = new Date(r.ts).toISOString().slice(0, 13); // "2026-06-01T14"
     const p = priceMap[key];
     return p != null ? p : null;
   });
