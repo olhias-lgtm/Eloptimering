@@ -3931,13 +3931,30 @@ function renderTouSuggestion(data) {
   badge.textContent = forDate;
   applyBtn.style.display = '';
 
+  // Determine current CEST minutes to mark passed slots as obsolete.
+  // A segment is obsolete when the suggestion is for today AND its start time has passed.
+  const _nowCest    = new Date(new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' }));
+  const _nowMinutes = _nowCest.getHours() * 60 + _nowCest.getMinutes();
+  const isForToday  = forDate === todayStr();
+
+  function _segStartMinutes(seg) {
+    const s = seg.start || `${String(seg.start_hour).padStart(2,'0')}:${String(seg.start_min).padStart(2,'0')}`;
+    const [h, m] = s.split(':').map(Number);
+    return h * 60 + m;
+  }
+
   const rows = data.segments.map(seg => {
-    const col = SUGGEST_MODE_COLORS[seg.mode] || '#9ca3af';
-    const lbl = SUGGEST_MODE_LABELS[seg.mode] || '?';
-    return `<tr>
+    const col       = SUGGEST_MODE_COLORS[seg.mode] || '#9ca3af';
+    const lbl       = SUGGEST_MODE_LABELS[seg.mode] || '?';
+    const startStr  = seg.start || `${String(seg.start_hour).padStart(2,'0')}:${String(seg.start_min).padStart(2,'0')}`;
+    const stopStr   = seg.stop  || `${String(seg.end_hour).padStart(2,'0')}:${String(seg.end_min).padStart(2,'0')}`;
+    const obsolete  = isForToday && _segStartMinutes(seg) < _nowMinutes;
+    const rowStyle  = obsolete ? 'opacity:0.38;text-decoration:line-through' : '';
+    const passedTag = obsolete ? ' <span style="font-size:9px;opacity:0.6;text-decoration:none">(passerat)</span>' : '';
+    return `<tr style="${rowStyle}">
       <td style="color:var(--text-muted)">${seg.segment_id}</td>
-      <td>${seg.start || `${String(seg.start_hour).padStart(2,'0')}:${String(seg.start_min).padStart(2,'0')}`}</td>
-      <td>${seg.stop  || `${String(seg.end_hour).padStart(2,'0')}:${String(seg.end_min).padStart(2,'0')}`}</td>
+      <td>${startStr}${passedTag}</td>
+      <td>${stopStr}</td>
       <td style="color:${col};font-weight:500;white-space:nowrap">${lbl}<span class="tou-mode-tip" data-tip="${(TOU_MODE_TIPS[seg.mode]||'').replace(/"/g,'&quot;')}">ⓘ</span></td>
     </tr>`;
   }).join('');
@@ -3999,7 +4016,17 @@ function renderTouSuggestion(data) {
 
 function applyTouSuggestion() {
   if (!_currentSuggestion || !_currentSuggestion.segments) return;
-  const segs = _currentSuggestion.segments;
+
+  // Skip segments whose start time has already passed (they are greyed-out in the UI).
+  const _nowCest2    = new Date(new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' }));
+  const _nowMinutes2 = _nowCest2.getHours() * 60 + _nowCest2.getMinutes();
+  const _isForToday2 = (_currentSuggestion.for_date || '') === todayStr();
+  const segs = _currentSuggestion.segments.filter(seg => {
+    if (!_isForToday2) return true;  // future-date suggestions: nothing is obsolete
+    const s = seg.start || `${String(seg.start_hour).padStart(2,'0')}:${String(seg.start_min).padStart(2,'0')}`;
+    const [h, m] = s.split(':').map(Number);
+    return (h * 60 + m) >= _nowMinutes2;
+  });
 
   // First disable all 9 rows in the editor
   for (let i = 1; i <= 9; i++) {
