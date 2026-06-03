@@ -34,8 +34,10 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
                 or os.environ.get("SUPABASE_ANON_KEY", ""))
 
-# Reuse a stored session for up to this many hours before forcing a fresh login
-SESSION_MAX_AGE_HOURS = 10
+# Reuse a stored session for up to this many hours before forcing a fresh login.
+# Growatt's JSESSIONID appears to expire after ~1 hour server-side.
+# Keep this below 1 hour so we proactively re-login before it goes stale.
+SESSION_MAX_AGE_HOURS = 0.75  # 45 minutes
 
 # ---------------------------------------------------------------------------
 # Hard pause — set to None to re-enable Growatt API access.
@@ -308,19 +310,22 @@ class GrowattSession:
             return True
         back = data.get("back") or data
         if isinstance(back, dict):
-            if back.get("success") is False:
-                return True
+            # Only treat as session expiry if the message explicitly says so.
+            # A generic success=false can be a temporary server error — don't
+            # tear down the session for that.
             msg = str(back.get("msg", "")).lower()
-            if any(k in msg for k in ("login", "session", "expire", "timeout")):
+            if any(k in msg for k in ("login", "session", "expire", "timeout", "not login")):
                 return True
         return False
 
     def _handle_expiry(self) -> None:
         """Called when a Growatt response indicates the session has expired."""
-        print("[Growatt] Session expired — clearing stored session and re-logging in")
+        print("[Growatt] Session expired — re-logging in (keeping old session until new one confirmed)")
         self.logged_in = False
-        _clear_stored_session()
+        # Login first; only clear the stored session if login succeeds so a
+        # failed re-login doesn't leave us with nothing to fall back on.
         self.login()
+        _clear_stored_session()  # replaced by the save inside login()
 
     # ------------------------------------------------------------------
     # Data methods
