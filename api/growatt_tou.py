@@ -660,13 +660,24 @@ def _build_suggestion(for_date: date) -> dict:
         return {"ok": False, "error": f"No spot prices available for {for_date}"}
 
     # Build hourly price map  (öre/kWh incl 25% moms — elprisetjustnu returns SEK_per_kWh)
-    # Keep in SEK/kWh for comparison
+    # Keep in SEK/kWh for comparison.
+    # IMPORTANT: elprisetjustnu time_start is UTC (ends in "Z"). The Growatt inverter
+    # uses local time (CEST = UTC+2 in summer, CET = UTC+1 in winter). We must
+    # convert to local time before extracting the hour or every segment ends up
+    # 2 hours early.
+    _month = for_date.month
+    _utc_off = 2 if 3 < _month < 11 else 1   # CEST Apr–Oct, CET Nov–Mar (approx)
+    _tz_local = timezone(timedelta(hours=_utc_off))
+
     price_by_hour = {}
     for row in prices_raw:
         t = row.get("time_start", "")
-        if len(t) >= 13:
-            h = int(t[11:13])
-            price_by_hour[h] = float(row.get("SEK_per_kWh", 0))
+        try:
+            dt_utc = datetime.fromisoformat(t.replace("Z", "+00:00"))
+            h = dt_utc.astimezone(_tz_local).hour
+        except (ValueError, TypeError):
+            continue
+        price_by_hour[h] = float(row.get("SEK_per_kWh", 0))
 
     if not price_by_hour:
         return {"ok": False, "error": "Could not parse prices"}
