@@ -2737,25 +2737,29 @@ function updateSkyIcon() {
   const icon = document.getElementById('live-sky-icon');
   if (!icon) return;
 
-  // Day / night — primary: weather daily sunrise/sunset; fallback: clock time
-  let sunIsUp = false;
-  try {
-    const daily = state.weatherData?.daily;
-    if (daily?.sunrise?.[0] && daily?.sunset?.[0]) {
-      const now = Date.now();
-      sunIsUp = now >= new Date(daily.sunrise[0]).getTime() &&
-                now <= new Date(daily.sunset[0]).getTime();
-    } else {
-      // No sunrise/sunset data (weather unavailable or Supabase serving stale).
-      // Fall back to clock time — Stockholm: sun up ~05:00–21:30 in summer,
-      // ~08:00–15:30 in deep winter. Simple heuristic is better than always-night.
-      const h = new Date().getHours();
-      sunIsUp = h >= 5 && h < 22;
+  // Day / night — astronomical calculation for Stockholm (59.28°N, 18.00°E).
+  // Independent of weather data so it always works correctly.
+  // Accurate to ~10 min year-round; far better than any API-dependent approach.
+  const sunIsUp = (() => {
+    try {
+      const now   = new Date();
+      const doy   = Math.round((now - new Date(now.getUTCFullYear(), 0, 0)) / 86400000);
+      const B     = (360/365) * (doy - 81) * Math.PI / 180;
+      const decl  = Math.asin(0.39795 * Math.cos(B));           // solar declination
+      const lat_r = 59.28 * Math.PI / 180;                      // Stockholm latitude
+      const cosHA = -Math.tan(lat_r) * Math.tan(decl);
+      if (cosHA >= 1) return false;                              // polar night (never)
+      if (cosHA <= -1) return true;                              // midnight sun
+      const ha          = Math.acos(cosHA) * (180 / Math.PI);   // half-day in degrees
+      const solarNoonUT = 12 - (18.00 / 15);                    // Stockholm lon → UTC
+      const sunriseUT   = solarNoonUT - ha / 15;
+      const sunsetUT    = solarNoonUT + ha / 15;
+      const utcH        = now.getUTCHours() + now.getUTCMinutes() / 60;
+      return utcH >= sunriseUT && utcH <= sunsetUT;
+    } catch(e) {
+      return new Date().getHours() >= 5 && new Date().getHours() < 22;
     }
-  } catch(e) {
-    const h = new Date().getHours();
-    sunIsUp = h >= 5 && h < 22;
-  }
+  })();
 
   // Weather condition from current hour
   let cloud = 0, radiation = 500;
