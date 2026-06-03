@@ -10,6 +10,7 @@ Historical import:
 import json
 import os
 import re
+import urllib.error
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler
@@ -141,7 +142,11 @@ def _sb_insert(data: dict):
             "Prefer":        "return=minimal",
         },
     )
-    urllib.request.urlopen(req, timeout=8).read()
+    try:
+        urllib.request.urlopen(req, timeout=8).read()
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode(errors="replace")
+        raise RuntimeError(f"Supabase insert HTTP {e.code}: {err_body}") from e
 
 
 def _do_historical(date_str: str, confirm: bool) -> tuple[int, dict]:

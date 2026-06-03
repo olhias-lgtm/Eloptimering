@@ -29,8 +29,9 @@ def _sb_headers():
     }
 
 
-def _latest_from_supabase() -> dict | None:
-    """Return the most recent energy_readings row, or None if absent/stale."""
+def _latest_from_supabase(allow_stale: bool = False) -> dict | None:
+    """Return the most recent energy_readings row, or None if absent.
+    If allow_stale=True, returns the row even if older than MAX_AGE_MINUTES."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return None
     try:
@@ -44,11 +45,15 @@ def _latest_from_supabase() -> dict | None:
         row = rows[0]
         ts = datetime.fromisoformat(row["ts"].replace("Z", "+00:00"))
         age_min = (datetime.now(timezone.utc) - ts).total_seconds() / 60
-        if age_min > MAX_AGE_MINUTES:
-            print(f"[live] Supabase row is {age_min:.1f} min old — falling back to Growatt")
-            return None
-        row["_source"] = "supabase"
         row["_age_min"] = round(age_min, 1)
+        if age_min > MAX_AGE_MINUTES:
+            print(f"[live] Supabase row is {age_min:.1f} min old")
+            if not allow_stale:
+                return None
+            row["_source"] = "supabase_stale"
+            row["_stale"]  = True
+        else:
+            row["_source"] = "supabase"
         return row
     except Exception as e:
         print(f"[live] Supabase read error: {e}")
@@ -70,9 +75,19 @@ class handler(BaseHTTPRequestHandler):
             data = s.get_live()
             data["_source"] = "growatt_fallback"
             self._send(data)
+            return
         except Exception as e:
             print(f"[live] Growatt fallback error: {e}")
-            self._send({"error": str(e)}, 500)
+
+        # Last resort: return the stale Supabase row rather than a hard 500.
+        # The dashboard will still render; the _stale flag lets the frontend
+        # show a subtle warning instead of a blank / proxy error.
+        stale = _latest_from_supabase(allow_stale=True)
+        if stale:
+            self._send(stale)
+            return
+
+        self._send({"error": "no data available"}, 503)
 
     def _send(self, data, status=200):
         body = json.dumps(data).encode()
