@@ -6,6 +6,8 @@ import urllib.request
 from datetime import date, datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler
 
+from _schema import DAILY_TOTALS_FIELDS, ROW_TYPE_PRIORITY, row_type
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 
@@ -40,7 +42,7 @@ def _fetch_readings(date_str: str) -> list:
             f"&ts=lte.{urllib.parse.quote(end)}"
             f"&order=ts.asc"
             f"&select=ts,ppv_kw,load_kw,export_kw,import_kw,charge_kw,discharge_kw,"
-            f"soc_pct,epv_today,export_today"
+            f"soc_pct,{','.join(DAILY_TOTALS_FIELDS.values())}"
         )
         req = urllib.request.Request(url, headers=_sb_headers())
         with urllib.request.urlopen(req, timeout=8) as r:
@@ -97,7 +99,7 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
         if label not in buckets:
             continue
 
-        is_live = 1 if row.get("soc_pct") is not None else 0
+        is_live = ROW_TYPE_PRIORITY[row_type(row)]
         offset  = (ts.minute % SLOT_MIN) * 60 + ts.second
         prev_live, prev_offset = priority[label]
         if is_live < prev_live or (is_live == prev_live and offset >= prev_offset):
@@ -136,27 +138,29 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
 
 
 def _daily_totals(rows: list) -> dict | None:
-    """Return counter-based daily totals from the last live row, or None."""
+    """Return counter-based daily totals from the best live row, or None.
+
+    Uses DAILY_TOTALS_FIELDS from _schema — only reliable counters are included.
+    Unreliable counters (e.g. import_today with 0.10 kWh granularity) are
+    excluded at the schema level, not here.
+    """
+    # Find the live row with the highest epv_today (proxy for latest in the day)
+    anchor_col = DAILY_TOTALS_FIELDS.get("solar_kwh", "epv_today")
     best = None
     for row in rows:
-        if row.get("soc_pct") is None:
+        if row_type(row) != "live":
             continue
-        epv = row.get("epv_today")
-        if epv is None:
+        val = row.get(anchor_col)
+        if val is None:
             continue
-        if best is None or float(epv) > float(best.get("epv_today") or -1):
+        if best is None or float(val) > float(best.get(anchor_col) or -1):
             best = row
     if best is None:
         return None
-    def _f(k):
-        v = best.get(k)
+    def _f(col):
+        v = best.get(col)
         return round(float(v), 2) if v is not None else None
-    return {
-        "solar_kwh":  _f("epv_today"),
-        "export_kwh": _f("export_today"),
-        # import_today omitted — 0.10 kWh counter granularity causes
-        # phantom 0.2 kWh; kwhFromRows integration is more accurate
-    }
+    return {kpi: _f(col) for kpi, col in DAILY_TOTALS_FIELDS.items()}
 
 
 class handler(BaseHTTPRequestHandler):

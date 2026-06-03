@@ -17,6 +17,7 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 from _growatt import get_session
+from _schema import CHART_FIELD_MAP, CHART_NULL_FIELDS
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
@@ -63,27 +64,16 @@ def _chart_to_rows(chart_data: dict, target_date: date, utc_offset_h: int) -> li
             h, m, 0, tzinfo=tz_local,
         ) - timedelta(minutes=5)
         ts_utc = local_dt.astimezone(timezone.utc).isoformat()
-        rows.append({
-            "ts":           ts_utc,
-            "ppv_kw":       vals.get("ppv"),
-            "load_kw":      vals.get("sysOut"),
-            "export_kw":    vals.get("pacToGrid"),
-            "import_kw":    0,               # pacToUser = inverter→loads (battery), not grid import
-            "discharge_kw": vals.get("pacToUser"),  # battery discharge to loads
-            # Fields not available from chart data — left null
-            "ppv1_kw":          None,
-            "ppv2_kw":          None,
-            "pac_kw":           None,
-            "charge_kw":        None,
-            "epv_today":        None,
-            "eac_today":        None,
-            "echarge_today":    None,
-            "edischarge_today": None,
-            "eload_today":      None,
-            "export_today":     None,
-            "import_today":     None,
-            "soc_pct":          None,
-        })
+        # Map Growatt chart fields → DB columns via schema contract.
+        # CHART_FIELD_MAP defines which Growatt key maps to which column,
+        # including the critical pacToUser→discharge_kw (NOT import_kw) mapping.
+        row: dict = {"ts": ts_utc, "import_kw": 0}  # import not in chart API
+        for growatt_key, db_col in CHART_FIELD_MAP.items():
+            row[db_col] = vals.get(growatt_key)
+        # Fields unavailable in chart API — explicitly null per schema
+        for col in CHART_NULL_FIELDS:
+            row[col] = None
+        rows.append(row)
     return rows
 
 

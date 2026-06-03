@@ -1484,13 +1484,23 @@ function exportKpiCsv() {
 }
 
 function renderKPIs(rows, priceMap, c, dateStr) {
+  // Data contract — mirrors _schema.py DAILY_COUNTERS / DAILY_TOTALS_FIELDS
+  //
+  // Counter (dt.*) preferred over integration (kwhFromRows) where reliable:
+  //   solar_kwh  → dt.solar_kwh   (epv_today counter)      ✓ reliable
+  //   export_kwh → dt.export_kwh  (export_today counter)   ✓ reliable
+  //   load_kwh   → dt.load_kwh    (eload_today counter)    ✓ reliable
+  //   charge_kwh → dt.charge_kwh  (echarge_today counter)  ✓ reliable
+  //   dis_kwh    → dt.dis_kwh     (edischarge_today)       ✓ reliable
+  //   import_kwh → integration only (import_today has 0.10 kWh granularity
+  //                → phantom +0.20 kWh steps; excluded from daily_totals)
   const dt     = rows.daily_totals;
-  const solar  = dt?.solar_kwh     ?? kwhFromRows(rows, 'solar_kw');
-  const load   = kwhFromRows(rows, 'load_kw');
-  const imp    = kwhFromRows(rows, 'import_kw');
-  const exp    = dt?.export_kwh    ?? kwhFromRows(rows, 'export_kw');
-  const dis    = kwhFromRows(rows, 'discharge_kw');
-  const chg    = kwhFromRows(rows, 'charge_kw');
+  const solar  = dt?.solar_kwh  ?? kwhFromRows(rows, 'solar_kw');
+  const load   = dt?.load_kwh   ?? kwhFromRows(rows, 'load_kw');
+  const imp    =                   kwhFromRows(rows, 'import_kw');   // no counter — see above
+  const exp    = dt?.export_kwh ?? kwhFromRows(rows, 'export_kw');
+  const dis    = dt?.dis_kwh    ?? kwhFromRows(rows, 'discharge_kw');
+  const chg    = dt?.charge_kwh ?? kwhFromRows(rows, 'charge_kw');
 
   let totalCost = 0, totalEarn = 0, totalSaved = 0;
   let hasPrices = false;
