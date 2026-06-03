@@ -665,14 +665,23 @@
     border-radius: 8px;
   }
   .tlm-chip {
-    font-size: 0.75rem;
-    color: var(--text-muted);
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 1px;
+    padding: 4px 8px;
     white-space: nowrap;
   }
-  .tlm-chip b { color: var(--text); font-weight: 600; }
+  .tlm-chip-val {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .tlm-chip-lbl {
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    opacity: 0.7;
+  }
 
   @media (max-width: 900px) {
     .kpi-row { grid-template-columns: repeat(3, 1fr); }
@@ -1153,11 +1162,11 @@
   <div id="tab-panel-dag" style="display:none">
 
   <div class="tab-live-mini" id="mini-live-dag">
-    <span class="tlm-chip" title="Solproduktion just nu">☀️ <b id="tlm-dag-solar">—</b></span>
-    <span class="tlm-chip" title="Batteri — laddningsnivå (SoC)">🔋 <b id="tlm-dag-soc">—</b></span>
-    <span class="tlm-chip" title="Batteri — nettokraft (+ laddar, − laddar ur)">🔌 <b id="tlm-dag-batt">—</b></span>
-    <span class="tlm-chip" title="Spotpris aktuell timme">💰 <b id="tlm-dag-price">—</b></span>
-    <span class="tlm-chip" title="Elnät — ↓ import, ↑ export">⚡ <b id="tlm-dag-grid">—</b></span>
+    <span class="tlm-chip"><span class="tlm-chip-val">☀️ <b id="tlm-dag-solar">—</b></span><span class="tlm-chip-lbl">Solar</span></span>
+    <span class="tlm-chip"><span class="tlm-chip-val">🔋 <b id="tlm-dag-soc">—</b></span><span class="tlm-chip-lbl">Batteri SoC</span></span>
+    <span class="tlm-chip"><span class="tlm-chip-val">🔌 <b id="tlm-dag-batt">—</b></span><span class="tlm-chip-lbl">Batteri kW</span></span>
+    <span class="tlm-chip"><span class="tlm-chip-val">💰 <b id="tlm-dag-price">—</b></span><span class="tlm-chip-lbl">Spotpris</span></span>
+    <span class="tlm-chip"><span class="tlm-chip-val">⚡ <b id="tlm-dag-grid">—</b></span><span class="tlm-chip-lbl">Elnät</span></span>
   </div>
 
   <!-- Forecast notice -->
@@ -1237,11 +1246,11 @@
   <div id="tab-panel-trender" style="display:none">
 
   <div class="tab-live-mini" id="mini-live-trender">
-    <span class="tlm-chip" title="Solproduktion just nu">☀️ <b id="tlm-trnd-solar">—</b></span>
-    <span class="tlm-chip" title="Batteri — laddningsnivå (SoC)">🔋 <b id="tlm-trnd-soc">—</b></span>
-    <span class="tlm-chip" title="Batteri — nettokraft (+ laddar, − laddar ur)">🔌 <b id="tlm-trnd-batt">—</b></span>
-    <span class="tlm-chip" title="Spotpris aktuell timme">💰 <b id="tlm-trnd-price">—</b></span>
-    <span class="tlm-chip" title="Elnät — ↓ import, ↑ export">⚡ <b id="tlm-trnd-grid">—</b></span>
+    <span class="tlm-chip"><span class="tlm-chip-val">☀️ <b id="tlm-trnd-solar">—</b></span><span class="tlm-chip-lbl">Solar</span></span>
+    <span class="tlm-chip"><span class="tlm-chip-val">🔋 <b id="tlm-trnd-soc">—</b></span><span class="tlm-chip-lbl">Batteri SoC</span></span>
+    <span class="tlm-chip"><span class="tlm-chip-val">🔌 <b id="tlm-trnd-batt">—</b></span><span class="tlm-chip-lbl">Batteri kW</span></span>
+    <span class="tlm-chip"><span class="tlm-chip-val">💰 <b id="tlm-trnd-price">—</b></span><span class="tlm-chip-lbl">Spotpris</span></span>
+    <span class="tlm-chip"><span class="tlm-chip-val">⚡ <b id="tlm-trnd-grid">—</b></span><span class="tlm-chip-lbl">Elnät</span></span>
   </div>
 
   <!-- Monthly Summary panel -->
