@@ -618,11 +618,19 @@
 
   .last-updated { font-size: 9px; color: var(--dim); align-self: center; opacity: 0.7; }
 
+  /* Sticky top wrapper — header + date bar + weather + tabs always visible */
+  #sticky-top {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--bg);
+  }
+
   /* Tab bar */
   #tab-bar {
     display: flex;
     background: var(--bg);
-    padding: 8px 12px;
+    padding: 8px 12px 10px;
     gap: 6px;
     border-bottom: 1px solid var(--border);
   }
@@ -782,6 +790,7 @@
 </head>
 <body>
 
+<div id="sticky-top">
 <header>
   <div class="logo">⚡ <span>EnergySaver</span><sup style="font-size:9px;vertical-align:super;color:var(--dim)">TM</sup></div>
   <div class="header-meta">
@@ -806,12 +815,12 @@
   <span style="color:var(--dim);font-size:10px">Loading weather…</span>
 </div>
 
-<!-- Tab bar — outside <main> so it stays at same position on all tabs -->
 <div id="tab-bar">
   <button class="tab-btn active" id="tab-btn-nu"      onclick="switchTab('nu')">⚡ Nu</button>
   <button class="tab-btn"        id="tab-btn-dag"     onclick="switchTab('dag')">📅 Dag</button>
   <button class="tab-btn"        id="tab-btn-trender" onclick="switchTab('trender')">📈 Trender</button>
 </div>
+</div><!-- /sticky-top -->
 
 <div class="live-strip hidden" id="live-strip">
   <div id="live-sky-bg"></div>
