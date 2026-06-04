@@ -308,6 +308,35 @@ def _load_from_supabase() -> list | None:
         return None
 
 
+def _load_stale_from_supabase(from_date: str) -> dict | None:
+    """Read all weather columns from Supabase with no freshness check.
+    Used when Open-Meteo is unavailable and the in-process cache is cold.
+    Returns the same combined-format dict as _rows_to_combined().
+    """
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return None
+    try:
+        from datetime import date as _date
+        d = _date.fromisoformat(from_date)
+        from_utc = (datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+                    - timedelta(hours=2)).strftime("%Y-%m-%dT%H:00:00Z")
+        url = (f"{SUPABASE_URL}/rest/v1/weather_forecast"
+               f"?valid_time=gte.{from_utc}"
+               f"&order=valid_time.asc"
+               f"&limit=72"
+               f"&select=*")
+        req = urllib.request.Request(url, headers=_sb_headers())
+        with urllib.request.urlopen(req, timeout=6) as r:
+            rows = json.loads(r.read())
+        if not rows:
+            return None
+        print(f"[weather] stale fallback: {len(rows)} rows from Supabase")
+        return _rows_to_combined(rows)
+    except Exception as e:
+        print(f"[weather] stale fallback error: {e}")
+        return None
+
+
 def _load_gti_fallback(from_date: str) -> dict | None:
     """Read GTI from Supabase with no freshness check — best-available fallback.
 
@@ -486,9 +515,14 @@ class handler(BaseHTTPRequestHandler):
             self._send(data)
         except Exception as e:
             print(f"[weather] fetch error: {e}")
-            # Serve stale cache if available
+            # Serve stale cache if available (in-process first, then Supabase)
             if _cache["data"]:
                 self._send(_cache["data"])
+                return
+            today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            stale = _load_stale_from_supabase(today_str)
+            if stale:
+                self._send(stale)
             else:
                 self._send({"error": str(e)}, 500)
 
