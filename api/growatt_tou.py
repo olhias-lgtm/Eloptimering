@@ -856,6 +856,20 @@ def _build_suggestion(for_date: date) -> dict:
             clipped.append(seg)
         segments = clipped
 
+    # Recommend discharge power % — drain usable battery within the Grid First window
+    # Formula: target_kw = usable_kwh / grid_first_hours; pct = target_kw / normal_kw
+    # Capped 50–100 %, rounded to nearest 5 %
+    grid_first_hours = sum(1 for m in hour_mode.values() if m == 2)
+    NORMAL_KW = BATT_KWH * 0.6   # nominal inverter/battery max = C_RATE_KW
+    USABLE_KWH = BATT_KWH * (SOC_CEIL - SOC_FLOOR)   # 18 kWh
+    if grid_first_hours > 0:
+        target_kw   = USABLE_KWH / grid_first_hours
+        raw_pct     = (target_kw / NORMAL_KW) * 100
+        # Round to nearest 5 %, clamp 50–100
+        rec_pct     = int(min(100, max(50, round(raw_pct / 5) * 5)))
+    else:
+        rec_pct = 100   # no Grid First → doesn't matter, keep at max
+
     # Human-readable reasoning
     cheap_hours  = sorted(h for h, m in hour_mode.items() if m == 1)
     exp_hours    = sorted(h for h, m in hour_mode.items() if m == 2)
@@ -875,10 +889,11 @@ def _build_suggestion(for_date: date) -> dict:
                                     price_by_hour, soc_start)
 
     return {
-        "ok":         True,
-        "for_date":   for_date.isoformat(),
-        "segments":   segments,
-        "reasoning":  reasoning,
+        "ok":               True,
+        "for_date":         for_date.isoformat(),
+        "segments":         segments,
+        "discharge_pct":    rec_pct,
+        "reasoning":        reasoning,
         "price_range": {"min": round(min(prices_sorted), 4),
                         "max": round(max(prices_sorted), 4),
                         "low_thresh":  round(low_thresh, 4),
@@ -895,10 +910,15 @@ def _build_suggestion(for_date: date) -> dict:
 def _save_suggestion(result: dict):
     if not SUPABASE_URL or not SUPABASE_KEY:
         return
+    # Merge discharge_pct into sim_kpis so it survives without a schema change
+    sim_kpis = dict(result.get("sim_kpis") or {})
+    if result.get("discharge_pct") is not None:
+        sim_kpis["discharge_pct"] = result["discharge_pct"]
     row = {
         "for_date":  result["for_date"],
         "segments":  result["segments"],
         "reasoning": result.get("reasoning", ""),
+        "sim_kpis":  sim_kpis,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     body = json.dumps([row]).encode()
@@ -920,7 +940,12 @@ def _load_suggestion(for_date: date) -> dict:
         with urllib.request.urlopen(req, timeout=8) as r:
             rows = json.loads(r.read())
         if rows:
-            return {"ok": True, **rows[0]}
+            row = rows[0]
+            result = {"ok": True, **row}
+            # Hoist discharge_pct out of sim_kpis for easy frontend access
+            if isinstance(row.get("sim_kpis"), dict) and "discharge_pct" in row["sim_kpis"]:
+                result["discharge_pct"] = row["sim_kpis"]["discharge_pct"]
+            return result
         return {"ok": False, "error": "no suggestion saved yet for this date"}
     except Exception as e:
         return {"ok": False, "error": str(e)}

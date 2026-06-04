@@ -4223,6 +4223,16 @@ function renderTouSuggestion(data) {
     </tr>`;
   }).join('');
 
+  const discPct = data.discharge_pct ?? null;
+  const discKw  = discPct != null ? (Math.round(discPct * 12 / 10) / 10).toFixed(1) : null;
+  const discRow = discPct != null
+    ? `<tr><td colspan="4" style="padding:6px 6px 2px;border-top:1px solid var(--border)">
+         <span style="font-size:11px;color:var(--text-muted)">⚡ Urladdningseffekt: </span>
+         <span style="font-size:12px;font-weight:600;color:#60a5fa">${discPct}% (${discKw} kW)</span>
+         <span style="font-size:10px;color:var(--dim);margin-left:6px">— dränerar batteri på ~${discPct === 100 ? '1–2' : Math.ceil(18 / (discPct * 12 / 100))} h Grid First</span>
+       </td></tr>`
+    : '';
+
   wrap.innerHTML = `
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -4232,7 +4242,7 @@ function renderTouSuggestion(data) {
           <th style="text-align:left;padding:4px 6px;color:var(--text-muted);font-weight:400;border-bottom:1px solid var(--border)">Slut</th>
           <th style="text-align:left;padding:4px 6px;color:var(--text-muted);font-weight:400;border-bottom:1px solid var(--border)">Läge</th>
         </tr></thead>
-        <tbody>${rows}</tbody>
+        <tbody>${rows}${discRow}</tbody>
       </table>
     </div>`;
 
@@ -4315,6 +4325,14 @@ function applyTouSuggestion() {
     modeEl.style.color                      = TOU_MODE_COLORS[seg.mode];
     markTouDirty(id);
   });
+
+  // Pre-fill discharge power slider from suggestion
+  if (_currentSuggestion.discharge_pct != null) {
+    _renderDischargePower(_currentSuggestion.discharge_pct, 12000);
+    // Mark the save button dirty so user notices it needs to be saved
+    const dpBtn = document.getElementById('discharge-pct-save');
+    if (dpBtn) { dpBtn.classList.add('dirty'); dpBtn.disabled = false; }
+  }
 
   // Flash the apply button
   const btn = document.getElementById('suggest-apply-btn');
