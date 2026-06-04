@@ -2457,20 +2457,26 @@ async function buildTomorrowForecast(tomorrowStr, c) {
   gtiHourly = extractHourlyGTI(gtiResp, tomorrowStr);
   if (!gtiHourly) throw new Error('GTI forecast not available for tomorrow');
 
-  // 2. Load yesterday's energy data for load profile
+  // 2. Load today's energy data (yesterdayStr = today in this function).
+  //    Used for: (a) load profile for tomorrow's simulation, (b) actual SoC readings.
+  //    We MUST NOT use state.energyData here — after the first tomorrow render,
+  //    state.energyData is overwritten with forecast rows, so on every re-render
+  //    latestSocPct would be read from the simulated end-of-tomorrow SoC (~10%)
+  //    rather than the real current battery level. Load today's data explicitly.
   let loadProfile;
+  let todayRows = [];
   try {
-    const yRows = await loadEnergyData(yesterdayStr);
+    todayRows = await loadEnergyData(yesterdayStr);
     // Pre-fill with 1 kW base load so any missing slot defaults to base load
     loadProfile = new Array(288).fill(1.0);
-    yRows.forEach(r => {
+    todayRows.forEach(r => {
       const slot = Math.round(r.minutes / 5);
       if (slot >= 0 && slot < 288 && r.load_kw > 0) {
         loadProfile[slot] = r.load_kw;
       }
     });
   } catch(e) {
-    console.warn('[forecast] Could not load yesterday load profile, using flat 1 kW:', e);
+    console.warn('[forecast] Could not load today load profile, using flat 1 kW:', e);
     loadProfile = new Array(288).fill(1.0);  // fallback base load
   }
 
@@ -2486,10 +2492,10 @@ async function buildTomorrowForecast(tomorrowStr, c) {
   const effD = c.batteryEff;
   const kwh5 = 5 / 60;
 
-  // Latest real SoC from today's actual readings
+  // Latest real SoC — taken from the freshly loaded todayRows (not state.energyData)
   let latestSocPct = c.socStart;
-  if (state.energyData) {
-    const socRows = state.energyData.filter(r => r.soc_pct != null);
+  {
+    const socRows = todayRows.filter(r => r.soc_pct != null);
     if (socRows.length > 0) latestSocPct = socRows[socRows.length - 1].soc_pct;
   }
 
@@ -2503,11 +2509,9 @@ async function buildTomorrowForecast(tomorrowStr, c) {
     ? gtiToSolarProfile(gtiTodayHourly, c.solarKwp, c.panelTilt, c.panelAzimuth, yesterdayStr)
     : new Array(288).fill(0);
 
-  // Today's actual slot lookup so we anchor to the latest real SoC
+  // Today's actual slot lookup — use freshly loaded todayRows (not state.energyData)
   const todayBySlot = {};
-  if (state.energyData) {
-    state.energyData.forEach(r => { todayBySlot[Math.round(r.minutes / 5)] = r; });
-  }
+  todayRows.forEach(r => { todayBySlot[Math.round(r.minutes / 5)] = r; });
 
   // Simulate today from nowSlot to midnight to get an accurate midnight SoC
   let soc_kwh = cap * (latestSocPct / 100);
