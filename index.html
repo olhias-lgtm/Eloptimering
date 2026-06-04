@@ -1493,8 +1493,9 @@ function generateMockEnergy() {
 // ---------------------------------------------------------------------------
 // Data fetching
 // ---------------------------------------------------------------------------
-async function fetchJSON(url) {
-  const r = await fetch(url);
+async function fetchJSON(url, timeoutMs) {
+  const opts = timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {};
+  const r = await fetch(url, opts);
   if (!r.ok) throw new Error(`HTTP ${r.status} from ${url}`);
   return r.json();
 }
@@ -2437,7 +2438,7 @@ async function buildTomorrowForecast(tomorrowStr, c) {
   );
   let gtiHourly, gtiResp;
   try {
-    gtiResp = await fetchJSON(gtiUrl);
+    gtiResp = await fetchJSON(gtiUrl, 4000);
   } catch(e) {
     console.warn('[forecast] Open-Meteo unavailable, trying cached GTI:', e.message);
     try {
@@ -2560,7 +2561,7 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
   );
   let gtiResp;
   try {
-    gtiResp = await fetchJSON(gtiUrl);
+    gtiResp = await fetchJSON(gtiUrl, 4000);
   } catch(e) {
     console.warn('[intraday] Open-Meteo unavailable, trying cached GTI:', e.message);
     try {
