@@ -101,6 +101,7 @@
     transition: all 0.15s;
   }
   .date-bar button:hover { border-color: var(--accent); color: var(--accent); }
+  .date-bar.muted { opacity: 0.35; pointer-events: none; }
 
   #date-input {
     background: var(--surface);
@@ -4679,6 +4680,9 @@ function switchTab(name) {
     document.getElementById('tab-btn-' + t).classList.toggle('active', t === name);
   });
   localStorage.setItem('activeTab', name);
+  // Mute the date bar on Trender — date navigation has no effect there
+  const dateBar = document.querySelector('.date-bar');
+  if (dateBar) dateBar.classList.toggle('muted', name === 'trender');
   _syncLiveVisibility();
   // Resize all charts so any that were hidden on first render get correct dimensions
   if (window.Chart) Object.values(state.charts).forEach(c => c?.resize?.());
