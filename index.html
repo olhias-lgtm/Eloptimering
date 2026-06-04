@@ -1160,10 +1160,20 @@
       <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">⚡ Urladdningseffekt</span>
       <input type="range" id="discharge-pct-slider" min="10" max="100" step="5" value="100"
         style="flex:1;min-width:120px;accent-color:#60a5fa;cursor:pointer"
-        oninput="document.getElementById('discharge-pct-label').textContent=this.value+'% ('+Math.round(this.value*12/10)/10+' kW)';document.getElementById('discharge-pct-save').classList.add('dirty')">
+        oninput="document.getElementById('discharge-pct-label').textContent=this.value+'% ('+Math.round(this.value*12/10)/10+' kW)';document.getElementById('discharge-pct-save').classList.add('dirty');document.getElementById('discharge-pct-save').disabled=false;">
       <span id="discharge-pct-label" style="font-size:12px;color:#60a5fa;font-weight:600;min-width:90px">100% (12.0 kW)</span>
       <button id="discharge-pct-save" class="tou-save-btn"
         onclick="saveDischargePower()" disabled>Spara</button>
+    </div>
+    <!-- SOC floor control -->
+    <div id="soc-floor-row" style="display:none;margin-top:8px;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">🔋 SoC-golv (stoppgräns)</span>
+      <input type="range" id="soc-floor-slider" min="5" max="50" step="5" value="10"
+        style="flex:1;min-width:120px;accent-color:#a78bfa;cursor:pointer"
+        oninput="document.getElementById('soc-floor-label').textContent=this.value+'%';document.getElementById('soc-floor-save').classList.add('dirty');document.getElementById('soc-floor-save').disabled=false;">
+      <span id="soc-floor-label" style="font-size:12px;color:#a78bfa;font-weight:600;min-width:40px">10%</span>
+      <button id="soc-floor-save" class="tou-save-btn"
+        onclick="saveSocFloor()" disabled>Spara</button>
     </div>
   </div>
 
@@ -4087,8 +4097,9 @@ async function loadTou(forceRefresh = false) {
       // Show subtle source badge so user knows if data came from cache or live
       const badge = document.getElementById('tou-badge');
       if (badge) badge.textContent = data.source === 'growatt' ? 'live' : 'cache';
-      // Update discharge power control if value is known
+      // Update discharge power + SOC floor controls if values are known
       _renderDischargePower(data.discharge_pct ?? null, data.normal_w ?? 12000);
+      _renderSocFloor(data.soc_floor_pct ?? null);
     } else {
       const msg = data.error || data.note || 'okänt fel';
       const isPaused = msg.toLowerCase().includes('paused') || msg.toLowerCase().includes('paus');
@@ -4169,6 +4180,73 @@ async function saveDischargePower() {
   }
 }
 
+function _renderSocFloor(pct) {
+  const row    = document.getElementById('soc-floor-row');
+  const slider = document.getElementById('soc-floor-slider');
+  const label  = document.getElementById('soc-floor-label');
+  const btn    = document.getElementById('soc-floor-save');
+  if (!row) return;
+  row.style.display = 'flex';
+  if (pct != null) {
+    slider.value      = pct;
+    label.textContent = `${pct}%`;
+    btn.disabled      = false;
+    btn.className     = 'tou-save-btn';
+  }
+}
+
+async function saveSocFloor() {
+  if (_touLocked) return;
+  const btn    = document.getElementById('soc-floor-save');
+  const slider = document.getElementById('soc-floor-slider');
+  const pct    = parseInt(slider.value, 10);
+
+  const pwd = await _touAskPassword();
+  if (pwd === null) return;
+
+  btn.className   = 'tou-save-btn saving';
+  btn.disabled    = true;
+  btn.textContent = 'Sparar…';
+  try {
+    const res  = await fetch('/api/growatt_tou?action=set_soc_floor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pct, pwd }),
+    });
+    const data = await res.json();
+
+    if (res.status === 401) {
+      _touFailCount++;
+      const remaining = data.remaining ?? Math.max(0, 3 - _touFailCount);
+      btn.className   = 'tou-save-btn err';
+      btn.textContent = 'Fel lösenord ✗';
+      if (remaining === 0) { _touLockUI(data.message); } else {
+        const warnEl = document.getElementById('tou-conflict-warn');
+        if (warnEl) { warnEl.textContent = `⚠ ${data.message}`; warnEl.style.display = 'block'; }
+        setTimeout(() => { btn.className = 'tou-save-btn dirty'; btn.textContent = 'Spara'; btn.disabled = false; }, 2500);
+      }
+      return;
+    }
+    if (res.status === 403) { _touLockUI(data.message); return; }
+
+    if (data.ok) {
+      _touFailCount = 0;
+      btn.className   = 'tou-save-btn ok';
+      btn.textContent = 'OK ✓';
+      setTimeout(() => { btn.className = 'tou-save-btn'; btn.textContent = 'Spara'; btn.disabled = false; }, 3000);
+    } else {
+      btn.className   = 'tou-save-btn err';
+      btn.textContent = 'Fel ✗';
+      console.warn('[soc floor save]', data);
+      setTimeout(() => { btn.className = 'tou-save-btn dirty'; btn.textContent = 'Spara'; btn.disabled = false; }, 3000);
+    }
+  } catch (e) {
+    btn.className   = 'tou-save-btn err';
+    btn.textContent = 'Nätfel ✗';
+    setTimeout(() => { btn.className = 'tou-save-btn dirty'; btn.textContent = 'Spara'; btn.disabled = false; }, 3000);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // TOU Suggestion
 // ---------------------------------------------------------------------------
@@ -4223,13 +4301,21 @@ function renderTouSuggestion(data) {
     </tr>`;
   }).join('');
 
-  const discPct = data.discharge_pct ?? null;
-  const discKw  = discPct != null ? (Math.round(discPct * 12 / 10) / 10).toFixed(1) : null;
-  const discRow = discPct != null
+  const discPct  = data.discharge_pct ?? null;
+  const socFloor = data.soc_floor_pct ?? null;
+  const discKw   = discPct != null ? (Math.round(discPct * 12 / 10) / 10).toFixed(1) : null;
+  const discRow  = discPct != null
     ? `<tr><td colspan="4" style="padding:6px 6px 2px;border-top:1px solid var(--border)">
          <span style="font-size:11px;color:var(--text-muted)">⚡ Urladdningseffekt: </span>
          <span style="font-size:12px;font-weight:600;color:#60a5fa">${discPct}% (${discKw} kW)</span>
          <span style="font-size:10px;color:var(--dim);margin-left:6px">— dränerar batteri på ~${discPct === 100 ? '1–2' : Math.ceil(18 / (discPct * 12 / 100))} h Grid First</span>
+       </td></tr>`
+    : '';
+  const socRow   = socFloor != null
+    ? `<tr><td colspan="4" style="padding:2px 6px 6px">
+         <span style="font-size:11px;color:var(--text-muted)">🔋 SoC-golv: </span>
+         <span style="font-size:12px;font-weight:600;color:#a78bfa">${socFloor}%</span>
+         <span style="font-size:10px;color:var(--dim);margin-left:6px">${socFloor <= 10 ? '— full urladdning för maximal arbitrage' : socFloor <= 15 ? '— liten reserv vid svag prisskillnad' : '— reserv utan Grid First-tillfällen'}</span>
        </td></tr>`
     : '';
 
@@ -4242,7 +4328,7 @@ function renderTouSuggestion(data) {
           <th style="text-align:left;padding:4px 6px;color:var(--text-muted);font-weight:400;border-bottom:1px solid var(--border)">Slut</th>
           <th style="text-align:left;padding:4px 6px;color:var(--text-muted);font-weight:400;border-bottom:1px solid var(--border)">Läge</th>
         </tr></thead>
-        <tbody>${rows}${discRow}</tbody>
+        <tbody>${rows}${discRow}${socRow}</tbody>
       </table>
     </div>`;
 
@@ -4329,9 +4415,14 @@ function applyTouSuggestion() {
   // Pre-fill discharge power slider from suggestion
   if (_currentSuggestion.discharge_pct != null) {
     _renderDischargePower(_currentSuggestion.discharge_pct, 12000);
-    // Mark the save button dirty so user notices it needs to be saved
     const dpBtn = document.getElementById('discharge-pct-save');
     if (dpBtn) { dpBtn.classList.add('dirty'); dpBtn.disabled = false; }
+  }
+  // Pre-fill SOC floor slider from suggestion
+  if (_currentSuggestion.soc_floor_pct != null) {
+    _renderSocFloor(_currentSuggestion.soc_floor_pct);
+    const sfBtn = document.getElementById('soc-floor-save');
+    if (sfBtn) { sfBtn.classList.add('dirty'); sfBtn.disabled = false; }
   }
 
   // Flash the apply button

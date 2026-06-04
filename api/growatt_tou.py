@@ -175,7 +175,7 @@ def _load_tou_cache() -> dict | None:
     if not SUPABASE_URL or not SUPABASE_KEY:
         return None
     try:
-        url = f"{SUPABASE_URL}/rest/v1/tou_cache?id=eq.1&select=segments,discharge_pct,saved_at"
+        url = f"{SUPABASE_URL}/rest/v1/tou_cache?id=eq.1&select=segments,discharge_pct,soc_floor_pct,saved_at"
         req = urllib.request.Request(url, headers=_sb_headers(service=False))
         with urllib.request.urlopen(req, timeout=5) as r:
             rows = json.loads(r.read())
@@ -189,19 +189,21 @@ def _load_tou_cache() -> dict | None:
             return None
         print(f"[tou_cache] hit ({age_min:.1f} min old)")
         result = {"ok": True, "segments": row["segments"], "source": "cache"}
-        if row.get("discharge_pct") is not None:
-            result["discharge_pct"] = row["discharge_pct"]
+        if row.get("discharge_pct")  is not None: result["discharge_pct"]  = row["discharge_pct"]
+        if row.get("soc_floor_pct")  is not None: result["soc_floor_pct"]  = row["soc_floor_pct"]
         return result
     except Exception as e:
         print(f"[tou_cache] load error: {e}")
         return None
 
 
-def _save_tou_cache(segments: list, discharge_pct: int | None = None) -> None:
-    """Upsert current segments (and optionally discharge_pct) into tou_cache.
+def _save_tou_cache(segments: list,
+                    discharge_pct: int | None = None,
+                    soc_floor_pct: int | None = None) -> None:
+    """Upsert current segments (and optionally discharge_pct / soc_floor_pct) into tou_cache.
 
-    Tries with discharge_pct first; if Supabase rejects (column not yet added),
-    falls back to saving without it so the segments cache always persists.
+    Tries with extra columns first; if Supabase rejects (columns not yet added),
+    falls back to saving without them so the segments cache always persists.
     """
     if not SUPABASE_URL or not SUPABASE_SERVICE:
         return
@@ -220,20 +222,22 @@ def _save_tou_cache(segments: list, discharge_pct: int | None = None) -> None:
         "segments": segments,
         "saved_at": datetime.now(timezone.utc).isoformat(),
     }
+    extras = {}
+    if discharge_pct is not None: extras["discharge_pct"] = discharge_pct
+    if soc_floor_pct is not None: extras["soc_floor_pct"] = soc_floor_pct
+
     try:
-        if discharge_pct is not None:
-            _do_upsert({**base, "discharge_pct": discharge_pct})
-        else:
-            _do_upsert(base)
+        _do_upsert({**base, **extras})
         print(f"[tou_cache] saved {len(segments)} segments"
-              + (f", discharge_pct={discharge_pct}" if discharge_pct is not None else ""))
+              + (f" discharge_pct={discharge_pct}" if discharge_pct is not None else "")
+              + (f" soc_floor_pct={soc_floor_pct}" if soc_floor_pct is not None else ""))
     except Exception as e:
-        if discharge_pct is not None:
-            # Column may not exist yet — retry without it
-            print(f"[tou_cache] save with discharge_pct failed ({e}), retrying without")
+        if extras:
+            # Extra columns may not exist yet — retry with base only
+            print(f"[tou_cache] save with extras failed ({e}), retrying without")
             try:
                 _do_upsert(base)
-                print(f"[tou_cache] saved {len(segments)} segments (no discharge_pct)")
+                print(f"[tou_cache] saved {len(segments)} segments (no extras)")
             except Exception as e2:
                 print(f"[tou_cache] save error: {e2}")
         else:
@@ -305,33 +309,35 @@ def _read_tou(force_refresh: bool = False) -> dict:
                 "enabled":     bool(int(en)) if en is not None else None,
             })
 
-    # Extract discharge/charge power percentages from bean
+    # Extract power + SoC settings from bean
     discharge_pct = None
     charge_pct    = None
     normal_w      = None
+    soc_floor_pct = None
     try:
         dpct = bean.get("discharge_power") or bean.get("disChargePowerCommand")
         cpct = bean.get("charge_power")    or bean.get("chargePowerCommand")
         nw   = bean.get("normalPower")
+        sfl  = bean.get("discharge_stop_soc") or bean.get("wdisChargeSOCLowLimit")
         if dpct is not None:
             discharge_pct = int(float(dpct))
         if cpct is not None:
             charge_pct = int(float(cpct))
         if nw is not None:
             normal_w = int(float(nw))
+        if sfl is not None:
+            soc_floor_pct = int(float(sfl))
     except Exception as e:
-        print(f"[tou] power parse error: {e}")
+        print(f"[tou] power/soc parse error: {e}")
 
     result = {"ok": True, "raw": data, "segments": segments, "source": "growatt"}
-    if discharge_pct is not None:
-        result["discharge_pct"] = discharge_pct
-    if charge_pct is not None:
-        result["charge_pct"] = charge_pct
-    if normal_w is not None:
-        result["normal_w"] = normal_w
+    if discharge_pct  is not None: result["discharge_pct"]  = discharge_pct
+    if charge_pct     is not None: result["charge_pct"]     = charge_pct
+    if normal_w       is not None: result["normal_w"]       = normal_w
+    if soc_floor_pct  is not None: result["soc_floor_pct"]  = soc_floor_pct
 
     # Persist for future requests
-    _save_tou_cache(segments, discharge_pct=discharge_pct)
+    _save_tou_cache(segments, discharge_pct=discharge_pct, soc_floor_pct=soc_floor_pct)
     return result
 
 
@@ -451,6 +457,35 @@ def _write_discharge_power(percent: int) -> dict:
     success = result.get("success") is True or result.get("msg") == "200"
     print(f"[growatt_tou] discharge_power={percent}%: {result}")
     return {"success": success, "discharge_pct": percent, "response": result}
+
+
+def _write_soc_floor(percent: int) -> dict:
+    """Set battery discharge stop SoC (floor). Range 5–50 %, typically 10 %."""
+    if not 5 <= percent <= 50:
+        raise ValueError(f"percent must be 5–50, got {percent}")
+    sess = get_session()
+    sess.ensure_ready()
+    print(f"[GROWATT LIVE CALL] _write_soc_floor {percent}%")
+    _record_write_op()
+    payload = {
+        "serialNum": SERIAL,
+        "type":      "discharge_stop_soc",
+        "param1":    str(percent),
+        **{f"param{i}": "" for i in range(2, 20)},
+    }
+    r = sess._s.post(
+        BASE + "/newTcpsetAPI.do",
+        params={"op": "tlxSet"},
+        data=payload,
+        timeout=15,
+    )
+    try:
+        result = r.json()
+    except Exception:
+        result = {"_status": r.status_code, "_raw": r.text[:300]}
+    success = result.get("success") is True or result.get("msg") == "200"
+    print(f"[growatt_tou] discharge_stop_soc={percent}%: {result}")
+    return {"success": success, "soc_floor_pct": percent, "response": result}
 
 
 def _write_many(segments: list) -> list:
@@ -856,6 +891,15 @@ def _build_suggestion(for_date: date) -> dict:
             clipped.append(seg)
         segments = clipped
 
+    # Recommend SOC floor — 10% when arbitrage is worthwhile, 20% otherwise
+    price_spread = max(prices_sorted) - min(prices_sorted)
+    if grid_first_hours > 0 and price_spread >= 0.30:
+        rec_soc_floor = 10   # worth draining fully
+    elif grid_first_hours > 0:
+        rec_soc_floor = 15   # mild arbitrage — keep small reserve
+    else:
+        rec_soc_floor = 20   # no Grid First — keep comfortable reserve
+
     # Recommend discharge power % — drain usable battery within the Grid First window
     # Formula: target_kw = usable_kwh / grid_first_hours; pct = target_kw / normal_kw
     # Capped 50–100 %, rounded to nearest 5 %
@@ -893,6 +937,7 @@ def _build_suggestion(for_date: date) -> dict:
         "for_date":         for_date.isoformat(),
         "segments":         segments,
         "discharge_pct":    rec_pct,
+        "soc_floor_pct":    rec_soc_floor,
         "reasoning":        reasoning,
         "price_range": {"min": round(min(prices_sorted), 4),
                         "max": round(max(prices_sorted), 4),
@@ -910,10 +955,10 @@ def _build_suggestion(for_date: date) -> dict:
 def _save_suggestion(result: dict):
     if not SUPABASE_URL or not SUPABASE_KEY:
         return
-    # Merge discharge_pct into sim_kpis so it survives without a schema change
+    # Merge discharge_pct + soc_floor_pct into sim_kpis (no schema change needed)
     sim_kpis = dict(result.get("sim_kpis") or {})
-    if result.get("discharge_pct") is not None:
-        sim_kpis["discharge_pct"] = result["discharge_pct"]
+    if result.get("discharge_pct")  is not None: sim_kpis["discharge_pct"]  = result["discharge_pct"]
+    if result.get("soc_floor_pct")  is not None: sim_kpis["soc_floor_pct"]  = result["soc_floor_pct"]
     row = {
         "for_date":  result["for_date"],
         "segments":  result["segments"],
@@ -942,9 +987,11 @@ def _load_suggestion(for_date: date) -> dict:
         if rows:
             row = rows[0]
             result = {"ok": True, **row}
-            # Hoist discharge_pct out of sim_kpis for easy frontend access
-            if isinstance(row.get("sim_kpis"), dict) and "discharge_pct" in row["sim_kpis"]:
-                result["discharge_pct"] = row["sim_kpis"]["discharge_pct"]
+            # Hoist discharge_pct + soc_floor_pct out of sim_kpis for easy frontend access
+            sk = row.get("sim_kpis") or {}
+            if isinstance(sk, dict):
+                if "discharge_pct" in sk: result["discharge_pct"] = sk["discharge_pct"]
+                if "soc_floor_pct" in sk: result["soc_floor_pct"] = sk["soc_floor_pct"]
             return result
         return {"ok": False, "error": "no suggestion saved yet for this date"}
     except Exception as e:
@@ -1128,6 +1175,21 @@ class handler(BaseHTTPRequestHandler):
 
             # Password correct — clear any previous failures
             _clear_failures(ip)
+
+            # --- Set SOC floor ---
+            if action == "set_soc_floor":
+                pct = int(body.get("pct", 10))
+                res = _write_soc_floor(pct)
+                if res.get("success"):
+                    try:
+                        cached = _load_tou_cache()
+                        segs = cached["segments"] if cached else []
+                        dpct = cached.get("discharge_pct") if cached else None
+                        _save_tou_cache(segs, discharge_pct=dpct, soc_floor_pct=pct)
+                    except Exception:
+                        pass
+                self._send({"ok": res.get("success", False), **res})
+                return
 
             # --- Set discharge power ---
             if action == "set_discharge_power":
