@@ -1066,6 +1066,15 @@
   <!-- ═══════ TAB: Nu ═══════ -->
   <div id="tab-panel-nu">
 
+  <!-- Mini live strip — shown when viewing a past date so the full flow diagram is hidden -->
+  <div class="tab-live-mini" id="mini-live-nu" style="display:none">
+    <span class="tlm-chip"><span class="tlm-chip-icon">☀️</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-solar">—</b></span><span class="tlm-chip-lbl">Solar</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">🔋</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-soc">—</b></span><span class="tlm-chip-lbl">Batteri SoC</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">🔌</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-batt">—</b></span><span class="tlm-chip-lbl">Batteri kW</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">💰</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-price">—</b></span><span class="tlm-chip-lbl">Spotpris</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">⚡</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-grid">—</b></span><span class="tlm-chip-lbl">Elnät</span></span></span>
+  </div>
+
   <!-- KPI row 1: energy -->
   <div class="kpi-row">
     <div class="kpi solar">
@@ -2768,6 +2777,7 @@ function showEnergyError(msg) {
 function loadDate(dateStr) {
   state.currentDate = dateStr;
   document.getElementById('date-input').value = dateStr;
+  _syncLiveVisibility();
   document.getElementById('forecast-notice').style.display = 'none';
   applyTariffDefaults(dateStr);
   // Show/hide live strip depending on whether we're viewing today
@@ -3394,7 +3404,8 @@ function _updateMiniLive(d) {
   }
 
   const pairs = [
-    ['dag','solar', solarStr], ['dag','soc', socStr], ['dag','batt', battStr], ['dag','price', priceStr], ['dag','grid', gridStr],
+    ['nu',  'solar', solarStr], ['nu',  'soc', socStr], ['nu',  'batt', battStr], ['nu',  'price', priceStr], ['nu',  'grid', gridStr],
+    ['dag', 'solar', solarStr], ['dag', 'soc', socStr], ['dag', 'batt', battStr], ['dag', 'price', priceStr], ['dag', 'grid', gridStr],
     ['trnd','solar', solarStr], ['trnd','soc', socStr], ['trnd','batt', battStr], ['trnd','price', priceStr], ['trnd','grid', gridStr],
   ];
   for (const [pfx, key, val] of pairs) {
@@ -4478,12 +4489,19 @@ function switchTab(name) {
     document.getElementById('tab-panel-' + t).style.display = t === name ? '' : 'none';
     document.getElementById('tab-btn-' + t).classList.toggle('active', t === name);
   });
-  // Live flow diagram only relevant on Nu tab
-  const liveStrip = document.getElementById('live-strip');
-  if (liveStrip) liveStrip.style.display = name === 'nu' ? '' : 'none';
   localStorage.setItem('activeTab', name);
+  _syncLiveVisibility();
   // Resize all charts so any that were hidden on first render get correct dimensions
   if (window.Chart) Object.values(state.charts).forEach(c => c?.resize?.());
+}
+
+function _syncLiveVisibility() {
+  const isNu      = (localStorage.getItem('activeTab') || 'nu') === 'nu';
+  const isToday   = state.currentDate === todayStr();
+  const liveStrip = document.getElementById('live-strip');
+  const miniNu    = document.getElementById('mini-live-nu');
+  if (liveStrip) liveStrip.style.display = (isNu && isToday) ? '' : 'none';
+  if (miniNu)    miniNu.style.display    = (isNu && !isToday) ? '' : 'none';
 }
 
 // ---------------------------------------------------------------------------
