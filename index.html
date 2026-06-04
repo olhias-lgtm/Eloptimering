@@ -4514,7 +4514,13 @@ async function loadGridData() {
   try {
     const rows = await fetchJSON('/api/grid?days=7');
     if (!Array.isArray(rows) || rows.length === 0) return;
-    const latest = rows[rows.length - 1];
+    // Find the latest row with actual data — eSett has a 1–2 day lag so
+    // the most recent rows often arrive as zeros before settlement.
+    let latest = null;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if ((rows[i].total || 0) > 0) { latest = rows[i]; break; }
+    }
+    if (!latest) latest = rows[rows.length - 1]; // fallback
     renderGridKpis(latest);
 
     // Collect unique CEST calendar dates covered by grid rows.
