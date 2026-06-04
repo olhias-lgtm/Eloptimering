@@ -308,6 +308,50 @@ def _load_from_supabase() -> list | None:
         return None
 
 
+def _load_gti_fallback(from_date: str) -> dict | None:
+    """Read GTI from Supabase with no freshness check — best-available fallback.
+
+    from_date: 'YYYY-MM-DD' (Stockholm local date; we fetch from midnight UTC-ish)
+    Returns a dict compatible with extractHourlyGTI in the frontend:
+      { "hourly": { "time": [...], "global_tilted_irradiance": [...] } }
+    Times are Stockholm local 'YYYY-MM-DDTHH:MM'.
+    Uses gti_adj (met.no-corrected) in global_tilted_irradiance for best quality.
+    """
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return None
+    try:
+        # Fetch from the day before from_date (UTC) to cover midnight-CEST wrap
+        from datetime import date as _date
+        d = _date.fromisoformat(from_date)
+        from_utc = (datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+                    - timedelta(hours=2)).strftime("%Y-%m-%dT%H:00:00Z")
+        url = (f"{SUPABASE_URL}/rest/v1/weather_forecast"
+               f"?valid_time=gte.{from_utc}"
+               f"&order=valid_time.asc"
+               f"&limit=72"          # up to 3 days
+               f"&select=valid_time,gti_adj,gti_om")
+        req = urllib.request.Request(url, headers=_sb_headers())
+        with urllib.request.urlopen(req, timeout=6) as r:
+            rows = json.loads(r.read())
+        if not rows:
+            return None
+        tz_sthlm = timezone(timedelta(hours=2))
+        times, gti = [], []
+        for row in rows:
+            dt_utc   = datetime.fromisoformat(row["valid_time"].replace("Z", "+00:00"))
+            dt_local = dt_utc.astimezone(tz_sthlm)
+            times.append(dt_local.strftime("%Y-%m-%dT%H:%M"))
+            # Prefer met.no-corrected GTI; fall back to raw OM
+            val = row.get("gti_adj") if row.get("gti_adj") is not None else row.get("gti_om")
+            gti.append(float(val) if val is not None else 0.0)
+        print(f"[weather] GTI fallback from Supabase: {len(rows)} rows from {from_date}")
+        return {"hourly": {"time": times, "global_tilted_irradiance": gti},
+                "source": "supabase_fallback"}
+    except Exception as e:
+        print(f"[weather] GTI fallback error: {e}")
+        return None
+
+
 def _save_to_supabase(rows: list) -> None:
     if not SUPABASE_URL or not SUPABASE_SVC or not rows:
         return
@@ -397,6 +441,21 @@ def _rows_to_combined(rows: list) -> dict:
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        import urllib.parse as _up
+        params = dict(_up.parse_qsl(_up.urlparse(self.path).query))
+
+        # ?action=gti&date=YYYY-MM-DD — serve cached GTI as Open-Meteo-compatible
+        # response with no freshness gate.  Used as a fallback by the frontend
+        # when Open-Meteo is unavailable.
+        if params.get("action") == "gti":
+            date_str = params.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            data = _load_gti_fallback(date_str)
+            if data:
+                self._send(data)
+            else:
+                self._send({"error": "no GTI data in cache"}, 503)
+            return
+
         # 1. In-process cache (warm Lambda)
         age = time.monotonic() - _cache["ts"]
         if _cache["data"] and age < CACHE_TTL:

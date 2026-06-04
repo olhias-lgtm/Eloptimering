@@ -2437,11 +2437,16 @@ async function buildTomorrowForecast(tomorrowStr, c) {
   );
   let gtiHourly, gtiResp;
   try {
-    gtiResp   = await fetchJSON(gtiUrl);
-    gtiHourly = extractHourlyGTI(gtiResp, tomorrowStr);
+    gtiResp = await fetchJSON(gtiUrl);
   } catch(e) {
-    throw new Error(`GTI fetch failed: ${e.message}`);
+    console.warn('[forecast] Open-Meteo unavailable, trying cached GTI:', e.message);
+    try {
+      gtiResp = await fetchJSON(`/api/weather?action=gti&date=${tomorrowStr}`);
+    } catch(e2) {
+      throw new Error(`GTI fetch failed (Open-Meteo + cache): ${e2.message}`);
+    }
   }
+  gtiHourly = extractHourlyGTI(gtiResp, tomorrowStr);
   if (!gtiHourly) throw new Error('GTI forecast not available for tomorrow');
 
   // 2. Load yesterday's energy data for load profile
@@ -2553,7 +2558,17 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
     + `&tilt=${c.panelTilt}&azimuth=${c.panelAzimuth}`
     + `&timezone=Europe%2FStockholm&forecast_days=1`
   );
-  const gtiResp = await fetchJSON(gtiUrl);
+  let gtiResp;
+  try {
+    gtiResp = await fetchJSON(gtiUrl);
+  } catch(e) {
+    console.warn('[intraday] Open-Meteo unavailable, trying cached GTI:', e.message);
+    try {
+      gtiResp = await fetchJSON(`/api/weather?action=gti&date=${todayStr}`);
+    } catch(e2) {
+      throw new Error(`GTI fetch failed (Open-Meteo + cache): ${e2.message}`);
+    }
+  }
   const gtiHourly = extractHourlyGTI(gtiResp, todayStr);
   if (!gtiHourly) throw new Error('GTI not available for today');
 
