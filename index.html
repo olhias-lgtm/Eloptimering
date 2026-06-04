@@ -2761,11 +2761,13 @@ async function refresh() {
 
     // Intraday forecast overlay when viewing today (non-blocking)
     let intradayOverlay = null;
+    let forecastErr = null;
     const isToday = dateStr === today;
     if (isToday) {
       try {
         intradayOverlay = await buildIntradayForecast(dateStr, c, energyRaw);
       } catch(e) {
+        forecastErr = e.message;
         console.warn('[intraday forecast]', e.message);
       }
     }
@@ -2774,6 +2776,19 @@ async function refresh() {
     renderPriceChart(priceMap, energyRaw, tomorrowMap, isTomorrow);
     renderRunningChart(energyRaw, activePriceMap, c, calcDateStr, intradayOverlay);
     renderTomorrowPriceChart(tomorrowMap);
+
+    // Show forecast error notice if weather API failed
+    if (forecastErr) {
+      const fn = document.getElementById('forecast-notice');
+      const ft = document.getElementById('forecast-notice-text');
+      if (fn && ft) {
+        ft.textContent = `⚠ Prognos ej tillgänglig — väder-API svarade inte (${forecastErr.split(':')[0]})`;
+        fn.style.display = '';
+        fn.style.background = 'rgba(239,68,68,0.08)';
+        fn.style.borderColor = 'rgba(239,68,68,0.3)';
+        fn.style.color = '#fca5a5';
+      }
+    }
 
     // Persist spot prices for past dates (fire-and-forget)
     if (!isTomorrow && dateStr < today) {
