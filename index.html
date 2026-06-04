@@ -817,8 +817,8 @@
 </div>
 
 <div id="tab-bar">
-  <button class="tab-btn active" id="tab-btn-nu"      onclick="switchTab('nu')">⚡ Nu</button>
-  <button class="tab-btn"        id="tab-btn-dag"     onclick="switchTab('dag')">📅 Dag</button>
+  <button class="tab-btn active" id="tab-btn-nu"      onclick="switchTab('nu')">⚡ Live</button>
+  <button class="tab-btn"        id="tab-btn-dag"     onclick="switchTab('dag')">📅 Dag & TOU</button>
   <button class="tab-btn"        id="tab-btn-trender" onclick="switchTab('trender')">📈 Trender</button>
 </div>
 </div><!-- /sticky-top -->
@@ -1151,68 +1151,6 @@
     </button>
   </div>
 
-  <!-- TOU Battery Schedule panel -->
-  <div class="card" style="margin-bottom:14px">
-    <div class="card-title">
-      Batteri-schema (TOU)
-      <span id="tou-badge" class="badge" style="background:var(--muted);color:var(--dim);padding:2px 7px;border-radius:2px;font-size:9px;text-transform:uppercase;letter-spacing:.5px"></span>
-      <button id="tou-refresh-btn" onclick="forceTouRefresh(this)"
-        style="font-size:11px;padding:3px 8px;border-radius:3px;border:1px solid var(--border);background:var(--muted);color:var(--text-muted);cursor:pointer;margin-left:auto">
-        ↻
-      </button>
-      <button id="tou-reset-btn" onclick="resetTouToDefault()"
-        style="font-size:11px;padding:3px 10px;border-radius:3px;border:1px solid #7f1d1d;background:rgba(127,29,29,0.15);color:#fca5a5;cursor:pointer">
-        Återställ
-      </button>
-    </div>
-    <p style="font-size:11px;color:var(--text-muted);margin:0 0 10px">Gäller alla dagar tills vidare — detta är växelriktarens (MID 12KTL3-XH) aktiva schema, inte datumspecifikt. Kontrollera i ShinePhone efter sparning.</p>
-    <div id="tou-conflict-warn" style="display:none;font-size:11px;color:#fca5a5;background:rgba(127,29,29,0.3);border:1px solid #7f1d1d;border-radius:4px;padding:6px 10px;margin-bottom:8px"></div>
-    <div id="tou-wrap" style="overflow-x:auto">
-      <p style="color:var(--text-muted);font-size:12px">Laddar…</p>
-    </div>
-    <!-- Discharge power control -->
-    <div id="discharge-power-row" style="display:none;margin-top:12px;border-top:1px solid var(--border);padding-top:10px;align-items:center;gap:10px;flex-wrap:wrap">
-      <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">⚡ Urladdningseffekt</span>
-      <input type="range" id="discharge-pct-slider" min="10" max="100" step="5" value="100"
-        style="flex:1;min-width:120px;accent-color:#60a5fa;cursor:pointer"
-        oninput="document.getElementById('discharge-pct-label').textContent=this.value+'% ('+Math.round(this.value*12/10)/10+' kW)';document.getElementById('discharge-pct-save').classList.add('dirty');document.getElementById('discharge-pct-save').disabled=false;">
-      <span id="discharge-pct-label" style="font-size:12px;color:#60a5fa;font-weight:600;min-width:90px">100% (12.0 kW)</span>
-      <button id="discharge-pct-save" class="tou-save-btn"
-        onclick="saveDischargePower()" disabled>Spara</button>
-    </div>
-    <!-- SOC floor control -->
-    <div id="soc-floor-row" style="display:none;margin-top:8px;align-items:center;gap:10px;flex-wrap:wrap">
-      <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">🔋 SoC-golv (stoppgräns)</span>
-      <input type="range" id="soc-floor-slider" min="5" max="50" step="5" value="10"
-        style="flex:1;min-width:120px;accent-color:#a78bfa;cursor:pointer"
-        oninput="document.getElementById('soc-floor-label').textContent=this.value+'%';document.getElementById('soc-floor-save').classList.add('dirty');document.getElementById('soc-floor-save').disabled=false;">
-      <span id="soc-floor-label" style="font-size:12px;color:#a78bfa;font-weight:600;min-width:40px">10%</span>
-      <button id="soc-floor-save" class="tou-save-btn"
-        onclick="saveSocFloor()" disabled>Spara</button>
-    </div>
-  </div>
-
-  <!-- TOU Suggestion panel -->
-  <div class="card" style="margin-bottom:14px">
-    <div class="card-title" style="display:flex;align-items:center;gap:8px">
-      <span style="flex:1">Föreslagen TOU-plan (idag)</span>
-      <span id="suggest-badge" class="badge" style="background:var(--muted);color:var(--dim);padding:2px 7px;border-radius:2px;font-size:9px;text-transform:uppercase;letter-spacing:.5px"></span>
-      <button id="suggest-apply-btn" onclick="applyTouSuggestion()"
-        style="display:none;font-size:11px;padding:3px 10px;border-radius:3px;border:1px solid #22c55e;background:rgba(34,197,94,0.1);color:#22c55e;cursor:pointer">
-        Lägg in i schemat ↑
-      </button>
-    </div>
-    <p style="font-size:11px;color:var(--text-muted);margin:0 0 10px">
-      Automatisk analys baserad på morgondagens spotpriser och solprognos (−15% säkerhetsmarginal).
-      Genereras varje natt 00:05. Klicka "Lägg in i schemat" för att kopiera till TOU-editorn ovan — du måste sedan spara varje rad manuellt.
-    </p>
-    <div id="suggest-wrap">
-      <p style="color:var(--text-muted);font-size:12px">Laddar förslag…</p>
-    </div>
-    <div id="suggest-sim-kpis" style="display:none;margin-top:12px;border-top:1px solid var(--border);padding-top:10px"></div>
-    <div id="suggest-reasoning" style="display:none;margin-top:10px;font-size:11px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px"></div>
-  </div>
-
   </div><!-- /tab-panel-nu -->
 
   <!-- ═══════ TAB: Dag ═══════ -->
@@ -1295,6 +1233,68 @@
         <canvas id="tomorrow-price-chart"></canvas>
       </div>
     </div>
+  </div>
+
+  <!-- TOU Battery Schedule panel -->
+  <div class="card" style="margin-bottom:14px;margin-top:1rem">
+    <div class="card-title">
+      Batteri-schema (TOU)
+      <span id="tou-badge" class="badge" style="background:var(--muted);color:var(--dim);padding:2px 7px;border-radius:2px;font-size:9px;text-transform:uppercase;letter-spacing:.5px"></span>
+      <button id="tou-refresh-btn" onclick="forceTouRefresh(this)"
+        style="font-size:11px;padding:3px 8px;border-radius:3px;border:1px solid var(--border);background:var(--muted);color:var(--text-muted);cursor:pointer;margin-left:auto">
+        ↻
+      </button>
+      <button id="tou-reset-btn" onclick="resetTouToDefault()"
+        style="font-size:11px;padding:3px 10px;border-radius:3px;border:1px solid #7f1d1d;background:rgba(127,29,29,0.15);color:#fca5a5;cursor:pointer">
+        Återställ
+      </button>
+    </div>
+    <p style="font-size:11px;color:var(--text-muted);margin:0 0 10px">Gäller alla dagar tills vidare — detta är växelriktarens (MID 12KTL3-XH) aktiva schema, inte datumspecifikt. Kontrollera i ShinePhone efter sparning.</p>
+    <div id="tou-conflict-warn" style="display:none;font-size:11px;color:#fca5a5;background:rgba(127,29,29,0.3);border:1px solid #7f1d1d;border-radius:4px;padding:6px 10px;margin-bottom:8px"></div>
+    <div id="tou-wrap" style="overflow-x:auto">
+      <p style="color:var(--text-muted);font-size:12px">Laddar…</p>
+    </div>
+    <!-- Discharge power control -->
+    <div id="discharge-power-row" style="display:none;margin-top:12px;border-top:1px solid var(--border);padding-top:10px;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">⚡ Urladdningseffekt</span>
+      <input type="range" id="discharge-pct-slider" min="10" max="100" step="5" value="100"
+        style="flex:1;min-width:120px;accent-color:#60a5fa;cursor:pointer"
+        oninput="document.getElementById('discharge-pct-label').textContent=this.value+'% ('+Math.round(this.value*12/10)/10+' kW)';document.getElementById('discharge-pct-save').classList.add('dirty');document.getElementById('discharge-pct-save').disabled=false;">
+      <span id="discharge-pct-label" style="font-size:12px;color:#60a5fa;font-weight:600;min-width:90px">100% (12.0 kW)</span>
+      <button id="discharge-pct-save" class="tou-save-btn"
+        onclick="saveDischargePower()" disabled>Spara</button>
+    </div>
+    <!-- SOC floor control -->
+    <div id="soc-floor-row" style="display:none;margin-top:8px;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">🔋 SoC-golv (stoppgräns)</span>
+      <input type="range" id="soc-floor-slider" min="5" max="50" step="5" value="10"
+        style="flex:1;min-width:120px;accent-color:#a78bfa;cursor:pointer"
+        oninput="document.getElementById('soc-floor-label').textContent=this.value+'%';document.getElementById('soc-floor-save').classList.add('dirty');document.getElementById('soc-floor-save').disabled=false;">
+      <span id="soc-floor-label" style="font-size:12px;color:#a78bfa;font-weight:600;min-width:40px">10%</span>
+      <button id="soc-floor-save" class="tou-save-btn"
+        onclick="saveSocFloor()" disabled>Spara</button>
+    </div>
+  </div>
+
+  <!-- TOU Suggestion panel -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title" style="display:flex;align-items:center;gap:8px">
+      <span style="flex:1">Föreslagen TOU-plan (idag)</span>
+      <span id="suggest-badge" class="badge" style="background:var(--muted);color:var(--dim);padding:2px 7px;border-radius:2px;font-size:9px;text-transform:uppercase;letter-spacing:.5px"></span>
+      <button id="suggest-apply-btn" onclick="applyTouSuggestion()"
+        style="display:none;font-size:11px;padding:3px 10px;border-radius:3px;border:1px solid #22c55e;background:rgba(34,197,94,0.1);color:#22c55e;cursor:pointer">
+        Lägg in i schemat ↑
+      </button>
+    </div>
+    <p style="font-size:11px;color:var(--text-muted);margin:0 0 10px">
+      Automatisk analys baserad på morgondagens spotpriser och solprognos (−15% säkerhetsmarginal).
+      Genereras varje natt 00:05. Klicka "Lägg in i schemat" för att kopiera till TOU-editorn ovan — du måste sedan spara varje rad manuellt.
+    </p>
+    <div id="suggest-wrap">
+      <p style="color:var(--text-muted);font-size:12px">Laddar förslag…</p>
+    </div>
+    <div id="suggest-sim-kpis" style="display:none;margin-top:12px;border-top:1px solid var(--border);padding-top:10px"></div>
+    <div id="suggest-reasoning" style="display:none;margin-top:10px;font-size:11px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px"></div>
   </div>
 
   </div><!-- /tab-panel-dag -->
