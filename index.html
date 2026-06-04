@@ -2436,6 +2436,11 @@ async function buildTomorrowForecast(tomorrowStr, c) {
     + `&tilt=${c.panelTilt}&azimuth=${c.panelAzimuth}`
     + `&timezone=Europe%2FStockholm&forecast_days=2`
   );
+  // Compute today's date string (one day before tomorrowStr) up front — needed by fallback path
+  const todayD = new Date(tomorrowStr);
+  todayD.setDate(todayD.getDate() - 1);
+  const yesterdayStr = todayD.toLocaleDateString('sv-SE');
+
   let gtiHourly, gtiResp;
   try {
     gtiResp = await fetchJSON(gtiUrl, 4000);
@@ -2453,9 +2458,6 @@ async function buildTomorrowForecast(tomorrowStr, c) {
   if (!gtiHourly) throw new Error('GTI forecast not available for tomorrow');
 
   // 2. Load yesterday's energy data for load profile
-  const todayD = new Date(tomorrowStr);
-  todayD.setDate(todayD.getDate() - 1);
-  const yesterdayStr = todayD.toLocaleDateString('sv-SE');
   let loadProfile;
   try {
     const yRows = await loadEnergyData(yesterdayStr);
