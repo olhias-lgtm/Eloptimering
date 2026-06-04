@@ -1128,6 +1128,20 @@
     </div>
   </div>
 
+  <!-- KPI row 3: price averages -->
+  <div class="kpi-row-cost">
+    <div class="kpi">
+      <div class="kpi-label">Köppris</div>
+      <div class="kpi-value" id="kpi-buy-price" style="color:var(--import)">—</div>
+      <div class="kpi-sub">öre/kWh viktat inkl. moms</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Säljpris</div>
+      <div class="kpi-value" id="kpi-sell-price" style="color:var(--export)">—</div>
+      <div class="kpi-sub">öre/kWh viktat exkl. moms</div>
+    </div>
+  </div>
+
   <!-- CSV export -->
   <div style="text-align:right;margin-bottom:14px">
     <button onclick="exportKpiCsv()"
@@ -1691,13 +1705,16 @@ function renderKPIs(rows, priceMap, c, dateStr) {
 
   let totalCost = 0, totalEarn = 0, totalSaved = 0;
   let hasPrices = false;
+  // Weighted-average price accumulators
+  let wtdBuyOreSum = 0, wtdBuyKwh = 0;   // Köppris  (all-in incl. moms)
+  let wtdSellOreSum = 0, wtdSellKwh = 0; // Säljpris (spot + nätnytta, excl. moms)
 
   rows.forEach(r => {
     const spot = priceAt(priceMap, r.time);
     if (spot === null) return;
     hasPrices = true;
     const kwh5 = 5/60;
-    const { costKr, earningKr } = calcInterval(
+    const { costKr, earningKr, importRateOre, exportRateOre } = calcInterval(
       r.import_kw * kwh5, r.export_kw * kwh5, spot, c, r.time, dateStr
     );
     totalCost += costKr;
@@ -1705,9 +1722,14 @@ function renderKPIs(rows, priceMap, c, dateStr) {
 
     // Self-consumed kWh = load minus import (solar/battery used directly, never hit grid)
     const selfKwh = Math.max(0, r.load_kw - r.import_kw) * kwh5;
-    // Saving = avoided import cost at full per-kWh rate (spot + nät + energiskatt + fortum) × moms
-    const importRateOre = (spot + c.natavgIn + c.energiskatt + c.fortumPaslag) * c.moms;
+    // Saving = avoided import cost at full per-kWh rate (importRateOre already includes all fees + moms)
     totalSaved += selfKwh * importRateOre / 100;
+
+    // Weighted price accumulation
+    const impKwh5 = r.import_kw * kwh5;
+    const expKwh5 = r.export_kw * kwh5;
+    if (impKwh5 > 0) { wtdBuyOreSum  += impKwh5 * importRateOre;  wtdBuyKwh  += impKwh5; }
+    if (expKwh5 > 0) { wtdSellOreSum += expKwh5 * exportRateOre;  wtdSellKwh += expKwh5; }
   });
 
   // Add monthly fixed fee (prorated to the day)
@@ -1727,6 +1749,12 @@ function renderKPIs(rows, priceMap, c, dateStr) {
     ? `${varCostKpi.toFixed(2)} <span style="font-size:11px;opacity:0.55;font-weight:400">(+${fixedDay.toFixed(2)})</span>`
     : '—';
   set('kpi-saved', hasPrices ? totalSaved.toFixed(2) : '—');
+
+  // Weighted-average price KPIs
+  const buyPriceEl  = document.getElementById('kpi-buy-price');
+  const sellPriceEl = document.getElementById('kpi-sell-price');
+  if (buyPriceEl)  buyPriceEl.textContent  = (hasPrices && wtdBuyKwh  > 0.001) ? Math.round(wtdBuyOreSum  / wtdBuyKwh)  + ' öre' : '—';
+  if (sellPriceEl) sellPriceEl.textContent = (hasPrices && wtdSellKwh > 0.001) ? Math.round(wtdSellOreSum / wtdSellKwh) + ' öre' : '—';
 
   const netEl = document.getElementById('kpi-net');
   if (hasPrices) {
@@ -2763,7 +2791,7 @@ function clearCharts() {
     }
   });
   // Reset KPIs
-  ['kpi-solar','kpi-load','kpi-import','kpi-export','kpi-discharge','kpi-cost','kpi-saved','kpi-net'].forEach(id => {
+  ['kpi-solar','kpi-load','kpi-import','kpi-export','kpi-discharge','kpi-cost','kpi-saved','kpi-net','kpi-buy-price','kpi-sell-price'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = '—';
   });
