@@ -175,7 +175,7 @@ def _load_tou_cache() -> dict | None:
     if not SUPABASE_URL or not SUPABASE_KEY:
         return None
     try:
-        url = f"{SUPABASE_URL}/rest/v1/tou_cache?id=eq.1&select=segments,saved_at"
+        url = f"{SUPABASE_URL}/rest/v1/tou_cache?id=eq.1&select=segments,discharge_pct,saved_at"
         req = urllib.request.Request(url, headers=_sb_headers(service=False))
         with urllib.request.urlopen(req, timeout=5) as r:
             rows = json.loads(r.read())
@@ -188,31 +188,56 @@ def _load_tou_cache() -> dict | None:
             print(f"[tou_cache] stale ({age_min:.0f} min old) — will refresh from Growatt")
             return None
         print(f"[tou_cache] hit ({age_min:.1f} min old)")
-        return {"ok": True, "segments": row["segments"], "source": "cache"}
+        result = {"ok": True, "segments": row["segments"], "source": "cache"}
+        if row.get("discharge_pct") is not None:
+            result["discharge_pct"] = row["discharge_pct"]
+        return result
     except Exception as e:
         print(f"[tou_cache] load error: {e}")
         return None
 
 
-def _save_tou_cache(segments: list) -> None:
-    """Upsert current segments into tou_cache."""
+def _save_tou_cache(segments: list, discharge_pct: int | None = None) -> None:
+    """Upsert current segments (and optionally discharge_pct) into tou_cache.
+
+    Tries with discharge_pct first; if Supabase rejects (column not yet added),
+    falls back to saving without it so the segments cache always persists.
+    """
     if not SUPABASE_URL or not SUPABASE_SERVICE:
         return
-    try:
-        body = json.dumps({
-            "id":       1,
-            "segments": segments,
-            "saved_at": datetime.now(timezone.utc).isoformat(),
-        }).encode()
-        req = urllib.request.Request(
+
+    def _do_upsert(payload: dict) -> None:
+        body = json.dumps(payload).encode()
+        req  = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/tou_cache",
             data=body, method="POST",
             headers={**_sb_headers(service=True), "Prefer": "resolution=merge-duplicates"},
         )
         urllib.request.urlopen(req, timeout=5).read()
-        print(f"[tou_cache] saved {len(segments)} segments")
+
+    base = {
+        "id":       1,
+        "segments": segments,
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        if discharge_pct is not None:
+            _do_upsert({**base, "discharge_pct": discharge_pct})
+        else:
+            _do_upsert(base)
+        print(f"[tou_cache] saved {len(segments)} segments"
+              + (f", discharge_pct={discharge_pct}" if discharge_pct is not None else ""))
     except Exception as e:
-        print(f"[tou_cache] save error: {e}")
+        if discharge_pct is not None:
+            # Column may not exist yet — retry without it
+            print(f"[tou_cache] save with discharge_pct failed ({e}), retrying without")
+            try:
+                _do_upsert(base)
+                print(f"[tou_cache] saved {len(segments)} segments (no discharge_pct)")
+            except Exception as e2:
+                print(f"[tou_cache] save error: {e2}")
+        else:
+            print(f"[tou_cache] save error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -280,9 +305,33 @@ def _read_tou(force_refresh: bool = False) -> dict:
                 "enabled":     bool(int(en)) if en is not None else None,
             })
 
+    # Extract discharge/charge power percentages from bean
+    discharge_pct = None
+    charge_pct    = None
+    normal_w      = None
+    try:
+        dpct = bean.get("discharge_power") or bean.get("disChargePowerCommand")
+        cpct = bean.get("charge_power")    or bean.get("chargePowerCommand")
+        nw   = bean.get("normalPower")
+        if dpct is not None:
+            discharge_pct = int(float(dpct))
+        if cpct is not None:
+            charge_pct = int(float(cpct))
+        if nw is not None:
+            normal_w = int(float(nw))
+    except Exception as e:
+        print(f"[tou] power parse error: {e}")
+
     result = {"ok": True, "raw": data, "segments": segments, "source": "growatt"}
+    if discharge_pct is not None:
+        result["discharge_pct"] = discharge_pct
+    if charge_pct is not None:
+        result["charge_pct"] = charge_pct
+    if normal_w is not None:
+        result["normal_w"] = normal_w
+
     # Persist for future requests
-    _save_tou_cache(segments)
+    _save_tou_cache(segments, discharge_pct=discharge_pct)
     return result
 
 
@@ -374,6 +423,35 @@ def _check_force_refresh_cooldown() -> bool:
 def _record_force_refresh():
     global _last_force_refresh_at
     _last_force_refresh_at = _time.monotonic()
+
+def _write_discharge_power(percent: int) -> dict:
+    """Set battery discharge rate as % of normalPower. Range 1–100."""
+    if not 1 <= percent <= 100:
+        raise ValueError(f"percent must be 1–100, got {percent}")
+    sess = get_session()
+    sess.ensure_ready()
+    print(f"[GROWATT LIVE CALL] _write_discharge_power {percent}%")
+    _record_write_op()
+    payload = {
+        "serialNum": SERIAL,
+        "type":      "discharge_power",
+        "param1":    str(percent),
+        **{f"param{i}": "" for i in range(2, 20)},
+    }
+    r = sess._s.post(
+        BASE + "/newTcpsetAPI.do",
+        params={"op": "tlxSet"},
+        data=payload,
+        timeout=15,
+    )
+    try:
+        result = r.json()
+    except Exception:
+        result = {"_status": r.status_code, "_raw": r.text[:300]}
+    success = result.get("success") is True or result.get("msg") == "200"
+    print(f"[growatt_tou] discharge_power={percent}%: {result}")
+    return {"success": success, "discharge_pct": percent, "response": result}
+
 
 def _write_many(segments: list) -> list:
     import time
@@ -1025,6 +1103,21 @@ class handler(BaseHTTPRequestHandler):
 
             # Password correct — clear any previous failures
             _clear_failures(ip)
+
+            # --- Set discharge power ---
+            if action == "set_discharge_power":
+                pct = int(body.get("pct", 100))
+                res = _write_discharge_power(pct)
+                if res.get("success"):
+                    # Update cache with new discharge_pct without changing segments
+                    try:
+                        cached = _load_tou_cache()
+                        segs = cached["segments"] if cached else []
+                        _save_tou_cache(segs, discharge_pct=pct)
+                    except Exception:
+                        pass
+                self._send({"ok": res.get("success", False), **res})
+                return
 
             # --- Reset to default ---
             if action == "reset":
