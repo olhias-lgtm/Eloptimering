@@ -2442,7 +2442,9 @@ async function buildTomorrowForecast(tomorrowStr, c) {
   } catch(e) {
     console.warn('[forecast] Open-Meteo unavailable, trying cached GTI:', e.message);
     try {
-      gtiResp = await fetchJSON(`/api/weather?action=gti&date=${tomorrowStr}`);
+      // Request from yesterdayStr (= today) so the response covers both
+      // today's GTI (needed for midnight-SoC simulation) and tomorrow's.
+      gtiResp = await fetchJSON(`/api/weather?action=gti&date=${yesterdayStr}`);
     } catch(e2) {
       throw new Error(`GTI fetch failed (Open-Meteo + cache): ${e2.message}`);
     }
