@@ -586,8 +586,8 @@ def _fetch_gti_forecast(d: date) -> dict:
             day_start = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=cest)
             day_end   = datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=cest)
             url = (f"{SUPABASE_URL}/rest/v1/weather_forecast"
-                   f"?valid_time=gte.{day_start.astimezone(_tz.utc).isoformat()}"
-                   f"&valid_time=lte.{day_end.astimezone(_tz.utc).isoformat()}"
+                   f"?valid_time=gte.{urllib.parse.quote(day_start.astimezone(_tz.utc).isoformat())}"
+                   f"&valid_time=lte.{urllib.parse.quote(day_end.astimezone(_tz.utc).isoformat())}"
                    f"&order=valid_time.asc"
                    f"&select=valid_time,gti_adj")
             req = urllib.request.Request(url, headers=_sb_headers())
@@ -605,25 +605,29 @@ def _fetch_gti_forecast(d: date) -> dict:
         except Exception as e:
             print(f"[tou_suggest] Supabase GTI fetch failed, falling back to Open-Meteo: {e}")
 
-    # Fallback: direct Open-Meteo call
-    print(f"[tou_suggest] Fetching GTI direct from Open-Meteo for {d}")
-    url = (
-        f"https://api.open-meteo.com/v1/forecast"
-        f"?latitude={LAT}&longitude={LON}"
-        f"&hourly=global_tilted_irradiance"
-        f"&tilt={PANEL_TILT}&azimuth={PANEL_AZ}"
-        f"&timezone=Europe%2FStockholm"
-        f"&forecast_days=2&past_days=0"
-    )
-    req = urllib.request.Request(url, headers={"User-Agent": "electricity-dashboard/tou-suggest"})
-    with urllib.request.urlopen(req, timeout=12) as r:
-        data = json.loads(r.read())
-    target = d.isoformat()
-    result = {}
-    for t, v in zip(data["hourly"]["time"], data["hourly"]["global_tilted_irradiance"]):
-        if t.startswith(target) and v is not None:
-            result[int(t[11:13])] = float(v)
-    return result
+    # Fallback: direct Open-Meteo call (best-effort — may be unavailable)
+    try:
+        print(f"[tou_suggest] Fetching GTI direct from Open-Meteo for {d}")
+        url = (
+            f"https://api.open-meteo.com/v1/forecast"
+            f"?latitude={LAT}&longitude={LON}"
+            f"&hourly=global_tilted_irradiance"
+            f"&tilt={PANEL_TILT}&azimuth={PANEL_AZ}"
+            f"&timezone=Europe%2FStockholm"
+            f"&forecast_days=2&past_days=0"
+        )
+        req = urllib.request.Request(url, headers={"User-Agent": "electricity-dashboard/tou-suggest"})
+        with urllib.request.urlopen(req, timeout=12) as r:
+            data = json.loads(r.read())
+        target = d.isoformat()
+        result = {}
+        for t, v in zip(data["hourly"]["time"], data["hourly"]["global_tilted_irradiance"]):
+            if t.startswith(target) and v is not None:
+                result[int(t[11:13])] = float(v)
+        return result
+    except Exception as e:
+        print(f"[tou_suggest] Open-Meteo GTI also unavailable: {e}. Returning empty GTI.")
+        return {}  # _build_suggestion handles missing GTI gracefully (solar_by_hour → 0)
 
 
 def _fetch_solar_model() -> dict:
