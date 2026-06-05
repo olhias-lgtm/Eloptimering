@@ -118,7 +118,7 @@ def _sb_upsert_rows(rows: list):
 # ---------------------------------------------------------------------------
 
 # A day needs filling if fewer than this fraction of expected live slots exist.
-_GAP_THRESHOLD = 0.85
+_GAP_THRESHOLD = 1.0   # fill any day with even one missing slot
 
 
 def _count_live_rows(date_str: str) -> int:
