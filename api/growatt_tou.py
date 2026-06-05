@@ -933,6 +933,9 @@ def _build_suggestion(for_date: date) -> dict:
             clipped.append(seg)
         segments = clipped
 
+    # Count Grid First hours (used by both SOC floor and discharge power recommendations)
+    grid_first_hours = sum(1 for m in hour_mode.values() if m == 2)
+
     # Recommend SOC floor — 10% when arbitrage is worthwhile, 20% otherwise
     price_spread = max(prices_sorted) - min(prices_sorted)
     if grid_first_hours > 0 and price_spread >= 0.30:
@@ -945,7 +948,6 @@ def _build_suggestion(for_date: date) -> dict:
     # Recommend discharge power % — drain usable battery within the Grid First window
     # Formula: target_kw = usable_kwh / grid_first_hours; pct = target_kw / normal_kw
     # Capped 50–100 %, rounded to nearest 5 %
-    grid_first_hours = sum(1 for m in hour_mode.values() if m == 2)
     NORMAL_KW = BATT_KWH * 0.6   # nominal inverter/battery max = C_RATE_KW
     USABLE_KWH = BATT_KWH * (SOC_CEIL - SOC_FLOOR)   # 18 kWh
     if grid_first_hours > 0:
