@@ -2134,7 +2134,7 @@ function renderPowerPriceChart(rows, priceMap, isForecast, forecastOverlay) {
   // Spot price mapped to each 5-min label — stepped, on y2
   const priceData = labels.map(t => {
     const spot = priceAt(priceMap, t);
-    return spot !== null ? Math.round(spot * c.moms) : null;
+    return spot !== null ? Math.round(spot) : null;
   });
 
   const datasets = [
@@ -2144,7 +2144,7 @@ function renderPowerPriceChart(rows, priceMap, isForecast, forecastOverlay) {
     { label:`Export${fSuffix}`,    data: actualByTime('export_kw'),    borderColor:C.exp,     backgroundColor:'rgba(34,197,94,0.06)',  tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:`Urladdning${fSuffix}`,data: actualByTime('discharge_kw'), borderColor:C.battery, backgroundColor:'rgba(167,139,250,0.06)',tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:`Laddning${fSuffix}`,  data: actualByTime('charge_kw'),    borderColor:'rgba(96,205,250,0.9)', backgroundColor:'rgba(96,205,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
-    { label:'Spotpris (öre/kWh)',  data: priceData, borderColor:C.price, backgroundColor:'transparent', stepped:'before', fill:false, pointRadius:0, borderWidth:1.5, yAxisID:'y2', spanGaps:true },
+    { label:'Spot excl. moms (öre/kWh)', data: priceData, borderColor:C.price, backgroundColor:'transparent', stepped:'before', fill:false, pointRadius:0, borderWidth:1.5, yAxisID:'y2', spanGaps:true },
   ];
 
   if (forecastOverlay && forecastOverlay.length > 0) {
