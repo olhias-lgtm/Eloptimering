@@ -40,17 +40,17 @@ def row_type(row: dict) -> str:
 #
 # Growatt field   DB column       Notes
 CHART_FIELD_MAP = {
-    "ppv":        "ppv_kw",       # PV generation (kW)
-    "sysOut":     "load_kw",      # Total house load (kW)
-    "pacToGrid":  "export_kw",    # Export to grid (kW)
-    "pacToUser":  "discharge_kw", # Battery → loads (kW)  ← NOT grid import
-    # import_kw is always 0 for chart rows — not available from chart API
-    # charge_kw  is None  for chart rows — not available from chart API
-    # soc_pct    is None  for chart rows — not available from chart API
+    "ppv":         "ppv_kw",       # PV generation (kW)
+    "sysOut":      "load_kw",      # Total house load (kW)
+    "pacToGrid":   "export_kw",    # Export to grid (kW)
+    "pacToUser":   "discharge_kw", # Battery → loads (kW)
+    "chargePower": "charge_kw",    # Battery charge (kW)  ← confirmed via API probe
+    "userLoad":    "import_kw",    # Import from grid (kW) ← confirmed via API probe
+    # soc_pct is not available from the chart API — always NULL in chart rows
 }
 
 # Fields that are always NULL in chart rows (not provided by Growatt chart API)
-CHART_NULL_FIELDS = {"charge_kw", "soc_pct",
+CHART_NULL_FIELDS = {"soc_pct",
                      "epv_today", "eac_today", "echarge_today",
                      "edischarge_today", "eload_today",
                      "export_today", "import_today",

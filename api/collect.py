@@ -72,7 +72,7 @@ def _chart_to_rows(chart_data: dict, target_date: date, utc_offset_h: int) -> li
         # Map Growatt chart fields → DB columns via schema contract.
         # CHART_FIELD_MAP defines which Growatt key maps to which column,
         # including the critical pacToUser→discharge_kw (NOT import_kw) mapping.
-        row: dict = {"ts": ts_utc, "import_kw": 0}  # import not in chart API
+        row: dict = {"ts": ts_utc}
         for growatt_key, db_col in CHART_FIELD_MAP.items():
             row[db_col] = vals.get(growatt_key)
         # Fields unavailable in chart API — explicitly null per schema
