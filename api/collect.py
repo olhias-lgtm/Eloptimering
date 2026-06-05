@@ -121,6 +121,76 @@ def _sb_upsert_rows(rows: list):
 
 
 # ---------------------------------------------------------------------------
+# Self-healing: fill recent gaps from chart API after each live insert
+# ---------------------------------------------------------------------------
+
+def _heal_recent_gaps(today_str: str) -> int:
+    """Check the last 2 hours for missing 5-min slots and fill them from
+    Growatt's chart API.  Called after every successful live cron insert so
+    gaps are closed within the next 5-minute cycle rather than waiting for
+    the nightly autofill.  Safe to run every 5 min — uses ignore-duplicates
+    so it never overwrites live rows.  Returns the number of rows upserted."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return 0
+    try:
+        now_utc  = datetime.now(timezone.utc)
+        tz_cest  = timezone(timedelta(hours=2))
+        d        = date.fromisoformat(today_str)
+
+        # Window: up to 2 hours back, but never before today's CEST midnight
+        today_midnight_utc = datetime(
+            d.year, d.month, d.day, 0, 0, 0, tzinfo=tz_cest
+        ).astimezone(timezone.utc)
+        window_start = max(now_utc - timedelta(hours=2), today_midnight_utc)
+
+        # Expected number of 5-min slots in the window
+        elapsed_min = (now_utc - window_start).total_seconds() / 60
+        expected    = max(0, int(elapsed_min / 5))
+        if expected == 0:
+            return 0
+
+        # Count all rows (live + chart) in the window
+        url = (
+            f"{SUPABASE_URL}/rest/v1/energy_readings"
+            f"?ts=gte.{urllib.parse.quote(window_start.isoformat())}"
+            f"&ts=lt.{urllib.parse.quote(now_utc.isoformat())}"
+            f"&select=ts&limit=600"
+        )
+        req = urllib.request.Request(url, headers={
+            "apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
+        })
+        with urllib.request.urlopen(req, timeout=8) as r:
+            actual = len(json.loads(r.read()))
+
+        # Each slot produces at least 1 row (live or chart).  If we have
+        # at least as many rows as expected slots there are no gaps.
+        if actual >= expected:
+            return 0
+
+        # Gaps detected — fetch today's chart data and upsert non-zero rows
+        print(f"[heal] {actual} rows vs {expected} expected in last 2 h — fetching chart data")
+        s           = get_session()
+        result      = s.get_energy(today_str)
+        chart_data  = (result.get("obj") or {}).get("chartData") or {}
+        if not chart_data:
+            print("[heal] chart API returned no data")
+            return 0
+
+        rows = _chart_to_rows(chart_data, d, _cest_offset(d))
+        if not rows:
+            return 0
+
+        _sb_upsert_rows(rows)
+        _delete_future_chart_zeros(d)
+        print(f"[heal] upserted {len(rows)} chart rows for {today_str}")
+        return len(rows)
+
+    except Exception as e:
+        print(f"[heal] error: {e}")
+        return 0
+
+
+# ---------------------------------------------------------------------------
 # Autofill helpers
 # ---------------------------------------------------------------------------
 
@@ -429,6 +499,15 @@ class handler(BaseHTTPRequestHandler):
             data = s.get_live()
             _sb_insert(data)
             print(f"[collect] OK ppv={data.get('ppv_kw')} export={data.get('export_kw')}")
+
+            # Self-heal: fill any gaps in the last 2 hours from the chart API
+            today_str = (
+                datetime.now(timezone.utc)
+                .astimezone(timezone(timedelta(hours=2)))
+                .date().isoformat()
+            )
+            _heal_recent_gaps(today_str)
+
             self._send({"ok": True, "ppv_kw": data.get("ppv_kw")})
         except Exception as e:
             print(f"[collect] error: {e}")
