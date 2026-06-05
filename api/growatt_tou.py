@@ -1125,10 +1125,15 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if action == "build_suggest":
-            # Vercel crons send GET — build tomorrow's TOU suggestion
+            # Vercel crons send GET — build TOU suggestion.
+            # Optional ?date=YYYY-MM-DD overrides the default (tomorrow UTC).
             try:
-                tomorrow = date.today() + timedelta(days=1)
-                result = _build_suggestion(tomorrow)
+                date_param = params.get("date", [""])[0]
+                if date_param:
+                    for_date = date.fromisoformat(date_param)
+                else:
+                    for_date = date.today() + timedelta(days=1)
+                result = _build_suggestion(for_date)
                 if result.get("ok"):
                     _save_suggestion(result)
                 self._send(result)
