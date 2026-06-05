@@ -515,14 +515,56 @@ def _write_many(segments: list) -> list:
 # ---------------------------------------------------------------------------
 
 def _fetch_prices_for_date(d: date) -> list:
-    """Return list of {time_start, SEK_per_kWh} for the given date from elprisetjustnu."""
+    """Return list of {time_start, SEK_per_kWh} for the given date from elprisetjustnu.
+
+    Falls back to the local Supabase spot_prices table if the external API is unavailable.
+    """
     y, mo, day = d.isoformat().split("-")
     url = f"https://www.elprisetjustnu.se/api/v1/prices/{y}/{mo}-{day}_{AREA}.json"
     req = urllib.request.Request(url, headers={"User-Agent": "electricity-dashboard/tou-suggest"})
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
-            return json.loads(r.read())
-    except Exception:
+            rows = json.loads(r.read())
+            if rows:
+                return rows
+    except Exception as e:
+        print(f"[tou suggest] elprisetjustnu unavailable ({e}), trying Supabase fallback")
+
+    # Fallback: read from our own spot_prices table
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return []
+    try:
+        cest = timezone(timedelta(hours=2 if 3 < d.month < 11 else 1))
+        day_start = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=cest).isoformat()
+        day_end   = datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=cest).isoformat()
+        sb_url = (f"{SUPABASE_URL}/rest/v1/spot_prices"
+                  f"?ts=gte.{urllib.parse.quote(day_start)}"
+                  f"&ts=lte.{urllib.parse.quote(day_end)}"
+                  f"&area=eq.{AREA}"
+                  f"&order=ts.asc&select=ts,sek_per_kwh")
+        sb_req = urllib.request.Request(sb_url, headers=_sb_headers())
+        with urllib.request.urlopen(sb_req, timeout=8) as r:
+            rows = json.loads(r.read())
+        # Convert 15-min Supabase rows → hourly elprisetjustnu shape
+        # Normalize "+00" → "+00:00" for Python 3.9 fromisoformat compatibility
+        from collections import defaultdict
+        hour_buckets: dict = defaultdict(list)
+        for row in rows:
+            ts  = row.get("ts", "").replace("+00:00", "Z").replace("+00", "Z")
+            sek = row.get("sek_per_kwh")
+            if ts and sek is not None:
+                try:
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    hour_buckets[dt.replace(minute=0, second=0, microsecond=0)].append(float(sek))
+                except (ValueError, TypeError):
+                    continue
+        result = []
+        for dt_hour, vals in sorted(hour_buckets.items()):
+            result.append({"time_start": dt_hour.isoformat(), "SEK_per_kWh": sum(vals) / len(vals)})
+        print(f"[tou suggest] Supabase fallback: {len(result)} hourly price rows for {d}")
+        return result
+    except Exception as e:
+        print(f"[tou suggest] Supabase price fallback error: {e}")
         return []
 
 
