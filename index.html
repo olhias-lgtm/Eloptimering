@@ -1555,15 +1555,20 @@ function _parseEnergyRaw(raw) {
       minutes:      h * 60 + m,
       solar_kw:     parseFloat(v.ppv        || v.solar     || 0),
       load_kw:      parseFloat(v.sysOut     || v.load      || 0),
-      import_kw:    parseFloat(v.pacToUser  || v.toUser    || v.import   || 0),
+      import_kw:    parseFloat(v.import     || v.toUser    || 0),
       export_kw:    parseFloat(v.pacToGrid  || v.toGrid    || v.export   || 0),
       discharge_kw: parseFloat(v.pdischarge || v.discharge || 0),
-      soc_pct:      v.soc != null ? parseFloat(v.soc) : null,
+      charge_kw:    v.charge != null ? parseFloat(v.charge) : null,
+      soc_pct:      v.soc    != null ? parseFloat(v.soc)    : null,
     });
   }
   rows.sort((a,b) => a.minutes - b.minutes);
   rows.forEach(r => {
-    r.charge_kw = Math.max(0, r.solar_kw + r.import_kw - r.load_kw - r.export_kw + r.discharge_kw);
+    // Use the API-provided charge value when available. Fall back to energy
+    // balance only for old rows that pre-date the charge_kw field being stored.
+    if (r.charge_kw == null) {
+      r.charge_kw = Math.max(0, r.solar_kw + r.import_kw - r.load_kw - r.export_kw + r.discharge_kw);
+    }
   });
   rows.daily_totals = raw.daily_totals || null;
   return rows;
