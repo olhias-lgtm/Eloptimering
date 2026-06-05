@@ -1176,6 +1176,14 @@
     </div>
   </div>
 
+  <!-- Power + Spot Price chart -->
+  <div class="card" style="margin-top:1rem">
+    <div class="card-title">Effektflöde &amp; Spotpris</div>
+    <div class="chart-wrap-tall">
+      <canvas id="power-price-chart"></canvas>
+    </div>
+  </div>
+
   <!-- CSV export -->
   <div style="text-align:right;margin-bottom:14px">
     <button onclick="exportKpiCsv()"
@@ -2053,6 +2061,126 @@ function _applyPowerDsVisibility() {
   if (showAllBtn) showAllBtn.style.display = state.hiddenPowerDs.size > 0 ? '' : 'none';
 }
 
+function _applyPowerPriceDsVisibility() {
+  const chart = state.charts['power-price'];
+  if (!chart) return;
+  // _POWER_DS_KEYS covers all power series; spot price has no key so it's always visible
+  chart.data.datasets.forEach((ds, i) => {
+    const key = Object.entries(_POWER_DS_KEYS).find(([, prefixes]) =>
+      prefixes.some(p => ds.label.startsWith(p))
+    )?.[0];
+    if (key) chart.setDatasetVisibility(i, !state.hiddenPowerDs.has(key));
+  });
+  chart.update();
+}
+
+function renderPowerPriceChart(rows, priceMap, isForecast, forecastOverlay) {
+  const c  = cfg();
+  const cs = getComputedStyle(document.documentElement);
+  const C  = {
+    solar:   cs.getPropertyValue('--solar').trim(),
+    load:    cs.getPropertyValue('--load').trim(),
+    imp:     cs.getPropertyValue('--import').trim(),
+    exp:     cs.getPropertyValue('--export').trim(),
+    battery: cs.getPropertyValue('--battery').trim(),
+    price:   cs.getPropertyValue('--price').trim(),
+  };
+
+  const fDash   = isForecast ? [5, 4] : undefined;
+  const fSuffix = isForecast ? ' (prognos)' : '';
+
+  const actualMap = {};
+  rows.forEach(r => { actualMap[r.time] = r; });
+
+  let lastActualTime = null;
+  if (forecastOverlay && forecastOverlay.length > 0) {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r = rows[i];
+      if ((r.solar_kw || 0) > 0.01 || (r.load_kw || 0) > 0.01 ||
+          (r.import_kw || 0) > 0.01 || (r.export_kw || 0) > 0.01) {
+        lastActualTime = r.time; break;
+      }
+    }
+  } else {
+    lastActualTime = rows.length > 0 ? rows[rows.length - 1].time : null;
+  }
+
+  let labels;
+  if (forecastOverlay && forecastOverlay.length > 0) {
+    labels = forecastOverlay.map(r => r.time);
+  } else {
+    labels = rows.map(r => r.time);
+  }
+
+  function actualByTime(key) {
+    if (!forecastOverlay) return rows.map(r => r[key] ?? null);
+    return labels.map(t => {
+      if (lastActualTime && t > lastActualTime) return null;
+      const r = actualMap[t];
+      return r !== undefined ? (r[key] ?? null) : null;
+    });
+  }
+
+  function overlayByTime(key) {
+    if (!forecastOverlay) return null;
+    return forecastOverlay.map(r => {
+      if (r._actual) return null;
+      if (!lastActualTime) return r[key] ?? null;
+      if (r.time <= lastActualTime) return null;
+      return r[key] ?? null;
+    });
+  }
+
+  // Spot price mapped to each 5-min label — stepped, on y2
+  const priceData = labels.map(t => {
+    const spot = priceAt(priceMap, t);
+    return spot !== null ? Math.round(spot * c.moms) : null;
+  });
+
+  const datasets = [
+    { label:`Solar${fSuffix}`,     data: actualByTime('solar_kw'),     borderColor:C.solar,   backgroundColor:'rgba(245,158,11,0.08)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:fDash },
+    { label:`Load${fSuffix}`,      data: actualByTime('load_kw'),      borderColor:C.load,    backgroundColor:'rgba(96,165,250,0.08)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:fDash },
+    { label:`Import${fSuffix}`,    data: actualByTime('import_kw'),    borderColor:C.imp,     backgroundColor:'rgba(239,68,68,0.06)',  tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
+    { label:`Export${fSuffix}`,    data: actualByTime('export_kw'),    borderColor:C.exp,     backgroundColor:'rgba(34,197,94,0.06)',  tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
+    { label:`Urladdning${fSuffix}`,data: actualByTime('discharge_kw'), borderColor:C.battery, backgroundColor:'rgba(167,139,250,0.06)',tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
+    { label:`Laddning${fSuffix}`,  data: actualByTime('charge_kw'),    borderColor:'rgba(96,205,250,0.9)', backgroundColor:'rgba(96,205,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
+    { label:'Spotpris (öre/kWh)',  data: priceData, borderColor:C.price, backgroundColor:'transparent', stepped:'before', fill:false, pointRadius:0, borderWidth:1.5, yAxisID:'y2', spanGaps:true },
+  ];
+
+  if (forecastOverlay && forecastOverlay.length > 0) {
+    datasets.push(
+      { label:'Solar (prognos)',      data: overlayByTime('solar_kw'),     borderColor:'rgba(245,158,11,0.6)',   backgroundColor:'rgba(245,158,11,0.04)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
+      { label:'Load (prognos)',       data: overlayByTime('load_kw'),      borderColor:'rgba(96,165,250,0.6)',   backgroundColor:'rgba(96,165,250,0.04)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
+      { label:'Import (prognos)',     data: overlayByTime('import_kw'),    borderColor:'rgba(239,68,68,0.55)',   backgroundColor:'transparent',           tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
+      { label:'Export (prognos)',     data: overlayByTime('export_kw'),    borderColor:'rgba(34,197,94,0.55)',   backgroundColor:'transparent',           tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
+      { label:'Urladdning (prognos)',data: overlayByTime('discharge_kw'), borderColor:'rgba(167,139,250,0.55)', backgroundColor:'transparent',           tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
+      { label:'Laddning (prognos)',   data: overlayByTime('charge_kw'),    borderColor:'rgba(96,205,250,0.55)',  backgroundColor:'transparent',           tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] }
+    );
+  }
+
+  const opts = chartOpts('kW', false);
+  opts.plugins.tooltip.callbacks.label = ctx => {
+    const isPrice = ctx.dataset.yAxisID === 'y2';
+    const val = ctx.parsed.y?.toFixed(isPrice ? 0 : 2);
+    return ` ${ctx.dataset.label}: ${val}${isPrice ? ' öre' : ' kW'}`;
+  };
+  opts.scales.y2 = {
+    position: 'right',
+    ticks: {
+      color: C.price,
+      font: { family:'JetBrains Mono', size:9 },
+      callback: v => v + ' öre',
+    },
+    grid: { drawOnChartArea: false },
+    title: { display:true, text:'öre/kWh', color:C.price, font:{size:9} },
+  };
+
+  upsertChart('power-price-chart', 'power-price', {
+    type:'line', data:{ labels, datasets }, options: opts,
+  });
+  _applyPowerPriceDsVisibility();
+}
+
 function renderPriceChart(priceMap, rows, tomorrowMap, isTomorrow) {
   const c = cfg();
   const cs = getComputedStyle(document.documentElement);
@@ -2797,6 +2925,7 @@ async function refresh() {
     }
 
     renderPowerChart(energyRaw, isTomorrow, intradayOverlay);
+    renderPowerPriceChart(energyRaw, activePriceMap, isTomorrow, intradayOverlay);
     renderPriceChart(priceMap, energyRaw, tomorrowMap, isTomorrow);
     renderRunningChart(energyRaw, activePriceMap, c, calcDateStr, intradayOverlay);
     renderTomorrowPriceChart(tomorrowMap);
@@ -2839,7 +2968,7 @@ async function refresh() {
 }
 
 function clearCharts() {
-  ['power', 'price', 'running', 'tomorrow-price'].forEach(key => {
+  ['power', 'power-price', 'price', 'running', 'tomorrow-price'].forEach(key => {
     if (state.charts[key]) {
       state.charts[key].destroy();
       delete state.charts[key];
@@ -4538,11 +4667,13 @@ document.querySelectorAll('#power-legend [data-ds]').forEach(el => {
       state.hiddenPowerDs.add(key);
     }
     _applyPowerDsVisibility();
+    _applyPowerPriceDsVisibility();
   });
 });
 document.getElementById('power-legend-show-all').addEventListener('click', () => {
   state.hiddenPowerDs.clear();
   _applyPowerDsVisibility();
+  _applyPowerPriceDsVisibility();
 });
 
 // ---------------------------------------------------------------------------
