@@ -78,6 +78,13 @@ def _chart_to_rows(chart_data: dict, target_date: date, utc_offset_h: int) -> li
         # Fields unavailable in chart API — explicitly null per schema
         for col in CHART_NULL_FIELDS:
             row[col] = None
+        # Skip rows where every measurable power field is exactly 0:
+        # Growatt returns 0.0 as a sentinel for "no data recorded", not a real
+        # zero reading. Storing these creates a misleading flat-zero line in the
+        # chart instead of a proper gap. Real nighttime zeros still have discharge>0.
+        power_cols = ("ppv_kw", "load_kw", "export_kw", "discharge_kw")
+        if all((row.get(c) or 0) == 0 for c in power_cols):
+            continue
         rows.append(row)
     return rows
 
