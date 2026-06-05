@@ -122,7 +122,12 @@ _GAP_THRESHOLD = 1.0   # fill any day with even one missing slot
 
 
 def _count_live_rows(date_str: str) -> int:
-    """Count live rows (soc_pct IS NOT NULL) for a CEST calendar date."""
+    """Count ALL rows (live + chart/backfill) for a CEST calendar date.
+
+    Previously filtered soc_pct IS NOT NULL (live-only), but that caused
+    backfilled days to show 0 and autofill to re-trigger forever.
+    Any row in the DB means the slot has been filled — count it.
+    """
     if not SUPABASE_URL or not SUPABASE_KEY:
         return 0
     try:
@@ -136,9 +141,8 @@ def _count_live_rows(date_str: str) -> int:
             f"{SUPABASE_URL}/rest/v1/energy_readings"
             f"?ts=gte.{urllib.parse.quote(start)}"
             f"&ts=lte.{urllib.parse.quote(end)}"
-            f"&soc_pct=not.is.null"
             f"&select=ts"
-            f"&limit=300"
+            f"&limit=600"
         )
         req = urllib.request.Request(url, headers={
             "apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -357,10 +361,24 @@ def _do_historical(date_str: str, confirm: bool) -> tuple[int, dict]:
         return 200, preview
 
     # ── 7. Write ───────────────────────────────────────────────────────────────
+    rows_before = _count_live_rows(date_str)
     _sb_upsert_rows(rows)
-    preview["dry_run"] = False
-    preview["written"] = slot_count
-    preview["note"]    = "Rows upserted to energy_readings. Run /api/backfill to recompute daily_summary."
+    rows_after  = _count_live_rows(date_str)
+    actual_new  = max(0, rows_after - rows_before)
+
+    # If backfilling today, delete future chart zeros that Growatt returns for
+    # not-yet-recorded slots (these would otherwise sit in the DB as stale zeros).
+    zeros_deleted = 0
+    today_utc = datetime.now(timezone.utc).date()
+    if target == today_utc:
+        zeros_deleted = _delete_future_chart_zeros(today_utc)
+
+    preview["dry_run"]       = False
+    preview["attempted"]     = slot_count
+    preview["new_rows"]      = actual_new
+    preview["skipped"]       = slot_count - actual_new  # ignored as duplicates
+    preview["zeros_deleted"] = zeros_deleted
+    preview["note"]          = "Rows upserted to energy_readings."
     return 200, preview
 
 
