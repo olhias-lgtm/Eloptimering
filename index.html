@@ -2144,7 +2144,7 @@ function renderPowerPriceChart(rows, priceMap, isForecast, forecastOverlay) {
     { label:`Export${fSuffix}`,    data: actualByTime('export_kw'),    borderColor:C.exp,     backgroundColor:'rgba(34,197,94,0.06)',  tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:`Urladdning${fSuffix}`,data: actualByTime('discharge_kw'), borderColor:C.battery, backgroundColor:'rgba(167,139,250,0.06)',tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:`Laddning${fSuffix}`,  data: actualByTime('charge_kw'),    borderColor:'rgba(96,205,250,0.9)', backgroundColor:'rgba(96,205,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
-    { label:'Spot excl. moms (öre/kWh)', data: priceData, borderColor:C.price, backgroundColor:'transparent', stepped:'before', fill:false, pointRadius:0, borderWidth:1.5, yAxisID:'y2', spanGaps:true },
+    { label:'Spot excl. moms (öre/kWh)', data: priceData, borderColor:'#e879f9', backgroundColor:'transparent', stepped:'before', fill:false, pointRadius:0, borderWidth:1.5, yAxisID:'y2', spanGaps:true },
   ];
 
   if (forecastOverlay && forecastOverlay.length > 0) {
@@ -2167,12 +2167,12 @@ function renderPowerPriceChart(rows, priceMap, isForecast, forecastOverlay) {
   opts.scales.y2 = {
     position: 'right',
     ticks: {
-      color: C.price,
+      color: '#e879f9',
       font: { family:'JetBrains Mono', size:9 },
       callback: v => v + ' öre',
     },
     grid: { drawOnChartArea: false },
-    title: { display:true, text:'öre/kWh', color:C.price, font:{size:9} },
+    title: { display:true, text:'öre/kWh', color:'#e879f9', font:{size:9} },
   };
 
   upsertChart('power-price-chart', 'power-price', {
