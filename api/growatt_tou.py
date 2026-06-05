@@ -1128,7 +1128,7 @@ class handler(BaseHTTPRequestHandler):
             # Vercel crons send GET — build TOU suggestion.
             # Optional ?date=YYYY-MM-DD overrides the default (tomorrow UTC).
             try:
-                date_param = params.get("date", [""])[0]
+                date_param = params.get("date", "")
                 if date_param:
                     for_date = date.fromisoformat(date_param)
                 else:
