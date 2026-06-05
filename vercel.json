@@ -13,7 +13,7 @@
   "crons": [
     { "path": "/api/weather",                             "schedule": "0 3 * * *"  },
     { "path": "/api/solar_model?action=build",            "schedule": "0 4 * * *"  },
-    { "path": "/api/growatt_tou?action=build_suggest",    "schedule": "10 22 * * *" },
+    { "path": "/api/growatt_tou?action=build_suggest",    "schedule": "30 13 * * *" },
     { "path": "/api/growatt_tou?action=notify_reset",     "schedule": "0 20 * * *" },
     { "path": "/api/save_prices?area=SE3",                "schedule": "0 6 * * *"  },
     { "path": "/api/save_prices?area=SE3&date=tomorrow",  "schedule": "0 13 * * *" },
