@@ -90,9 +90,13 @@ def _chart_to_rows(chart_data: dict, target_date: date, utc_offset_h: int) -> li
 
 
 def _sb_upsert_rows(rows: list):
-    """Insert rows into energy_readings, skipping any that already exist (by ts).
-    Uses ignore-duplicates so live cron rows (with soc_pct, counters, etc.) are
-    never overwritten by chart rows that have soc_pct=NULL."""
+    """Upsert chart rows into energy_readings, overwriting any existing chart row
+    with the same ts.  Safe to use merge-duplicates because:
+    - Chart rows have exact-minute timestamps  (HH:MM:00)
+    - Live cron rows have second-offset timestamps (HH:MM:30)
+    They never share a ts, so merge-duplicates can never overwrite a live row.
+    Using merge (not ignore) means a stale all-zero chart row is replaced by
+    corrected data on the next backfill/heal cycle."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise RuntimeError("Supabase env vars not set")
     # Insert in batches of 100
@@ -100,9 +104,6 @@ def _sb_upsert_rows(rows: list):
         batch = rows[i:i+100]
         body = json.dumps(batch).encode()
         req = urllib.request.Request(
-            # on_conflict=ts tells PostgREST to apply ON CONFLICT (ts) DO NOTHING,
-            # targeting the UNIQUE(ts) constraint we added. Without this, PostgREST
-            # only targets the PK and returns 409 for UNIQUE constraint violations.
             f"{SUPABASE_URL}/rest/v1/energy_readings?on_conflict=ts",
             data=body,
             method="POST",
@@ -110,7 +111,7 @@ def _sb_upsert_rows(rows: list):
                 "apikey":        SUPABASE_KEY,
                 "Authorization": f"Bearer {SUPABASE_KEY}",
                 "Content-Type":  "application/json",
-                "Prefer":        "resolution=ignore-duplicates,return=minimal",
+                "Prefer":        "resolution=merge-duplicates,return=minimal",
             },
         )
         try:
