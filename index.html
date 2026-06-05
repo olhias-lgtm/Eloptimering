@@ -2876,7 +2876,7 @@ async function loadSolarForecast() {
   const CACHE_MS = 60 * 60 * 1000; // 1 hour
   if (state.solarForecastTs && (Date.now() - state.solarForecastTs) < CACHE_MS) return;
 
-  const c = readConfig();
+  const c = cfg();
   const gtiUrl = (
     `https://api.open-meteo.com/v1/forecast`
     + `?latitude=59.28&longitude=18.00`
