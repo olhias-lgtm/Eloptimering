@@ -124,6 +124,27 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
             else:
                 b[k] = round(b[k], 3)
 
+    # Interpolate SoC for chart/backfill slots that sit between two known values.
+    # A linear interpolation is accurate enough — battery SoC changes smoothly
+    # and the surrounding live rows provide reliable anchor points.
+    labels_ordered = list(buckets.keys())  # already in 00:00..23:55 order
+    soc_values = [buckets[l]["soc"] for l in labels_ordered]
+    n = len(labels_ordered)
+    for i, label in enumerate(labels_ordered):
+        if soc_values[i] is not None:
+            continue
+        # Find nearest non-null SoC before and after this slot
+        before_i = next((j for j in range(i - 1, -1, -1) if soc_values[j] is not None), None)
+        after_i  = next((j for j in range(i + 1, n)      if soc_values[j] is not None), None)
+        if before_i is not None and after_i is not None:
+            span   = after_i - before_i
+            weight = (i - before_i) / span
+            interp = soc_values[before_i] + weight * (soc_values[after_i] - soc_values[before_i])
+            buckets[label]["soc"] = round(interp, 1)
+        elif before_i is not None:
+            buckets[label]["soc"] = soc_values[before_i]   # trailing gap: hold last known
+        # leading gap (no before): leave null — no anchor to extrapolate from
+
     # Truncate future slots when viewing today (CEST date — Vercel runs UTC)
     today_str = datetime.now(timezone.utc).astimezone(tz_cest).date().isoformat()
     if date_str == today_str:
