@@ -285,6 +285,16 @@
   .breakdown .positive { color: var(--positive); }
   .breakdown .negative { color: var(--negative); }
 
+  /* 5-day solar forecast card */
+  #solar-forecast-card { margin-bottom: 1rem; }
+  .sfb-wrap { display:flex; gap:8px; align-items:flex-end; padding:6px 0 2px; }
+  .sfb-col  { display:flex; flex-direction:column; align-items:center; gap:3px; flex:1; min-width:0; }
+  .sfb-track { width:100%; background:var(--muted); border-radius:3px 3px 0 0; height:72px;
+               display:flex; align-items:flex-end; overflow:hidden; }
+  .sfb-bar  { width:100%; border-radius:2px 2px 0 0; transition:height .35s ease; }
+  .sfb-kwh  { font-size:11px; font-weight:600; color:var(--text); }
+  .sfb-lbl  { font-size:10px; color:var(--dim); text-align:center; line-height:1.3; white-space:nowrap; }
+
   /* Forecast notice */
   .forecast-notice {
     background: rgba(56,189,248,0.05);
@@ -1147,6 +1157,14 @@
     📈 <span id="forecast-notice-text">Tomorrow's prices available — forecast shown for rest of today and tomorrow</span>
   </div>
 
+  <!-- 5-day solar yield forecast -->
+  <div class="card" id="solar-forecast-card">
+    <div class="card-title">☀️ Solprognos — kommande 5 dagar</div>
+    <div class="sfb-wrap" id="solar-forecast-wrap">
+      <span style="font-size:12px;color:var(--dim)">Laddar…</span>
+    </div>
+  </div>
+
   <!-- Power flow chart + cost breakdown -->
   <div class="chart-grid">
     <div class="card">
@@ -1434,8 +1452,9 @@ function calcInterval(importKwh, exportKwh, spotOrePerKwh, c, timeStr, dateStr) 
 let state = {
   energyData:   null,
   pricesData:   null,
-  weatherData:  null,   // full Open-Meteo response, kept fresh by loadWeather()
-  currentDate:  todayStr(),
+  weatherData:       null,   // full Open-Meteo response, kept fresh by loadWeather()
+  solarForecastTs:   null,   // timestamp of last successful solar forecast fetch
+  currentDate:       todayStr(),
   charts:       {},
   hiddenPowerDs: new Set(), // dataset keys hidden by the user (persists across re-renders)
 };
@@ -2838,6 +2857,133 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
 }
 
 // ---------------------------------------------------------------------------
+// 5-day solar yield forecast
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch 7-day GTI from Open-Meteo, compute daily kWh for the next 5 days,
+ * and render the forecast bar card.
+ *
+ * Uses the same physics model as buildTomorrowForecast / buildIntradayForecast:
+ *   GTI (W/m²)  →  gtiToSolarProfile()  →  sum slots × 5/60  →  daily kWh
+ *
+ * No new API, no backend change. Open-Meteo is called once per page-load
+ * (and again when loadWeather() refreshes hourly). The result is cached in
+ * state.solarForecastTs so rapid re-renders (e.g. config changes) skip the
+ * network call when fresh data is already available.
+ */
+async function loadSolarForecast() {
+  const CACHE_MS = 60 * 60 * 1000; // 1 hour
+  if (state.solarForecastTs && (Date.now() - state.solarForecastTs) < CACHE_MS) return;
+
+  const c = readConfig();
+  const gtiUrl = (
+    `https://api.open-meteo.com/v1/forecast`
+    + `?latitude=59.28&longitude=18.00`
+    + `&hourly=global_tilted_irradiance,cloudcover`
+    + `&tilt=${c.panelTilt}&azimuth=${c.panelAzimuth}`
+    + `&timezone=Europe%2FStockholm&forecast_days=7`
+  );
+
+  let gtiResp;
+  try {
+    gtiResp = await fetchJSON(gtiUrl, 6000);
+  } catch(e) {
+    console.warn('[solar-forecast] Open-Meteo fetch failed:', e.message);
+    document.getElementById('solar-forecast-wrap').innerHTML =
+      '<span style="font-size:12px;color:var(--dim)">Prognos ej tillgänglig</span>';
+    return;
+  }
+
+  // Compute average daytime cloud cover per day (for colour hint)
+  const cloudByDate = {};
+  if (gtiResp?.hourly?.time && gtiResp?.hourly?.cloudcover) {
+    gtiResp.hourly.time.forEach((t, i) => {
+      const d = t.slice(0, 10);
+      const h = parseInt(t.slice(11, 13));
+      if (h >= 7 && h <= 20) {
+        if (!cloudByDate[d]) cloudByDate[d] = { sum: 0, n: 0 };
+        cloudByDate[d].sum += gtiResp.hourly.cloudcover[i] ?? 0;
+        cloudByDate[d].n++;
+      }
+    });
+  }
+
+  // Build forecast for D+1 … D+5 (skip today = D+0)
+  const today = new Date(new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' }));
+  const days = [];
+  for (let d = 1; d <= 5; d++) {
+    const dt = new Date(today);
+    dt.setDate(dt.getDate() + d);
+    const dateStr = dt.toLocaleDateString('sv-SE'); // YYYY-MM-DD
+
+    const gtiHourly = extractHourlyGTI(gtiResp, dateStr);
+    if (!gtiHourly) continue;
+
+    const profile = gtiToSolarProfile(gtiHourly, c.solarKwp, c.panelTilt, c.panelAzimuth, dateStr);
+    const kwh     = profile.reduce((s, kw) => s + kw * (5 / 60), 0);
+    const avgCloud = cloudByDate[dateStr]
+      ? Math.round(cloudByDate[dateStr].sum / cloudByDate[dateStr].n)
+      : null;
+
+    // Swedish short day name
+    const dayName = dt.toLocaleDateString('sv-SE', { weekday: 'short' });
+    const dateLabel = `${dt.getDate()}/${dt.getMonth() + 1}`;
+
+    days.push({ dateStr, kwh: Math.round(kwh * 10) / 10, avgCloud, dayName, dateLabel });
+  }
+
+  state.solarForecastTs = Date.now();
+  renderSolarForecastCard(days, c.solarKwp);
+}
+
+function renderSolarForecastCard(days, solarKwp) {
+  const wrap = document.getElementById('solar-forecast-wrap');
+  if (!wrap) return;
+  if (!days || days.length === 0) {
+    wrap.innerHTML = '<span style="font-size:12px;color:var(--dim)">Ingen data</span>';
+    return;
+  }
+
+  // Reference ceiling: ~4.5 peak-sun-hours × kWp × PR 0.82, rounded up.
+  // This keeps the bars proportional to the system's real range.
+  const refKwh = Math.max(30, Math.round(solarKwp * 4.5 * 0.82 / 5) * 5);
+  const BAR_H  = 72; // px — must match .sfb-track height in CSS
+
+  const barColor = (kwh, cloud) => {
+    // If cloud cover available, use it as primary signal; else fall back to kWh
+    const cl = cloud ?? (kwh < 5 ? 95 : kwh < 20 ? 70 : kwh < 35 ? 40 : 15);
+    if (cl < 25) return '#f59e0b'; // sunny — amber
+    if (cl < 55) return '#fcd34d'; // partly cloudy — light yellow
+    if (cl < 80) return '#64748b'; // mostly cloudy — slate
+    return '#334155';              // overcast — dark slate
+  };
+
+  const weatherIcon = (cloud) => {
+    if (cloud == null) return '';
+    if (cloud < 25) return '☀️';
+    if (cloud < 55) return '⛅';
+    if (cloud < 80) return '🌥️';
+    return '☁️';
+  };
+
+  wrap.innerHTML = days.map(day => {
+    const pct    = Math.min(1, day.kwh / refKwh);
+    const height = Math.max(2, Math.round(pct * BAR_H));
+    const color  = barColor(day.kwh, day.avgCloud);
+    const icon   = weatherIcon(day.avgCloud);
+    return `
+      <div class="sfb-col">
+        <div class="sfb-kwh">${day.kwh > 0 ? day.kwh.toFixed(1) : '—'} kWh</div>
+        <div class="sfb-track">
+          <div class="sfb-bar" style="height:${height}px;background:${color}"></div>
+        </div>
+        <div class="sfb-lbl">${icon ? icon + ' ' : ''}${day.dayName}<br>${day.dateLabel}</div>
+      </div>`;
+  }).join('');
+}
+
+// ---------------------------------------------------------------------------
 // Main load / refresh
 // ---------------------------------------------------------------------------
 async function refresh() {
@@ -3072,6 +3218,9 @@ async function loadWeather(triggerForecastRefresh = false) {
       tmr.setDate(tmr.getDate() + 1);
       const tomorrowStr = tmr.toLocaleDateString('sv-SE');
       if (state.currentDate === tomorrowStr) refresh();
+      // Also refresh solar forecast card (bust 1-hour cache on hourly weather update)
+      state.solarForecastTs = null;
+      loadSolarForecast();
     }
 
     const hourly = w.hourly;
@@ -4933,6 +5082,7 @@ detectMode().then(() => {
   loadGridData();
   loadTou();
   loadTouSuggestion();
+  loadSolarForecast();
   startLivePolling();
   // Open-Meteo's Nordic model (most relevant for Stockholm) updates every hour.
   // Polling every 60 min matches the data cadence — no benefit in polling faster.
