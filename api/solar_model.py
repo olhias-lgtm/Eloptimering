@@ -30,8 +30,11 @@ LOOKBACK   = 90
 GTI_MIN    = 50.0
 MIN_DAYS   = 5
 
-_CACHE     = None
-_CACHE_TTL = 3600
+_CACHE          = None
+_CACHE_TTL      = 3600
+
+_LOAD_CACHE     = None
+_LOAD_CACHE_TTL = 6 * 3600  # 6 hours — load patterns change slowly
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +134,39 @@ def _build_model() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Load profile model
+# ---------------------------------------------------------------------------
+
+def _fetch_load_profile(lookback: int = 90) -> list:
+    """Return per-slot, per-month average load_kw from the last `lookback` days.
+
+    Calls the get_load_profile_by_slot Supabase RPC which groups energy_readings
+    by (slot, month) and returns avg_load_kw + day_count per combination.
+    Results are cached for 6 hours — load patterns change slowly.
+
+    Returns a list of {slot, month, avg_load_kw, day_count} dicts.
+    """
+    global _LOAD_CACHE
+    now = time.time()
+    if _LOAD_CACHE and now - _LOAD_CACHE["ts"] < _LOAD_CACHE_TTL:
+        return _LOAD_CACHE["data"]
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return []
+    url = (
+        f"{SUPABASE_URL}/rest/v1/rpc/get_load_profile_by_slot"
+        f"?lookback_days={lookback}"
+    )
+    req = urllib.request.Request(url, headers={
+        **_sb_headers(), "Content-Type": "application/json",
+    })
+    with urllib.request.urlopen(req, timeout=10) as r:
+        data = json.loads(r.read())
+    _LOAD_CACHE = {"ts": now, "data": data}
+    print(f"[load_model] fetched {len(data)} slot×month entries")
+    return data
+
+
+# ---------------------------------------------------------------------------
 # Handler
 # ---------------------------------------------------------------------------
 
@@ -138,7 +174,14 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         params = dict(urllib.parse.parse_qsl(
             urllib.parse.urlparse(self.path).query))
-        if params.get("action") == "build":
+        if params.get("type") == "load":
+            # Load profile model: per-slot, per-month average house load
+            try:
+                self._send(_fetch_load_profile())
+            except Exception as e:
+                print(f"[load_model] {e}")
+                self._send([], 200)
+        elif params.get("action") == "build":
             if not SUPABASE_URL or not SUPABASE_KEY:
                 self._send({"error": "missing Supabase env vars"}, 500)
                 return

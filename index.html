@@ -2403,6 +2403,65 @@ function upsertChart(canvasId, key, config) {
 }
 
 // ---------------------------------------------------------------------------
+// Load profile model
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a 288-slot load profile for a specific month from the load model.
+ *
+ * The load model (from /api/solar_model?type=load) gives per-slot, per-month
+ * averages built from 90 days of actual energy_readings. This captures the
+ * dominant seasonal effect in Sweden (heating load Nov–Mar vs summer).
+ *
+ * Fallback priority for each slot:
+ *   1. Load model value for targetMonth, if day_count >= MIN_DAYS
+ *   2. Load model value for targetMonth with any day_count (thin data is still
+ *      better than no data in a different month)
+ *   3. fallbackProfile[slot] (yesterday's / today's actual readings)
+ *   4. Flat 1.0 kW base load
+ */
+function buildLoadProfile(modelRows, targetMonth, fallbackProfile) {
+  const MIN_DAYS = 3;
+  // Build lookup: modelMap[slot][month] = {avg_load_kw, day_count}
+  const modelMap = {};
+  for (const row of (modelRows || [])) {
+    const s = parseInt(row.slot);
+    const m = parseInt(row.month);
+    if (!modelMap[s]) modelMap[s] = {};
+    modelMap[s][m] = { kw: parseFloat(row.avg_load_kw), days: parseInt(row.day_count) };
+  }
+
+  const profile = new Array(288).fill(null);
+  for (let s = 0; s < 288; s++) {
+    const slotData = modelMap[s];
+    if (slotData) {
+      const exact = slotData[targetMonth];
+      if (exact) {
+        // Use model value (even with thin data — a few days of this month is
+        // better than a different month's data)
+        profile[s] = exact.kw;
+        continue;
+      }
+      // No data for this month yet (e.g. early in the month, or new installation).
+      // Find the nearest month with sufficient data as a seasonal proxy.
+      let best = null, bestDist = Infinity;
+      for (const [m, d] of Object.entries(slotData)) {
+        if (d.days >= MIN_DAYS) {
+          const dist = Math.min(
+            Math.abs(m - targetMonth),
+            12 - Math.abs(m - targetMonth)  // wrap-around distance (Dec↔Jan)
+          );
+          if (dist < bestDist) { bestDist = dist; best = d.kw; }
+        }
+      }
+      if (best !== null) { profile[s] = best; continue; }
+    }
+    // Fall back to yesterday's/today's actual for this slot
+    profile[s] = (fallbackProfile && fallbackProfile[s] > 0) ? fallbackProfile[s] : 1.0;
+  }
+  return profile;
+}
+
 // Tomorrow forecast: weather-based solar + battery simulation
 // ---------------------------------------------------------------------------
 
@@ -2615,22 +2674,29 @@ async function buildTomorrowForecast(tomorrowStr, c) {
   //    state.energyData is overwritten with forecast rows, so on every re-render
   //    latestSocPct would be read from the simulated end-of-tomorrow SoC (~10%)
   //    rather than the real current battery level. Load today's data explicitly.
-  let loadProfile;
+  // 2a. Load model — per-slot, per-month average load (seasonal awareness)
+  let loadModelRows = [];
+  try {
+    loadModelRows = await fetchJSON('/api/solar_model?type=load', 5000);
+  } catch(e) {
+    console.warn('[forecast] load model unavailable, falling back to yesterday actuals:', e.message);
+  }
+
+  // 2b. Yesterday's actuals as slot-level fallback for slots with no model data
   let todayRows = [];
+  let yesterdayActuals = new Array(288).fill(0);
   try {
     todayRows = await loadEnergyData(yesterdayStr);
-    // Pre-fill with 1 kW base load so any missing slot defaults to base load
-    loadProfile = new Array(288).fill(1.0);
     todayRows.forEach(r => {
       const slot = Math.round(r.minutes / 5);
-      if (slot >= 0 && slot < 288 && r.load_kw > 0) {
-        loadProfile[slot] = r.load_kw;
-      }
+      if (slot >= 0 && slot < 288 && r.load_kw > 0) yesterdayActuals[slot] = r.load_kw;
     });
-  } catch(e) {
-    console.warn('[forecast] Could not load today load profile, using flat 1 kW:', e);
-    loadProfile = new Array(288).fill(1.0);  // fallback base load
-  }
+  } catch(e) { /* yesterday unavailable — model or flat fallback used */ }
+
+  // Target month is tomorrow's month (1–12)
+  const tomorrowMonth = parseInt(tomorrowStr.slice(5, 7));
+  const loadProfile = buildLoadProfile(loadModelRows, tomorrowMonth, yesterdayActuals);
+  console.debug(`[forecast] load profile built for month ${tomorrowMonth} using ${loadModelRows.length} model rows`);
 
   // 3. Convert GTI to solar power, accounting for panel geometry (zeros out when sun is behind panel)
   const solarProfile = gtiToSolarProfile(gtiHourly, c.solarKwp, c.panelTilt, c.panelAzimuth, tomorrowStr);
@@ -2733,18 +2799,30 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
   const gtiHourly = extractHourlyGTI(gtiResp, todayStr);
   if (!gtiHourly) throw new Error('GTI not available for today');
 
-  // 2. Load yesterday's profile for load estimate
+  // 2. Load profile — model-first (seasonal monthly averages), yesterday as fallback
   const yDate = new Date(todayStr);
   yDate.setDate(yDate.getDate() - 1);
   const yesterdayStr = yDate.toLocaleDateString('sv-SE');
-  let loadProfile = new Array(288).fill(1.0);
+
+  let intradayLoadModel = [];
+  try {
+    intradayLoadModel = await fetchJSON('/api/solar_model?type=load', 5000);
+  } catch(e) {
+    console.warn('[intraday] load model unavailable:', e.message);
+  }
+
+  let yesterdayActuals = new Array(288).fill(0);
   try {
     const yRows = await loadEnergyData(yesterdayStr);
     yRows.forEach(r => {
       const slot = Math.round(r.minutes / 5);
-      if (slot >= 0 && slot < 288 && r.load_kw > 0) loadProfile[slot] = r.load_kw;
+      if (slot >= 0 && slot < 288 && r.load_kw > 0) yesterdayActuals[slot] = r.load_kw;
     });
-  } catch(e) { /* use flat 1 kW */ }
+  } catch(e) { /* yesterday unavailable — model or flat fallback used */ }
+
+  const todayMonth = parseInt(todayStr.slice(5, 7));
+  const loadProfile = buildLoadProfile(intradayLoadModel, todayMonth, yesterdayActuals);
+  console.debug(`[intraday] load profile built for month ${todayMonth} using ${intradayLoadModel.length} model rows`);
 
   // 3. Solar profile for today — physics model baseline (corrections applied after cutoff is known)
   const solarProfile = gtiToSolarProfile(gtiHourly, c.solarKwp, c.panelTilt, c.panelAzimuth, todayStr);
