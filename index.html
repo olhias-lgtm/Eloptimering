@@ -1173,6 +1173,8 @@
       </div>
     </div>
   </div>
+  <!-- Solar forecast deviation notice — shown today only, after production starts -->
+  <div id="solar-deviation-notice" style="display:none;margin-bottom:10px;padding:8px 12px;border-radius:4px;border:1px solid;font-size:0.78rem;line-height:1.5"></div>
   <!-- KPI row 2: cost -->
   <div class="kpi-row-cost">
     <div class="kpi cost">
@@ -1507,7 +1509,8 @@ let state = {
   energyData:   null,
   pricesData:   null,
   weatherData:       null,   // full Open-Meteo response, kept fresh by loadWeather()
-  solarForecastTs:   null,   // timestamp of last successful solar forecast fetch
+  solarForecastTs:          null,   // timestamp of last successful solar forecast fetch
+  intradayForecastSolarKwh: null,   // full-day solar forecast kWh (set after buildIntradayForecast)
   currentDate:       todayStr(),
   charts:       {},
   hiddenPowerDs: new Set(), // dataset keys hidden by the user (persists across re-renders)
@@ -1771,6 +1774,43 @@ function exportKpiCsv() {
   a.download  = `kpi_${date}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+function _updateSolarDeviation(actualKwh, forecastKwh) {
+  const el = document.getElementById('solar-deviation-notice');
+  if (!el) return;
+
+  // Hide if no meaningful production yet or no forecast
+  if (actualKwh < 0.5 || forecastKwh == null || forecastKwh < 0.5) {
+    el.style.display = 'none';
+    return;
+  }
+
+  const diffKwh = actualKwh - forecastKwh;
+  const diffPct = Math.round((diffKwh / forecastKwh) * 100);
+  const sign    = diffKwh >= 0 ? '+' : '';
+
+  // Colour: green if within 10% above, or any overproduction
+  //         amber if 10–25% below forecast
+  //         red   if >25% below forecast
+  let bg, border, color;
+  if (diffPct >= -10) {
+    bg = 'rgba(52,211,153,0.08)'; border = 'rgba(52,211,153,0.35)'; color = '#34d399';
+  } else if (diffPct >= -25) {
+    bg = 'rgba(251,191,36,0.08)';  border = 'rgba(251,191,36,0.4)';  color = '#fbbf24';
+  } else {
+    bg = 'rgba(248,113,113,0.08)'; border = 'rgba(248,113,113,0.4)'; color = '#f87171';
+  }
+
+  el.style.background   = bg;
+  el.style.borderColor  = border;
+  el.style.color        = color;
+  el.style.display      = '';
+  el.innerHTML = (
+    `☀️ <b>Producerat ${actualKwh.toFixed(1)} kWh</b>`
+    + ` · prognos ${forecastKwh.toFixed(1)} kWh`
+    + ` · <b>${sign}${diffKwh.toFixed(1)} kWh (${sign}${diffPct}%)</b>`
+  );
 }
 
 function renderKPIs(rows, priceMap, c, dateStr) {
@@ -3238,10 +3278,22 @@ async function refresh() {
     if (isToday) {
       try {
         intradayOverlay = await buildIntradayForecast(dateStr, c, energyRaw);
+        // Store full-day forecast solar total for deviation display
+        state.intradayForecastSolarKwh = intradayOverlay.reduce(
+          (s, r) => s + (r.solar_kw || 0), 0) * (5 / 60);
+        // Actual solar from raw rows (same calc as renderKPIs uses)
+        const dt = energyRaw.daily_totals;
+        const actualSolarKwh = dt?.solar_kwh ?? kwhFromRows(energyRaw, 'solar_kw');
+        _updateSolarDeviation(actualSolarKwh, state.intradayForecastSolarKwh);
       } catch(e) {
         forecastErr = e.message;
         console.warn('[intraday forecast]', e.message);
       }
+    } else {
+      // Not today — clear forecast deviation state and hide notice
+      state.intradayForecastSolarKwh = null;
+      const dn = document.getElementById('solar-deviation-notice');
+      if (dn) dn.style.display = 'none';
     }
 
     renderPowerChart(energyRaw, isTomorrow, intradayOverlay);
@@ -3303,6 +3355,8 @@ function clearCharts() {
     const el = document.getElementById(id);
     if (el) el.style.borderLeftColor = 'var(--border)';
   });
+  const _devNotice = document.getElementById('solar-deviation-notice');
+  if (_devNotice) _devNotice.style.display = 'none';
   document.getElementById('interval-badge').textContent = '— intervals';
 }
 
