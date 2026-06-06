@@ -2166,11 +2166,17 @@ function renderPowerChart(rows, isForecast, forecastOverlay) {
 
   function overlayByTime(key) {
     if (!forecastOverlay) return null;
-    // Only show forecast for times AFTER the last actual data point
+    // Show forecast for times AFTER the last actual data point.
+    // At lastActualTime itself, return the actual value as a bridge point so the
+    // dashed forecast line starts exactly where the solid actual line ends.
     return forecastOverlay.map(r => {
-      if (r._actual) return null;          // marked as actual-era slot
       if (!lastActualTime) return r[key] ?? null;
-      if (r.time <= lastActualTime) return null;  // before or at cutoff
+      if (r.time < lastActualTime) return null;   // strictly before cutoff
+      if (r.time === lastActualTime) {             // bridge: use actual value
+        const a = actualMap[lastActualTime];
+        return a !== undefined ? (a[key] ?? null) : null;
+      }
+      if (r._actual) return null;                  // safety: shouldn't happen
       return r[key] ?? null;
     });
   }
@@ -2327,9 +2333,13 @@ function renderPowerPriceChart(rows, priceMap, isForecast, forecastOverlay) {
   function overlayByTime(key) {
     if (!forecastOverlay) return null;
     return forecastOverlay.map(r => {
-      if (r._actual) return null;
       if (!lastActualTime) return r[key] ?? null;
-      if (r.time <= lastActualTime) return null;
+      if (r.time < lastActualTime) return null;   // strictly before cutoff
+      if (r.time === lastActualTime) {             // bridge: use actual value
+        const a = actualMap[lastActualTime];
+        return a !== undefined ? (a[key] ?? null) : null;
+      }
+      if (r._actual) return null;
       return r[key] ?? null;
     });
   }
