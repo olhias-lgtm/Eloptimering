@@ -11,6 +11,17 @@ Automatic gap filling:
   GET /api/collect?action=autofill            → fill gaps in last 2 days
   GET /api/collect?action=autofill&days=N     → fill gaps in last N days (max 7)
   GET /api/collect?action=autofill&dry_run=1  → report gaps without writing
+
+Data retention (weekly cron):
+  GET /api/collect?action=retention           → run tiered retention policy
+  GET /api/collect?action=retention&dry_run=1 → preview what would be deleted
+
+  Retention tiers:
+    0–180 days  : full granularity kept (energy_readings, energy_chart,
+                  spot_prices, grid_production, weather_forecast)
+    180d – 2yr  : granular rows deleted; daily_summary kept
+    2yr+        : daily_summary rolled up → monthly_summary, then deleted
+    5yr+        : monthly_summary rolled up → yearly_summary, then deleted
 """
 import json
 import os
@@ -467,6 +478,172 @@ def _recompute_daily_summary(date_str: str, area: str = "SE3") -> dict:
     return {"ok": True, "summary": payload}
 
 
+def _sb_delete(table: str, filter_qs: str) -> int:
+    """DELETE rows from a Supabase table matching a PostgREST filter query string.
+    Returns the number of rows deleted (requires Prefer: return=representation)."""
+    url = f"{SUPABASE_URL}/rest/v1/{table}?{filter_qs}"
+    req = urllib.request.Request(url, method="DELETE", headers={
+        "apikey":        SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Prefer":        "return=representation",
+    })
+    try:
+        body = urllib.request.urlopen(req, timeout=15).read()
+        deleted = json.loads(body)
+        return len(deleted) if isinstance(deleted, list) else 0
+    except Exception as e:
+        print(f"[retention] DELETE {table} error: {e}")
+        return 0
+
+
+def _sb_query(table: str, select: str, filter_qs: str) -> list:
+    """SELECT rows from a Supabase table."""
+    url = f"{SUPABASE_URL}/rest/v1/{table}?select={select}&{filter_qs}"
+    req = urllib.request.Request(url, headers={
+        "apikey":        SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+    })
+    try:
+        return json.loads(urllib.request.urlopen(req, timeout=15).read())
+    except Exception as e:
+        print(f"[retention] SELECT {table} error: {e}")
+        return []
+
+
+def _sb_upsert(table: str, rows: list, on_conflict: str) -> None:
+    """Upsert rows into a Supabase table."""
+    if not rows:
+        return
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    body = json.dumps(rows).encode()
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "apikey":        SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type":  "application/json",
+        "Prefer":        f"resolution=merge-duplicates,return=minimal",
+    })
+    urllib.request.urlopen(req, timeout=15).read()
+
+
+def _do_retention(dry_run: bool = False) -> tuple[int, dict]:
+    """
+    Tiered data retention:
+      0–180 days    : full granularity (energy_readings, energy_chart, spot_prices,
+                      grid_production, weather_forecast)
+      180d – 2yr    : granular rows deleted; daily_summary kept
+      2yr+          : daily_summary rolled up → monthly_summary, then deleted
+      (future)      : monthly_summary → yearly_summary rollup at 5yr+
+    """
+    now_utc  = datetime.now(timezone.utc)
+    cutoff_granular  = (now_utc - timedelta(days=180)).date().isoformat()
+    cutoff_daily     = (now_utc - timedelta(days=730)).date().isoformat()   # ~2 years
+    cutoff_monthly   = (now_utc - timedelta(days=1825)).date().isoformat()  # ~5 years
+
+    report: dict = {"dry_run": dry_run}
+
+    # ── 1. Roll up daily_summary rows older than 2 years → monthly_summary ───
+    old_daily = _sb_query(
+        "daily_summary",
+        "day,area,solar_kwh,load_kwh,import_kwh,export_kwh,charge_kwh,"
+        "discharge_kwh,import_cost_kr,export_earn_kr,fixed_cost_kr,net_kr,saved_kr",
+        f"day=lt.{cutoff_daily}&order=day.asc",
+    )
+    # Aggregate by (year_month, area)
+    monthly_accum: dict = {}
+    for r in old_daily:
+        key = (r["day"][:7], r.get("area") or "SE3")  # 'YYYY-MM'
+        if key not in monthly_accum:
+            monthly_accum[key] = {
+                "year_month": key[0], "area": key[1],
+                "solar_kwh": 0, "load_kwh": 0, "import_kwh": 0, "export_kwh": 0,
+                "charge_kwh": 0, "discharge_kwh": 0, "import_cost_kr": 0,
+                "export_earn_kr": 0, "fixed_cost_kr": 0, "net_kr": 0,
+                "saved_kr": 0, "day_count": 0,
+            }
+        acc = monthly_accum[key]
+        for col in ("solar_kwh", "load_kwh", "import_kwh", "export_kwh",
+                    "charge_kwh", "discharge_kwh", "import_cost_kr",
+                    "export_earn_kr", "fixed_cost_kr", "net_kr", "saved_kr"):
+            acc[col] = round((acc[col] or 0) + float(r.get(col) or 0), 4)
+        acc["day_count"] += 1
+
+    monthly_rows = list(monthly_accum.values())
+    report["daily_to_monthly_rows"] = len(monthly_rows)
+    report["daily_deleted_candidates"] = len(old_daily)
+
+    if not dry_run and monthly_rows:
+        _sb_upsert("monthly_summary", monthly_rows, "year_month,area")
+        print(f"[retention] upserted {len(monthly_rows)} monthly_summary rows")
+
+    if not dry_run and old_daily:
+        n = _sb_delete("daily_summary", f"day=lt.{cutoff_daily}")
+        print(f"[retention] deleted {n} daily_summary rows older than {cutoff_daily}")
+        report["daily_deleted"] = n
+
+    # ── 2. Roll up monthly_summary rows older than 5 years → yearly_summary ──
+    old_monthly = _sb_query(
+        "monthly_summary",
+        "year_month,area,solar_kwh,load_kwh,import_kwh,export_kwh,charge_kwh,"
+        "discharge_kwh,import_cost_kr,export_earn_kr,fixed_cost_kr,net_kr,saved_kr,day_count",
+        f"year_month=lt.{cutoff_monthly[:7]}&order=year_month.asc",
+    )
+    yearly_accum: dict = {}
+    for r in old_monthly:
+        key = (r["year_month"][:4], r.get("area") or "SE3")  # 'YYYY'
+        if key not in yearly_accum:
+            yearly_accum[key] = {
+                "year": key[0], "area": key[1],
+                "solar_kwh": 0, "load_kwh": 0, "import_kwh": 0, "export_kwh": 0,
+                "charge_kwh": 0, "discharge_kwh": 0, "import_cost_kr": 0,
+                "export_earn_kr": 0, "fixed_cost_kr": 0, "net_kr": 0,
+                "saved_kr": 0, "month_count": 0,
+            }
+        acc = yearly_accum[key]
+        for col in ("solar_kwh", "load_kwh", "import_kwh", "export_kwh",
+                    "charge_kwh", "discharge_kwh", "import_cost_kr",
+                    "export_earn_kr", "fixed_cost_kr", "net_kr", "saved_kr"):
+            acc[col] = round((acc[col] or 0) + float(r.get(col) or 0), 4)
+        acc["month_count"] += int(r.get("day_count") or 1)
+
+    yearly_rows = list(yearly_accum.values())
+    report["monthly_to_yearly_rows"] = len(yearly_rows)
+    report["monthly_deleted_candidates"] = len(old_monthly)
+
+    if not dry_run and yearly_rows:
+        _sb_upsert("yearly_summary", yearly_rows, "year,area")
+        print(f"[retention] upserted {len(yearly_rows)} yearly_summary rows")
+
+    if not dry_run and old_monthly:
+        n = _sb_delete("monthly_summary", f"year_month=lt.{cutoff_monthly[:7]}")
+        print(f"[retention] deleted {n} monthly_summary rows older than {cutoff_monthly[:7]}")
+        report["monthly_deleted"] = n
+
+    # ── 3. Delete granular tables older than 180 days ─────────────────────────
+    tables_granular = [
+        ("energy_readings", f"ts=lt.{cutoff_granular}T00:00:00Z"),
+        ("energy_chart",    f"date=lt.{cutoff_granular}"),
+        ("grid_production", f"ts=lt.{cutoff_granular}T00:00:00Z"),
+        ("spot_prices",     f"ts=lt.{cutoff_granular}T00:00:00Z"),
+    ]
+    # Weather forecast: delete rows with valid_time in the past (>24h ago)
+    past_weather = (now_utc - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    tables_granular.append(("weather_forecast", f"valid_time=lt.{past_weather}"))
+
+    for table, filt in tables_granular:
+        # Count first (dry run or not)
+        preview = _sb_query(table, "count", filt.replace("=lt.", "=lt.") + "&limit=1")
+        # Re-query just to get count estimate via PostgREST range header trick
+        # For simplicity, just report the filter used
+        report[f"{table}_filter"] = filt
+        if not dry_run:
+            n = _sb_delete(table, filt)
+            report[f"{table}_deleted"] = n
+            print(f"[retention] deleted {n} rows from {table} (filter: {filt})")
+
+    report["ok"] = True
+    return 200, report
+
+
 def _do_autofill(days: int, dry_run: bool) -> tuple[int, dict]:
     utc_offset_h = _cest_offset(datetime.now(timezone.utc).date())
     tz_local = timezone(timedelta(hours=utc_offset_h))
@@ -696,6 +873,19 @@ class handler(BaseHTTPRequestHandler):
         date_str = (params.get("date") or [None])[0]
 
         action = (params.get("action") or [None])[0]
+
+        if action == "retention":
+            dry_run = (params.get("dry_run") or ["0"])[0] in ("1", "true", "yes")
+            try:
+                status, resp = _do_retention(dry_run)
+                record_run("collect_retention", ok=(status == 200),
+                           error=resp.get("error") if status != 200 else None)
+            except Exception as e:
+                print(f"[retention] error: {e}")
+                status, resp = 500, {"ok": False, "error": str(e)}
+                record_run("collect_retention", ok=False, error=str(e))
+            self._send(resp, status=status)
+            return
 
         if action == "autofill":
             # Automatic gap detection + chart backfill
