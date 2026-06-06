@@ -5466,7 +5466,7 @@ function renderTouSuggestion(data) {
     return h * 60 + m;
   }
 
-  const rows = data.segments.map(seg => {
+  const _renderSegRow = seg => {
     const col       = SUGGEST_MODE_COLORS[seg.mode] || '#9ca3af';
     const lbl       = SUGGEST_MODE_LABELS[seg.mode] || '?';
     const startStr  = seg.start || `${String(seg.start_hour).padStart(2,'0')}:${String(seg.start_min).padStart(2,'0')}`;
@@ -5480,7 +5480,28 @@ function renderTouSuggestion(data) {
       <td>${stopStr}</td>
       <td style="color:${col};font-weight:500;white-space:nowrap">${lbl}<span class="tou-mode-tip" data-tip="${(TOU_MODE_TIPS[seg.mode]||'').replace(/"/g,'&quot;')}">ⓘ</span></td>
     </tr>`;
-  }).join('');
+  };
+
+  const VISIBLE_SEGS = 3;
+  const visibleSegs  = data.segments.slice(0, VISIBLE_SEGS);
+  const extraSegs    = data.segments.slice(VISIBLE_SEGS);
+  const rows         = visibleSegs.map(_renderSegRow).join('');
+  const extraRows    = extraSegs.map(_renderSegRow).join('');
+  const toggleRow    = extraSegs.length > 0
+    ? `<tr id="tou-suggest-toggle-row">
+         <td colspan="4" style="padding:4px 6px;text-align:center">
+           <button onclick="
+             const extra = document.getElementById('tou-suggest-extra');
+             const btn   = this;
+             const shown = extra.style.display !== 'none';
+             extra.style.display = shown ? 'none' : '';
+             btn.textContent = shown ? '▼ Visa ${extraSegs.length} fler intervall' : '▲ Dölj';
+           " style="font-size:11px;background:none;border:none;color:var(--text-muted);cursor:pointer;padding:2px 8px;border-radius:3px">
+             ▼ Visa ${extraSegs.length} fler intervall
+           </button>
+         </td>
+       </tr>`
+    : '';
 
   const discPct  = data.discharge_pct ?? null;
   const socFloor = data.soc_floor_pct ?? null;
@@ -5509,7 +5530,9 @@ function renderTouSuggestion(data) {
           <th style="text-align:left;padding:4px 6px;color:var(--text-muted);font-weight:400;border-bottom:1px solid var(--border)">Slut</th>
           <th style="text-align:left;padding:4px 6px;color:var(--text-muted);font-weight:400;border-bottom:1px solid var(--border)">Läge</th>
         </tr></thead>
-        <tbody>${rows}${discRow}${socRow}</tbody>
+        <tbody>${rows}${toggleRow}</tbody>
+        <tbody id="tou-suggest-extra" style="display:none">${extraRows}</tbody>
+        <tbody>${discRow}${socRow}</tbody>
       </table>
     </div>`;
 
