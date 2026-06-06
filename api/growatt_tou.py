@@ -1312,6 +1312,30 @@ def _build_suggestion(for_date: date) -> dict:
           + (f" → storm_watch={STORM_SOC_FLOOR:.0%}" if storm_triggered else "")
           + (f" | D+1 forecast={d1_kwh:.1f} kWh" if d1_kwh is not None else ""))
 
+    # Gap 5 — Solar gap reserve (LP-internal floor only, NOT written to the inverter).
+    # When the battery hits the SoC floor the inverter falls back to grid import to cover
+    # load. If solar isn't producing yet at that point, those imports happen at full tariff.
+    # Reserve = total kWh deficit (load − solar) from the first post-discharge hour until
+    # solar production can self-sustain the load without battery assist.
+    # This floor is passed to _lp_dispatch only; rec_soc_floor stays unchanged so the
+    # inverter's global setting is never affected (raising it globally would cause earlier
+    # import during normal Load First evening operation).
+    _avg_load = sum(load_by_hour.values()) / 24 if load_by_hour else 0.96
+    _first_solar_h = next(
+        (h for h in range(24)
+         if solar_by_hour.get(h, 0.0) >= (load_by_hour.get(h, _avg_load) if load_by_hour else _avg_load)),
+        24)
+    gap_reserve_kwh = min(
+        BATT_KWH * 0.40,   # cap at 40 % — don't over-reserve on slow-ramp winter days
+        sum(max(0.0, (load_by_hour.get(h, _avg_load) if load_by_hour else _avg_load)
+                - solar_by_hour.get(h, 0.0))
+            for h in range(_first_solar_h))
+    )
+    lp_soc_floor = min(0.50, effective_soc_floor + gap_reserve_kwh / BATT_KWH)
+    if gap_reserve_kwh > 0.1:
+        print(f"[tou lp] gap reserve: {gap_reserve_kwh:.2f} kWh (solar covers load from h={_first_solar_h:02d}) "
+              f"→ LP floor {effective_soc_floor:.0%} → {lp_soc_floor:.0%} (inverter floor unchanged)")
+
     # LP-equivalent optimal dispatch
     # Replaces the former percentile-threshold heuristic with a SoC-aware
     # greedy pair-matching algorithm that:
@@ -1319,8 +1343,9 @@ def _build_suggestion(for_date: date) -> dict:
     #   • Validates SoC feasibility before committing each charge/discharge hour
     #   • Only schedules pairs where the spread covers the full import cost
     #   • Raises SOC_FLOOR via adaptive floor (Gap 4) and Storm Watch (Gap 3)
+    #   • Uses lp_soc_floor (gap reserve included) internally; rec_soc_floor untouched
     hour_mode = _lp_dispatch(price_by_hour, solar_by_hour, load_by_hour, soc_start,
-                             soc_floor=effective_soc_floor)
+                             soc_floor=lp_soc_floor)
 
     # Extract negative export metadata before passing modes to simulator
     neg_export_hours = hour_mode.pop('_neg_export_hours', [])
@@ -1411,29 +1436,9 @@ def _build_suggestion(for_date: date) -> dict:
     # over-discharging into hours where load can't be covered by solar.
     rec_pct = 100 if grid_first_hours > 0 else 100  # always 100 — blast or no-op
 
-    # Solar gap reserve — Gap 5 floor layer.
-    #
-    # When the battery hits the SoC floor (discharge stops), solar production must cover
-    # load. If solar isn't ramping up yet, the load falls back to grid import at whatever
-    # price those hours carry. Reserve the kWh needed to bridge load from the last Grid
-    # First hour to the first hour where solar self-sustains the load.
-    #
-    # This is added to rec_soc_floor so the inverter respects it automatically.
-    last_gf_h = gap_kwh = gap_floor_pct = None  # initialise; set below if Grid First exists
-    if grid_first_hours > 0:
-        last_gf_h  = max(h for h, m in hour_mode.items() if m == 2)
-        gap_kwh    = 0.0
-        for _gh in range(last_gf_h + 1, 24):
-            _s  = solar_by_hour.get(_gh, 0.0)
-            _ld = load_by_hour[_gh] if isinstance(load_by_hour, dict) else load_by_hour
-            if _s >= _ld:
-                break   # solar covers load from here — no more reserve needed
-            gap_kwh += (_ld - _s)
-        gap_floor_pct = min(40, int((gap_kwh / BATT_KWH) * 100))
-        if gap_floor_pct > rec_soc_floor:
-            print(f"[tou] solar gap reserve: {gap_kwh:.2f} kWh after h={last_gf_h} "
-                  f"→ floor raised {rec_soc_floor}% → {gap_floor_pct}%")
-            rec_soc_floor = gap_floor_pct
+    # (Gap 5 solar gap reserve is handled above via lp_soc_floor passed to _lp_dispatch.
+    # It intentionally does NOT affect rec_soc_floor — the inverter's global floor is
+    # unchanged so normal Load First evening discharge is not restricted.)
 
     # Human-readable reasoning
     cheap_hours  = sorted(h for h, m in hour_mode.items() if m == 1)
@@ -1447,10 +1452,6 @@ def _build_suggestion(for_date: date) -> dict:
             adaptive_note = (f"  🌥 Adaptivt SoC-golv: {adaptive_floor_pct}% "
                              f"(prognos D+1: {d1_kwh:.1f} kWh sol).")
 
-    gap_note = ""
-    if grid_first_hours > 0 and gap_floor_pct:
-        gap_note = (f"  ☀️ Solreserv: {gap_kwh:.1f} kWh hålls för last kl "
-                    f"{last_gf_h+1:02d}:00–sol ({gap_floor_pct}% golv).")
     reasoning = (
         f"LP-optimering {for_date}: priser {min(prices_sorted):.2f}–{max(prices_sorted):.2f} SEK/kWh. "
         f"Laddning (Battery First): {cheap_hours}. "
@@ -1460,7 +1461,6 @@ def _build_suggestion(for_date: date) -> dict:
         f"SoC vid start: {soc_start*100:.0f}%."
         + (f"  {storm_note}" if storm_note else "")
         + adaptive_note
-        + gap_note
     )
 
     # Battery simulation — daily KPI totals using per-hour load
