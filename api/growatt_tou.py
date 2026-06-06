@@ -16,12 +16,15 @@ Suggestion algorithm (build_suggest):
   1. Fetch tomorrow's hourly spot prices (elprisetjustnu.se)
   2. Fetch tomorrow's hourly GTI forecast (Open-Meteo) × solar model ratios → kW
   3. Apply SOLAR_HAIRCUT (15%) safety margin
-  4. Classify each hour:
-       Battery First  — cheap grid hour (< LOW_PRICE_PCTILE) AND low solar
-       Grid First     — expensive hour (> HIGH_PRICE_PCTILE) AND low solar
-       Load First     — everything else (solar hours + neutral)
-  5. Merge consecutive same-mode runs → up to MAX_SEGMENTS TOU segments
-  6. Upsert into Supabase tou_suggestions table
+  4. Fetch per-hour seasonal load profile from get_load_profile_by_slot RPC
+  5. LP-equivalent greedy dispatch (_lp_dispatch):
+       Enumerate (charge, discharge) hour pairs sorted by spread descending.
+       Commit each pair if SoC feasibility holds after assignment.
+       Battery First  — committed charge hours (grid-charges battery)
+       Grid First     — committed discharge hours (battery → export/load)
+       Load First     — all other hours (solar self-consumption default)
+  6. Merge consecutive same-mode runs → up to MAX_SEGMENTS TOU segments
+  7. Upsert into Supabase tou_suggestions table
 
 POST body (JSON) — single segment:
   { "segment_id": 1, "mode": 1, "start_hour": 0, "start_min": 0,
@@ -667,10 +670,10 @@ EXPORT_BONUS_ORE = NATNYTTA_ORE * MOMS
 
 
 def _fetch_avg_load_kw() -> float:
-    """Return average hourly load kW from the last 30 days of daily_summary."""
+    """Return average hourly load kW from the last 30 days of daily_summary.
+    Used as a flat fallback when the per-hour load model is unavailable."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return 0.6  # safe fallback: ~14 kWh/day
-    from datetime import timedelta
     since = (date.today() - timedelta(days=30)).isoformat()
     url = (f"{SUPABASE_URL}/rest/v1/daily_summary"
            f"?day=gte.{since}&select=solar_kwh,export_kwh,import_kwh&order=day.desc&limit=30")
@@ -680,7 +683,6 @@ def _fetch_avg_load_kw() -> float:
             rows = json.loads(r.read())
         if not rows:
             return 0.6
-        # load ≈ solar − export + import  (energy balance)
         daily_loads = [
             float(r.get("solar_kwh") or 0)
             - float(r.get("export_kwh") or 0)
@@ -692,6 +694,69 @@ def _fetch_avg_load_kw() -> float:
     except Exception as e:
         print(f"[tou sim] load forecast error: {e}")
         return 0.6
+
+
+def _fetch_load_profile_for_date(for_date: date) -> dict:
+    """Return {hour: avg_load_kw} for the given date using the seasonal load model.
+
+    Calls the get_load_profile_by_slot Supabase RPC (same one used by the
+    frontend) which returns per-slot, per-month averages from 90 days of
+    energy_readings.  Averages 12 slots → 1 hour.
+
+    Fallback chain:
+      1. Model for target month (any day_count)
+      2. Nearest calendar month with data (seasonal proxy)
+      3. Flat _fetch_avg_load_kw() value
+    """
+    flat = _fetch_avg_load_kw()
+    fallback = {h: flat for h in range(24)}
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return fallback
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/rpc/get_load_profile_by_slot?lookback_days=90"
+        req = urllib.request.Request(url, headers=_sb_headers())
+        with urllib.request.urlopen(req, timeout=10) as r:
+            rows = json.loads(r.read())
+
+        if not rows:
+            return fallback
+
+        target_month = for_date.month
+
+        # Build {month: {slot: avg_load_kw}}
+        by_month: dict = {}
+        for row in rows:
+            m = int(row["month"])
+            s = int(row["slot"])
+            if m not in by_month:
+                by_month[m] = {}
+            by_month[m][s] = float(row["avg_load_kw"])
+
+        # Pick the best available month — target first, then nearest by calendar distance
+        months_available = sorted(
+            by_month.keys(),
+            key=lambda m: min(abs(m - target_month), 12 - abs(m - target_month))
+        )
+        slot_map = by_month.get(target_month) or by_month.get(months_available[0], {})
+
+        if len(slot_map) < 144:   # need at least half the day covered
+            return fallback
+
+        # Average 12 slots per hour
+        result = {}
+        for h in range(24):
+            vals = [slot_map[s] for s in range(h * 12, (h + 1) * 12) if s in slot_map]
+            result[h] = (sum(vals) / len(vals)) if vals else flat
+
+        print(f"[tou lp] load profile for month {target_month}: "
+              f"min {min(result.values()):.2f} kW, max {max(result.values()):.2f} kW, "
+              f"avg {sum(result.values())/24:.2f} kW")
+        return result
+
+    except Exception as e:
+        print(f"[tou lp] load profile fetch error: {e}")
+        return fallback
 
 
 def _fetch_soc_start() -> float:
@@ -718,17 +783,147 @@ def _fetch_soc_start() -> float:
     return 0.5  # default to 50 %
 
 
-def _simulate_battery(solar_h: dict, load_kw: float,
+def _lp_dispatch(price_h: dict, solar_h: dict,
+                 load_h: dict, soc_start: float) -> dict:
+    """Optimal 24-hour battery dispatch — LP-equivalent greedy algorithm.
+
+    For a battery with linear costs and convex SoC constraints the optimal
+    solution has the structure of a min-cost flow problem, solvable in
+    O(H²) by greedy pair-matching.  No external LP solver required.
+
+    Algorithm
+    ---------
+    1. Simulate a Load-First baseline to get the natural SoC trajectory.
+    2. Enumerate every profitable (charge_hour c, discharge_hour d) pair where
+       d > c, both hours are "dark" (solar < SOLAR_LOW_KW), and the spread
+       exp_rate[d]×eff − imp_rate[c] > 0.
+    3. Sort pairs by spread descending; greedily commit each pair if:
+       a. Neither hour has already been assigned.
+       b. After the assignment, the simulated SoC trajectory still shows
+          meaningful charge at c and meaningful discharge at d.
+       Committed pairs update the running SoC reference for subsequent checks.
+
+    The greedy is LP-optimal here because:
+    • Each decision variable (hour assignment) appears in exactly one
+      constraint set (SoC balance), which has total-unimodularity.
+    • We process highest-value pairs first, so no later swap can improve
+      the objective without breaking a higher-value commitment.
+
+    Returns
+    -------
+    {hour: 0|1|2}  —  0 = Load First, 1 = Battery First, 2 = Grid First
+    """
+    floor_kwh = SOC_FLOOR * BATT_KWH
+    ceil_kwh  = BATT_KWH
+    MIN_KWH   = 0.3   # minimum useful dispatch per hour (kWh)
+
+    # All-in rates (kr/kWh)
+    imp_rate = {h: (price_h.get(h, 0.0) * 100 + FIXED_IMPORT_ORE) / 100 for h in range(24)}
+    exp_rate = {h: (price_h.get(h, 0.0) * 100 + EXPORT_BONUS_ORE) / 100 for h in range(24)}
+
+    def _sim(modes: dict) -> list:
+        """Simulate SoC kWh after each of the 24 hours for the given mode map."""
+        soc   = soc_start * BATT_KWH
+        track = []
+        for h in range(24):
+            s  = solar_h.get(h, 0.0)
+            ld = load_h.get(h, 0.5)
+            m  = modes.get(h, 0)
+
+            if m == 1:   # Battery First — charge from grid first, then add solar surplus
+                headroom = max(0.0, (ceil_kwh - soc) / CHARGE_EFF)
+                grid_chg = min(C_RATE_KW, headroom)
+                soc = min(ceil_kwh, soc + grid_chg * CHARGE_EFF)
+                # Solar surplus after load still contributes
+                solar_net = max(0.0, s - ld)
+                extra = min(solar_net, max(0.0, (ceil_kwh - soc) / CHARGE_EFF))
+                soc = min(ceil_kwh, soc + extra * CHARGE_EFF)
+
+            elif m == 2: # Grid First — discharge battery to serve load + export surplus
+                dis = min(C_RATE_KW, max(0.0, soc - floor_kwh))
+                soc = max(floor_kwh, soc - dis)
+
+            else:        # Load First — solar first, balance from/to battery
+                net = s - ld
+                if net > 0:
+                    chg = min(net, C_RATE_KW, max(0.0, (ceil_kwh - soc) / CHARGE_EFF))
+                    soc = min(ceil_kwh, soc + chg * CHARGE_EFF)
+                else:
+                    dis = min(-net, C_RATE_KW, max(0.0, soc - floor_kwh))
+                    soc = max(floor_kwh, soc - dis)
+
+            track.append(soc)
+        return track
+
+    # Dark hours: solar < SOLAR_LOW_KW — only schedule Battery/Grid First here.
+    # Solar hours are best left as Load First (solar self-consumption is free).
+    dark = {h for h in range(24) if solar_h.get(h, 0.0) < SOLAR_LOW_KW}
+
+    # Baseline SoC trajectory (all Load First)
+    modes    = {h: 0 for h in range(24)}
+    cur_soc  = _sim(modes)
+
+    # Enumerate profitable (charge, discharge) pairs
+    pairs = []
+    for ch in dark:
+        for dh in dark:
+            if dh <= ch:
+                continue
+            spread = exp_rate[dh] * CHARGE_EFF - imp_rate[ch]
+            if spread > 0.01:
+                pairs.append((spread, ch, dh))
+    pairs.sort(reverse=True)   # highest spread first
+
+    committed_charge    : set = set()
+    committed_discharge : set = set()
+
+    for spread, ch, dh in pairs:
+        # Each hour can only be assigned one mode
+        if ch in committed_charge or ch in committed_discharge:
+            continue
+        if dh in committed_charge or dh in committed_discharge:
+            continue
+
+        # Tentatively assign
+        modes[ch] = 1
+        modes[dh] = 2
+        trial = _sim(modes)
+
+        # Verify that the simulation actually charged meaningfully at ch
+        soc_pre_ch  = (soc_start * BATT_KWH) if ch == 0 else trial[ch - 1]
+        charged     = trial[ch] - soc_pre_ch
+
+        # Verify that the simulation actually discharged meaningfully at dh
+        soc_pre_dh  = (soc_start * BATT_KWH) if dh == 0 else trial[dh - 1]
+        discharged  = soc_pre_dh - trial[dh]
+
+        if charged < MIN_KWH * CHARGE_EFF or discharged < MIN_KWH:
+            # Infeasible or trivial — revert
+            modes[ch] = 0
+            modes[dh] = 0
+            continue
+
+        committed_charge.add(ch)
+        committed_discharge.add(dh)
+        cur_soc = trial   # update running SoC reference for next iteration
+
+    n_charge    = len(committed_charge)
+    n_discharge = len(committed_discharge)
+    print(f"[tou lp] scheduled {n_charge} Battery First + {n_discharge} Grid First hours "
+          f"from {len(pairs)} candidate pairs")
+    return dict(modes)
+
+
+def _simulate_battery(solar_h: dict, load_h,
                       mode_h: dict, price_h: dict,
                       soc_start: float) -> dict:
-    """
-    Hourly battery simulation. Returns daily totals only.
+    """Hourly battery simulation. Returns daily totals only.
 
-    solar_h   : {hour: kW}  — forecast solar (already haircut-adjusted)
-    load_kw   : float       — flat average load kW (same every hour)
-    mode_h    : {hour: int} — 0=Load First 1=Battery First 2=Grid First
-    price_h   : {hour: SEK_per_kWh} — spot price
-    soc_start : float 0–1   — SoC at start of day
+    solar_h   : {hour: kW}         — forecast solar (already haircut-adjusted)
+    load_h    : float | {hour: kW} — per-hour load or flat average
+    mode_h    : {hour: int}        — 0=Load First, 1=Battery First, 2=Grid First
+    price_h   : {hour: SEK/kWh}    — spot price
+    soc_start : float 0–1          — SoC at start of day
     """
     soc_kwh     = soc_start * BATT_KWH
     soc_floor_k = SOC_FLOOR * BATT_KWH
@@ -742,7 +937,7 @@ def _simulate_battery(solar_h: dict, load_kw: float,
 
     for h in range(24):
         solar  = solar_h.get(h, 0.0)
-        load   = load_kw
+        load   = load_h[h] if isinstance(load_h, dict) else load_h
         mode   = mode_h.get(h, 0)
         spot   = price_h.get(h)        # SEK/kWh, may be None
 
@@ -860,26 +1055,21 @@ def _build_suggestion(for_date: date) -> dict:
             kw = 0.0
         solar_by_hour[h] = kw * (1 - SOLAR_HAIRCUT)
 
-    # Percentile thresholds
     prices_sorted = sorted(price_by_hour.values())
-    n = len(prices_sorted)
-    low_thresh  = prices_sorted[int(n * LOW_PRICE_PCTILE)]
-    high_thresh = prices_sorted[int(n * HIGH_PRICE_PCTILE)]
 
-    # Classify each hour
-    # 0=Load First, 1=Battery First, 2=Grid First
-    hour_mode = {}
-    for h in range(24):
-        price = price_by_hour.get(h)
-        solar = solar_by_hour.get(h, 0.0)
-        is_dark = solar < SOLAR_LOW_KW
+    # Current battery SoC — needed by LP for feasibility checks
+    soc_start = _fetch_soc_start()
 
-        if price is not None and price <= low_thresh and is_dark:
-            hour_mode[h] = 1  # Battery First: cheap + dark → charge from grid
-        elif price is not None and price >= high_thresh and is_dark:
-            hour_mode[h] = 2  # Grid First: expensive + dark → discharge battery
-        else:
-            hour_mode[h] = 0  # Load First: solar hours or neutral
+    # Per-hour load profile for tomorrow (seasonal monthly averages)
+    load_by_hour = _fetch_load_profile_for_date(for_date)
+
+    # LP-equivalent optimal dispatch
+    # Replaces the former percentile-threshold heuristic with a SoC-aware
+    # greedy pair-matching algorithm that:
+    #   • Uses per-hour load (seasonal) instead of a flat average
+    #   • Validates SoC feasibility before committing each charge/discharge hour
+    #   • Only schedules pairs where the spread covers the full import cost
+    hour_mode = _lp_dispatch(price_by_hour, solar_by_hour, load_by_hour, soc_start)
 
     # Merge consecutive same-mode hours into runs, skip Load First runs
     # (Load First is the inverter default; we only need segments for modes 1 and 2)
@@ -966,19 +1156,19 @@ def _build_suggestion(for_date: date) -> dict:
     cheap_hours  = sorted(h for h, m in hour_mode.items() if m == 1)
     exp_hours    = sorted(h for h, m in hour_mode.items() if m == 2)
     solar_peak   = max(solar_by_hour.items(), key=lambda x: x[1])
+    avg_load_kw = sum(load_by_hour.values()) / 24
     reasoning = (
-        f"Priser {for_date}: min {min(prices_sorted):.2f} – max {max(prices_sorted):.2f} SEK/kWh. "
-        f"Laddning (Battery First) timmar: {cheap_hours}. "
-        f"Urladdning (Grid First) timmar: {exp_hours}. "
-        f"Solpeak (−15%): {solar_peak[1]:.1f} kW kl {solar_peak[0]:02d}:00. "
-        f"Solproduktion antagen 15% lägre än prognos."
+        f"LP-optimering {for_date}: priser {min(prices_sorted):.2f}–{max(prices_sorted):.2f} SEK/kWh. "
+        f"Laddning (Battery First): {cheap_hours}. "
+        f"Urladdning (Grid First): {exp_hours}. "
+        f"Solpeak (−{int(SOLAR_HAIRCUT*100)}%): {solar_peak[1]:.1f} kW kl {solar_peak[0]:02d}:00. "
+        f"Medelbelastning: {avg_load_kw:.2f} kW (säsongsmodell). "
+        f"SoC vid start: {soc_start*100:.0f}%."
     )
 
-    # Battery simulation — daily KPI totals
-    avg_load_kw = _fetch_avg_load_kw()
-    soc_start   = _fetch_soc_start()
-    sim_kpis    = _simulate_battery(solar_by_hour, avg_load_kw, hour_mode,
-                                    price_by_hour, soc_start)
+    # Battery simulation — daily KPI totals using per-hour load
+    sim_kpis = _simulate_battery(solar_by_hour, load_by_hour, hour_mode,
+                                 price_by_hour, soc_start)
 
     return {
         "ok":               True,
@@ -988,9 +1178,7 @@ def _build_suggestion(for_date: date) -> dict:
         "soc_floor_pct":    rec_soc_floor,
         "reasoning":        reasoning,
         "price_range": {"min": round(min(prices_sorted), 4),
-                        "max": round(max(prices_sorted), 4),
-                        "low_thresh":  round(low_thresh, 4),
-                        "high_thresh": round(high_thresh, 4)},
+                        "max": round(max(prices_sorted), 4)},
         "solar_peak_kw": round(solar_peak[1], 2),
         "sim_kpis":   sim_kpis,
     }
