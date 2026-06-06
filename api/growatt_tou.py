@@ -826,7 +826,7 @@ def _fetch_solar_forecast_days(n_days: int = 5) -> list:
     """
     from datetime import timezone as _tz
     today   = date.today()
-    PANEL_KWP = 12.0
+    PANEL_KWP = 11.7
 
     # Load model ratios once (used to convert GTI → kW)
     model = _fetch_solar_model()
@@ -1257,7 +1257,7 @@ def _build_suggestion(for_date: date) -> dict:
     # Haircut scales with cloud cover: low cloud → 10% (forecast reliable),
     # high cloud → 30% (GTI model less accurate under broken/overcast sky).
     # Formula: haircut = 0.10 + cloud_fraction * 0.20  (range 10–30%)
-    PANEL_KWP = 12.0
+    PANEL_KWP = 11.7
     solar_by_hour = {}
     for h in range(24):
         slot    = h * 12
