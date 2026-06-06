@@ -242,6 +242,9 @@ class GrowattSession:
 
     def _restore(self, stored: dict) -> None:
         """Inject stored cookies and metadata into this session."""
+        # Clear first — avoids duplicate SERVERID entries when a warm Lambda
+        # already has cookies set from a previous request in the same process.
+        self._s.cookies.clear()
         for name, value in (stored.get("cookies") or {}).items():
             self._s.cookies.set(name, value)
         self.plant_id   = stored.get("plant_id") or None
@@ -266,6 +269,9 @@ class GrowattSession:
                     f"(last failure {int(elapsed)}s ago)"
                 )
 
+        # Clear cookies before a fresh login — prevents duplicate SERVERID
+        # from accumulating across warm Lambda reuse cycles.
+        self._s.cookies.clear()
         pw_hash = _growatt_hash(GROWATT_PASS)
         try:
             resp = self._s.post(
@@ -306,9 +312,13 @@ class GrowattSession:
 
         print(f"[Growatt] Fresh login as {GROWATT_USER}, plant={self.plant_id}")
 
-        # Persist cookies so future cold-starts can skip the login
+        # Persist cookies — build a deduplicated dict (last value wins per name)
+        # to avoid storing duplicate SERVERID entries across retries.
+        deduped = {}
+        for c in self._s.cookies:
+            deduped[c.name] = c.value
         _save_stored_session(
-            cookies    = dict(self._s.cookies),
+            cookies    = deduped,
             plant_id   = self.plant_id or "",
             mix_serial = self.mix_serial or "",
             user_id    = self.user_id,
@@ -345,8 +355,11 @@ class GrowattSession:
 
         # Update persisted session with confirmed serial/plant
         if self.logged_in:
+            deduped = {}
+            for c in self._s.cookies:
+                deduped[c.name] = c.value
             _save_stored_session(
-                cookies    = dict(self._s.cookies),
+                cookies    = deduped,
                 plant_id   = self.plant_id or "",
                 mix_serial = self.mix_serial or "",
                 user_id    = self.user_id or "",
