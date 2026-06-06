@@ -2064,7 +2064,7 @@ function renderApplianceCard(priceMap, c, dateStr) {
 
   // Full consumer price: (spot öre/kWh + nätavgift + energiskatt + påslag) × moms → kr/kWh
   function consumerKrKwh(oreKwh) {
-    return (oreKwh / 100 + c.nätavgift + c.energiskatt + c.fortumPåslag) * c.moms;
+    return (oreKwh / 100 + c.natavgIn + c.energiskatt + c.fortumPaslag) * c.moms;
   }
 
   // Find cheapest & most expensive consecutive window of `hours` duration
