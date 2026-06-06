@@ -123,6 +123,20 @@
   /* Layout */
   main { padding: 20px 28px; max-width: 1400px; margin: 0 auto; }
 
+  /* Section headers — Nu tab */
+  .section-header {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    opacity: 0.6;
+    margin: 1rem 0 0.5rem;
+    padding-left: 2px;
+    border-left: 2px solid var(--border);
+    padding-left: 8px;
+  }
+
   /* KPI rows */
   .kpi-row {
     display: grid;
@@ -1130,6 +1144,8 @@
     <span class="tlm-chip"><span class="tlm-chip-icon">⚡</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-grid">—</b></span><span class="tlm-chip-lbl">Elnät</span></span></span>
   </div>
 
+  <div class="section-header">⚡ Energibalans</div>
+
   <!-- KPI row 1: energy -->
   <div class="kpi-row">
     <div class="kpi solar">
@@ -1181,6 +1197,8 @@
     </div>
   </div>
 
+  <div class="section-header">📈 Diagram</div>
+
   <!-- Power flow chart -->
   <div class="card" style="margin-bottom:14px">
     <div class="card-title">
@@ -1208,6 +1226,8 @@
       <canvas id="power-price-chart"></canvas>
     </div>
   </div>
+
+  <div class="section-header">💰 Ekonomi</div>
 
   <!-- Solar forecast deviation notice — shown today only, after production starts -->
   <div id="solar-deviation-notice" style="display:none;margin-bottom:10px;padding:8px 12px;border-radius:4px;border:1px solid;font-size:0.78rem;line-height:1.5"></div>
