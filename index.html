@@ -1350,6 +1350,13 @@
     </div>
   </div>
 
+  <!-- Storm Watch / Adaptive SoC alert banner -->
+  <div id="storm-watch-banner" style="display:none;margin-bottom:14px;padding:10px 14px;border-radius:4px;border:1px solid;font-size:0.8rem;line-height:1.6;position:relative">
+    <button onclick="document.getElementById('storm-watch-banner').style.display='none'"
+      style="position:absolute;top:7px;right:10px;background:none;border:none;cursor:pointer;font-size:14px;opacity:0.5;color:inherit;padding:0;line-height:1">×</button>
+    <div id="storm-watch-banner-text"></div>
+  </div>
+
   <!-- TOU Suggestion panel -->
   <div class="card" style="margin-bottom:14px">
     <div class="card-title" style="display:flex;align-items:center;gap:8px">
@@ -4965,6 +4972,53 @@ function renderTouSuggestion(data) {
   if (data.reasoning) {
     reasoning.textContent = data.reasoning;
     reasoning.style.display = 'block';
+  }
+
+  // Storm Watch / Adaptive SoC floor banner
+  _renderStormWatchBanner(data.storm_watch, data.adaptive_soc);
+}
+
+function _renderStormWatchBanner(sw, adap) {
+  const banner = document.getElementById('storm-watch-banner');
+  const text   = document.getElementById('storm-watch-banner-text');
+  if (!banner || !text) return;
+
+  const swTriggered  = sw?.triggered === true;
+  const adaptFloor   = adap?.floor_pct ?? 10;
+  const d1Kwh        = adap?.d1_kwh;
+
+  if (swTriggered) {
+    // Build day-by-day summary from daily_kwh array (D+1 … D+5)
+    const dayStrs = (sw.daily_kwh || [])
+      .slice(0, sw.low_days?.length || 2)
+      .map((kwh, i) => `D+${i + 1}: ${kwh.toFixed(1)} kWh`)
+      .join(' · ');
+
+    text.innerHTML = (
+      `<b>⛈ Storm Watch</b> — låg solinstrålning prognostiseras flera dagar framåt.<br>`
+      + `<span style="opacity:0.85">${dayStrs}</span><br>`
+      + `SoC-golv höjt till <b>${Math.round(sw.low_days?.length >= 2 ? 40 : adaptFloor)}%</b>`
+      + ` — batteriet förladdar inför molnigt väder. Se förslaget nedan.`
+    );
+    banner.style.background   = 'rgba(251,146,60,0.08)';
+    banner.style.borderColor  = 'rgba(251,146,60,0.45)';
+    banner.style.color        = '#fb923c';
+    banner.style.display      = '';
+
+  } else if (adaptFloor > 15 && d1Kwh != null) {
+    // Elevated adaptive floor but no storm — quieter notice
+    text.innerHTML = (
+      `🌥 <b>Adaptivt SoC-golv: ${adaptFloor}%</b>`
+      + ` — prognos visar ${d1Kwh.toFixed(1)} kWh sol imorgon.`
+      + ` Batteriet behåller reserv för kvällen.`
+    );
+    banner.style.background   = 'rgba(96,165,250,0.07)';
+    banner.style.borderColor  = 'rgba(96,165,250,0.3)';
+    banner.style.color        = '#60a5fa';
+    banner.style.display      = '';
+
+  } else {
+    banner.style.display = 'none';
   }
 }
 
