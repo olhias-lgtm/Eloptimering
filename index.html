@@ -4192,10 +4192,28 @@ function renderRoiCard(roi) {
       </div>
     </div>
 
+    <!-- Savings breakdown: earn vs. saved split (app-tracked) -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;border-top:1px solid var(--border);padding-top:10px">
+      <div style="text-align:center">
+        <div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:3px">📤 Exportintäkt</div>
+        <div style="font-size:1.05rem;font-weight:700;color:#34d399;line-height:1">${fmtKr(parseFloat(roi.earn_kr || 0))}</div>
+        <div style="font-size:0.63rem;color:var(--dim);margin-top:2px">export + arbitrage</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:3px">☀️ Egenanvändning</div>
+        <div style="font-size:1.05rem;font-weight:700;color:#34d399;line-height:1">${fmtKr(parseFloat(roi.saved_kr || 0))}</div>
+        <div style="font-size:0.63rem;color:var(--dim);margin-top:2px">undviken import</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:3px">📊 App-total</div>
+        <div style="font-size:1.05rem;font-weight:700;line-height:1">${fmtKr(appKr)}</div>
+        <div style="font-size:0.63rem;color:var(--dim);margin-top:2px">${dayCount} dagar${firstDay ? ' fr. ' + firstDay : ''}</div>
+      </div>
+    </div>
+
     <!-- Detail footnote -->
     <div style="font-size:0.69rem;color:var(--text-muted);display:flex;gap:12px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:8px">
       <span>📅 Installation: 1 apr 2025 · ${daysSince} dagar sedan</span>
-      <span>📊 App-data: ${fmtKr(appKr)} (${dayCount} dagar${firstDay ? ' fr. ' + firstDay : ''})</span>
       <span>〜 Estimerat apr–dec 2025: ${fmtKr(ROI_PRE_APP_2025_KR)}</span>
       <span>〜 Estimerat jan–maj 2026: ${fmtKr(ROI_PRE_APP_2026_KR)}</span>
     </div>
