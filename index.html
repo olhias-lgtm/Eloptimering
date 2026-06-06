@@ -1264,6 +1264,14 @@
     <span class="tlm-chip"><span class="tlm-chip-icon">⚡</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-dag-grid">—</b></span><span class="tlm-chip-lbl">Elnät</span></span></span>
   </div>
 
+  <div id="appliance-card" style="display:none;margin-bottom:14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+    <div style="padding:10px 14px 8px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)">
+      <span style="font-size:0.85rem;font-weight:600">🏠 Bästa tid att köra hushållsapparater</span>
+      <span id="appliance-date-label" style="margin-left:auto;font-size:0.7rem;color:var(--text-muted)"></span>
+    </div>
+    <div id="appliance-rows"></div>
+  </div>
+
   <!-- Price + running cost + tomorrow charts -->
   <div class="chart-grid-bottom">
     <div class="card">
@@ -1400,14 +1408,6 @@
       </div>
     </div>
   </details>
-
-  <div id="appliance-card" style="display:none;margin-bottom:14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-    <div style="padding:10px 14px 8px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)">
-      <span style="font-size:0.85rem;font-weight:600">🏠 Bästa tid att köra hushållsapparater</span>
-      <span id="appliance-date-label" style="margin-left:auto;font-size:0.7rem;color:var(--text-muted)"></span>
-    </div>
-    <div id="appliance-rows"></div>
-  </div>
 
   </div><!-- /tab-panel-dag -->
 
