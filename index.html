@@ -1213,37 +1213,28 @@
     📈 <span id="forecast-notice-text">Tomorrow's prices available — forecast shown for rest of today and tomorrow</span>
   </div>
 
-  <!-- Power flow chart + cost breakdown -->
-  <div class="chart-grid">
-    <div class="card">
-      <div class="card-title">
-        Effektflöde
-        <span class="badge" id="interval-badge" style="display:none">— intervals</span>
-      </div>
-      <div class="chart-wrap-tall">
-        <canvas id="power-chart"></canvas>
-      </div>
-      <div class="legend" id="power-legend">
-        <div class="legend-item" data-ds="solar"><div class="legend-dot" style="background:var(--solar)"></div>Solar</div>
-        <div class="legend-item" data-ds="load"><div class="legend-dot" style="background:var(--load)"></div>Load</div>
-        <div class="legend-item" data-ds="import"><div class="legend-dot" style="background:var(--import)"></div>Import</div>
-        <div class="legend-item" data-ds="export"><div class="legend-dot" style="background:var(--export)"></div>Export</div>
-        <div class="legend-item" data-ds="battery"><div class="legend-dot" style="background:var(--battery)"></div>Battery net</div>
-        <div class="legend-item" data-ds="soc"><div class="legend-dot" style="background:rgba(167,139,250,0.7);border:1px dashed rgba(167,139,250,0.7);box-sizing:border-box"></div>SoC %</div>
-        <button class="legend-show-all" id="power-legend-show-all" style="display:none">Visa alla</button>
-      </div>
+  <!-- Power flow chart -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">
+      Effektflöde
+      <span class="badge" id="interval-badge" style="display:none">— intervals</span>
     </div>
-
-    <div class="card">
-      <div class="card-title">Cost Breakdown</div>
-      <div id="breakdown-wrap">
-        <div class="loading"><div class="spinner"></div><span>Loading…</span></div>
-      </div>
+    <div class="chart-wrap-tall">
+      <canvas id="power-chart"></canvas>
+    </div>
+    <div class="legend" id="power-legend">
+      <div class="legend-item" data-ds="solar"><div class="legend-dot" style="background:var(--solar)"></div>Solar</div>
+      <div class="legend-item" data-ds="load"><div class="legend-dot" style="background:var(--load)"></div>Load</div>
+      <div class="legend-item" data-ds="import"><div class="legend-dot" style="background:var(--import)"></div>Import</div>
+      <div class="legend-item" data-ds="export"><div class="legend-dot" style="background:var(--export)"></div>Export</div>
+      <div class="legend-item" data-ds="battery"><div class="legend-dot" style="background:var(--battery)"></div>Battery net</div>
+      <div class="legend-item" data-ds="soc"><div class="legend-dot" style="background:rgba(167,139,250,0.7);border:1px dashed rgba(167,139,250,0.7);box-sizing:border-box"></div>SoC %</div>
+      <button class="legend-show-all" id="power-legend-show-all" style="display:none">Visa alla</button>
     </div>
   </div>
 
   <!-- Power + Spot Price chart -->
-  <div class="card" style="margin-top:1rem">
+  <div class="card" style="margin-bottom:14px">
     <div class="card-title">Effektflöde &amp; Spotpris</div>
     <div class="chart-wrap-tall">
       <canvas id="power-price-chart"></canvas>
@@ -1378,6 +1369,34 @@
     <div id="suggest-sim-kpis" style="display:none;margin-top:12px;border-top:1px solid var(--border);padding-top:10px"></div>
     <div id="suggest-reasoning" style="display:none;margin-top:10px;font-size:11px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px"></div>
   </div>
+
+  <!-- Cost Breakdown — collapsible, for date-specific billing analysis -->
+  <details id="breakdown-details" style="margin-bottom:14px">
+    <summary style="
+      list-style:none;
+      cursor:pointer;
+      padding:10px 14px;
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:4px;
+      font-size:0.8rem;
+      font-weight:600;
+      color:var(--text-muted);
+      user-select:none;
+      display:flex;
+      align-items:center;
+      gap:8px;
+    ">
+      <span id="breakdown-summary-chevron" style="font-size:0.7rem;transition:transform 0.2s">▶</span>
+      Kostnadsfördelning
+      <span id="breakdown-summary-net" style="margin-left:auto;font-weight:700;font-size:0.82rem"></span>
+    </summary>
+    <div style="background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 4px 4px;padding:14px 16px">
+      <div id="breakdown-wrap">
+        <div class="loading"><div class="spinner"></div><span>Loading…</span></div>
+      </div>
+    </div>
+  </details>
 
   </div><!-- /tab-panel-dag -->
 
@@ -2053,6 +2072,24 @@ function renderBreakdown(rows, priceMap, c, dateStr) {
       Fast avgift prorateras per dag (nät ${c.fastAvgift} + Fortum ${c.fortumFast} kr/mån ÷ 30).
     </div>
   `;
+
+  // Surface the day's net figure in the <summary> bar so it's visible when collapsed
+  const netSummary = document.getElementById('breakdown-summary-net');
+  if (netSummary && hasPrices) {
+    const sign = net >= 0 ? '+' : '';
+    netSummary.textContent = `${sign}${net.toFixed(2)} kr`;
+    netSummary.style.color = net >= 0 ? 'var(--export)' : 'var(--import)';
+  }
+
+  // Rotate chevron when details opens/closes
+  const det = document.getElementById('breakdown-details');
+  const chev = document.getElementById('breakdown-summary-chevron');
+  if (det && chev && !det._chevronBound) {
+    det._chevronBound = true;
+    det.addEventListener('toggle', () => {
+      chev.style.transform = det.open ? 'rotate(90deg)' : '';
+    });
+  }
 }
 
 function renderPowerChart(rows, isForecast, forecastOverlay) {
@@ -3365,6 +3402,8 @@ function clearCharts() {
   });
   const _devNotice = document.getElementById('solar-deviation-notice');
   if (_devNotice) _devNotice.style.display = 'none';
+  const _bsn = document.getElementById('breakdown-summary-net');
+  if (_bsn) { _bsn.textContent = ''; _bsn.style.color = ''; }
   document.getElementById('interval-badge').textContent = '— intervals';
 }
 
