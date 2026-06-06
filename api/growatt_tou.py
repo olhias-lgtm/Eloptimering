@@ -1454,8 +1454,8 @@ def _build_suggestion(for_date: date) -> dict:
 
     reasoning = (
         f"LP-optimering {for_date}: priser {min(prices_sorted):.2f}–{max(prices_sorted):.2f} SEK/kWh. "
-        f"Laddning (Battery First): {cheap_hours}. "
-        f"Urladdning (Grid First): {exp_hours} — urladdning 100% (blast)."
+        f"Laddning (Batteri Först): {cheap_hours}. "
+        f"Urladdning (Elnät Först): {exp_hours} — urladdning 100% (blast)."
         + f" Solpeak (−{int(avg_haircut*100)}% molnavdrag): {solar_peak[1]:.1f} kW kl {solar_peak[0]:02d}:00. "
         f"Medelbelastning: {avg_load_kw:.2f} kW (säsongsmodell). "
         f"SoC vid start: {soc_start*100:.0f}%."
@@ -1634,7 +1634,7 @@ def _notify_if_active() -> dict:
     body = (
         f"Det finns {len(active)} aktiva TOU-segment på växelriktaren (MID 12KTL3-XH):\n\n"
         + "\n".join(desc_lines)
-        + "\n\nKom ihåg att återställa till standardläge (Load First) om det inte längre behövs."
+        + "\n\nKom ihåg att återställa till standardläge (Last Först) om det inte längre behövs."
         + "\n\nhttps://electricity-dashboard-phi.vercel.app"
     )
     try:
