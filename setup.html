@@ -542,6 +542,18 @@
       ⚠️ Ändra <code>area=SE3</code> till ditt prisområde i de två <code>save_prices</code>-cronerna och
       i konstanten <code>AREA</code> i <code>api/growatt_tou.py</code>.
     </div>
+    <div class="alert" style="background:var(--card-bg);border:1px solid var(--border)">
+      ℹ️ <strong>Vercel Hobby-plan:</strong> Endast 2 cron-jobb körs på gratisplanen — övriga ignoreras tyst.
+      Kritiska jobb (<code>build_suggest</code>, <code>save_prices</code>, <code>autofill</code>) bör triggas
+      via <a href="https://cron-job.org" target="_blank" style="color:var(--accent)">cron-job.org</a> istället.
+      Det externa insamlingsjobbet (<code>/api/collect</code>) körs redan där var 5:e minut.
+    </div>
+    <div class="alert" style="background:var(--card-bg);border:1px solid var(--border)">
+      ℹ️ <strong>Diagrammet uppdateras inte automatiskt.</strong> Data samlas in var 5:e minut av cron-job.org
+      och skrivs till Supabase, men diagrammet laddar data en gång vid sidöppning. Ladda om sidan manuellt
+      för att se de senaste 5-minutersslottarna. Livedataraden (sol/batteri/nät) uppdateras däremot var 30:e sekund
+      direkt från Growatt och reflekterar aktuellt värde utan omladdning.
+    </div>
   </section>
 
   <!-- ───────────────────────────────── CHECKLIST ── -->
