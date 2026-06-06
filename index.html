@@ -6080,8 +6080,11 @@ setInterval(() => {
 // ── TOU mode tooltip — JS-positioned to stay within viewport ──────────────
 (function() {
   const TIP_W = 240, TIP_PAD = 8;
-  const popup = document.getElementById('tou-tip-popup');
-  if (!popup) return;
+
+  // Create the popup div in JS so it exists before any mouseover fires
+  const popup = document.createElement('div');
+  popup.id = 'tou-tip-popup';
+  document.body.appendChild(popup);
 
   document.addEventListener('mouseover', e => {
     const el = e.target.closest('.tou-mode-tip');
@@ -6101,9 +6104,9 @@ setInterval(() => {
     const tipH = popup.offsetHeight || 80;
     let top;
     if (r.bottom + tipH + TIP_PAD < vh) {
-      top = r.bottom + 6;           // below
+      top = r.bottom + 6;
     } else {
-      top = r.top - tipH - 6;       // above
+      top = r.top - tipH - 6;
     }
 
     popup.style.left = left + 'px';
@@ -6116,6 +6119,5 @@ setInterval(() => {
 })();
 </script>
 
-<div id="tou-tip-popup"></div>
 </body>
 </html>
