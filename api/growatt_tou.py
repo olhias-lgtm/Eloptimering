@@ -1458,6 +1458,28 @@ def _build_suggestion(for_date: date) -> dict:
 # Suggestion: Supabase persistence
 # ---------------------------------------------------------------------------
 
+def _suggestion_is_fresh(for_date: date) -> bool:
+    """Return True if a suggestion for for_date was saved today (after 20:00 UTC).
+    Used to make the build_suggest cron idempotent so it can run twice safely."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return False
+    try:
+        url = (f"{SUPABASE_URL}/rest/v1/tou_suggestions"
+               f"?for_date=eq.{for_date.isoformat()}&select=created_at&limit=1")
+        req = urllib.request.Request(url, headers=_sb_headers())
+        with urllib.request.urlopen(req, timeout=5) as r:
+            rows = json.loads(r.read())
+        if not rows:
+            return False
+        created = datetime.fromisoformat(rows[0]["created_at"].replace("Z", "+00:00"))
+        # Consider fresh if saved today after 20:00 UTC (prices available by 13:00 CEST)
+        today_20h = datetime.now(timezone.utc).replace(hour=20, minute=0, second=0, microsecond=0)
+        return created >= today_20h
+    except Exception as e:
+        print(f"[tou] freshness check failed: {e}")
+        return False
+
+
 def _save_suggestion(result: dict):
     if not SUPABASE_URL or not SUPABASE_KEY:
         return
@@ -1629,9 +1651,15 @@ class handler(BaseHTTPRequestHandler):
         action = params.get("action", "")
 
         if action == "build_suggest":
-            # Cron entry point — no password required (internal)
+            # Cron entry point — idempotent: skip if a fresh suggestion already exists.
+            # Schedule runs at "10 22,23 * * *" (22:10 + 23:10) so the second fire
+            # is a free safety net without double-building.
             try:
                 tomorrow = date.today() + timedelta(days=1)
+                if _suggestion_is_fresh(tomorrow):
+                    print(f"[tou build_suggest] suggestion for {tomorrow} already fresh — skipping")
+                    self._send({"ok": True, "skipped": True, "for_date": tomorrow.isoformat()})
+                    return
                 result = _build_suggestion(tomorrow)
                 if result.get("ok"):
                     _save_suggestion(result)
