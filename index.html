@@ -3062,9 +3062,7 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
   // 6. Simulate full day but only care about slots from cutoff onwards.
   //    Run simulation from slot 0 using actual solar/load for slots before cutoff,
   //    then switch to forecast from cutoff. This gives accurate SoC continuity.
-  // Build a slot-index map so we can look up real rows by slot number
-  const realBySlot = {};
-  realRows.forEach(r => { realBySlot[Math.round(r.minutes / 5)] = r; });
+  // (realBySlot already built above for lastMeaningfulSlot scan)
 
   const SLOTS  = 288;
   const kwh5   = 5 / 60;
