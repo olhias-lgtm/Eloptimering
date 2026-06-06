@@ -478,19 +478,41 @@ def _recompute_daily_summary(date_str: str, area: str = "SE3") -> dict:
     return {"ok": True, "summary": payload}
 
 
+def _sb_count(table: str, filter_qs: str) -> int:
+    """COUNT rows matching a filter via PostgREST HEAD + Prefer:count=exact.
+    Returns the integer from the Content-Range header (no response body)."""
+    url = f"{SUPABASE_URL}/rest/v1/{table}?{filter_qs}"
+    req = urllib.request.Request(url, method="HEAD", headers={
+        "apikey":        SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Prefer":        "count=exact",
+    })
+    try:
+        resp = urllib.request.urlopen(req, timeout=10)
+        # Content-Range: 0-N/TOTAL  or  */TOTAL
+        cr = resp.headers.get("Content-Range", "*/0")
+        return int(cr.split("/")[-1])
+    except Exception as e:
+        print(f"[retention] COUNT {table} error: {e}")
+        return 0
+
+
 def _sb_delete(table: str, filter_qs: str) -> int:
     """DELETE rows from a Supabase table matching a PostgREST filter query string.
-    Returns the number of rows deleted (requires Prefer: return=representation)."""
+    Uses return=minimal (no response body) to avoid hitting the 10 MB limit on
+    large deletes. Row count is obtained beforehand via _sb_count()."""
+    count = _sb_count(table, filter_qs)
+    if count == 0:
+        return 0
     url = f"{SUPABASE_URL}/rest/v1/{table}?{filter_qs}"
     req = urllib.request.Request(url, method="DELETE", headers={
         "apikey":        SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Prefer":        "return=representation",
+        "Prefer":        "return=minimal",
     })
     try:
-        body = urllib.request.urlopen(req, timeout=15).read()
-        deleted = json.loads(body)
-        return len(deleted) if isinstance(deleted, list) else 0
+        urllib.request.urlopen(req, timeout=20).read()
+        return count
     except Exception as e:
         print(f"[retention] DELETE {table} error: {e}")
         return 0
@@ -630,11 +652,8 @@ def _do_retention(dry_run: bool = False) -> tuple[int, dict]:
     tables_granular.append(("weather_forecast", f"valid_time=lt.{past_weather}"))
 
     for table, filt in tables_granular:
-        # Count first (dry run or not)
-        preview = _sb_query(table, "count", filt.replace("=lt.", "=lt.") + "&limit=1")
-        # Re-query just to get count estimate via PostgREST range header trick
-        # For simplicity, just report the filter used
-        report[f"{table}_filter"] = filt
+        n_before = _sb_count(table, filt)
+        report[f"{table}_candidates"] = n_before
         if not dry_run:
             n = _sb_delete(table, filt)
             report[f"{table}_deleted"] = n
