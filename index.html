@@ -833,6 +833,7 @@
 
     /* Monthly table: smaller font so it fits */
     #monthly-table-wrap table { font-size: 0.78rem; }
+    .month-week-details summary { font-size: 0.78rem; }
   }
 </style>
 </head>
@@ -4290,125 +4291,188 @@ function renderMonthlySummary(rows, year, month) {
   rows.forEach(r => { rowMap[r.date] = r; });
 
   const total_days = daysInMonth(year, month);
-  const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const DAY_NAMES  = ['Sön','Mån','Tis','Ons','Tor','Fre','Lör'];
+  const today      = todayStr();
 
-  // Sums
-  let sumCost = 0, sumEarn = 0, sumNet = 0, sumSaved = 0, sumSolar = 0, sumRoi = 0;
+  // --- Aggregates ---
+  let sumCost = 0, sumEarn = 0, sumSaved = 0, sumSolar = 0, sumRoi = 0;
   rows.forEach(r => {
     sumCost  += parseFloat(r.cost_kr   || 0);
     sumEarn  += parseFloat(r.earn_kr   || 0);
-    sumNet   += parseFloat(r.net_kr    || 0);
     sumSaved += parseFloat(r.saved_kr  || 0);
     sumSolar += parseFloat(r.solar_kwh || 0);
     sumRoi   += parseFloat(r.earn_kr   || 0) + parseFloat(r.saved_kr || 0);
   });
+  const fixedMonth = (c.fastAvgift + c.fortumFast) * c.moms;
+  const grandNet   = sumEarn - sumCost - fixedMonth;
+  const gc         = grandNet >= 0;
 
   // Max solar for bar scaling
   const maxSolar = Math.max(...rows.map(r => parseFloat(r.solar_kwh || 0)), 1);
 
-  const fixedMonth = (c.fastAvgift + c.fortumFast) * c.moms;
-  const grandNet   = sumEarn - sumCost - fixedMonth;
-
-  // Build rows
-  let rowsHtml = '';
-  for (let d = 1; d <= total_days; d++) {
-    const dateStr  = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const dow      = new Date(dateStr).getDay();
-    const dayName  = DAY_NAMES[dow];
-    const isWeekend = dow === 0 || dow === 6;
-    const r = rowMap[dateStr];
-
-    if (r) {
-      const cost   = parseFloat(r.cost_kr   || 0);
-      const earn   = parseFloat(r.earn_kr   || 0);
-      const saved  = parseFloat(r.saved_kr  || 0);
-      const net    = parseFloat(r.net_kr    || 0);
-      const solar  = parseFloat(r.solar_kwh || 0);
-      const roi    = earn + saved;
-      const isPos  = net >= 0;
-      const netBg  = isPos ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.12)';
-      const netFg  = isPos ? 'var(--positive,#22c55e)' : 'var(--negative,#ef4444)';
-      const barW   = Math.round((solar / maxSolar) * 100);
-
-      rowsHtml += `
-      <tr class="monthly-day-row" data-date="${dateStr}" style="cursor:pointer;${isWeekend ? 'opacity:0.75' : ''}">
-        <td style="padding:5px 6px;white-space:nowrap">
-          <span style="font-weight:600;font-size:0.9rem">${String(d).padStart(2,'0')}</span>
-          <span style="font-size:0.72rem;color:var(--text-muted);margin-left:4px">${dayName}</span>
-        </td>
-        <td style="padding:5px 6px;width:72px">
-          <div style="display:flex;align-items:center;gap:4px">
-            <div style="flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden">
-              <div style="width:${barW}%;height:100%;background:#f59e0b;border-radius:3px"></div>
-            </div>
-            <span style="font-size:0.72rem;color:var(--text-muted);width:28px;text-align:right">${solar.toFixed(1)}</span>
-          </div>
-        </td>
-        <td style="text-align:right;padding:5px 6px;color:var(--negative,#ef4444);font-size:0.82rem">−${cost.toFixed(2)}</td>
-        <td style="text-align:right;padding:5px 6px;color:var(--positive,#22c55e);font-size:0.82rem">+${earn.toFixed(2)}</td>
-        <td style="text-align:right;padding:5px 6px;color:#34d399;font-size:0.82rem">+${saved.toFixed(2)}</td>
-        <td style="text-align:right;padding:5px 4px;color:#34d399;font-size:0.82rem;font-weight:600">+${roi.toFixed(2)}</td>
-      </tr>`;
-    } else {
-      rowsHtml += `
-      <tr class="monthly-day-row" data-date="${dateStr}" style="cursor:pointer;opacity:0.35">
-        <td style="padding:5px 6px;white-space:nowrap">
-          <span style="font-weight:600;font-size:0.9rem">${String(d).padStart(2,'0')}</span>
-          <span style="font-size:0.72rem;color:var(--text-muted);margin-left:4px">${dayName}</span>
-        </td>
-        <td style="padding:5px 6px"><div style="height:5px;background:var(--border);border-radius:3px"></div></td>
-        <td style="text-align:right;padding:5px 6px;font-size:0.82rem">—</td>
-        <td style="text-align:right;padding:5px 6px;font-size:0.82rem">—</td>
-        <td style="text-align:right;padding:5px 6px;font-size:0.82rem">—</td>
-        <td style="text-align:right;padding:5px 4px;font-size:0.82rem">—</td>
-      </tr>`;
-    }
-  }
-
-  // Footer summary chips
-  const gc = grandNet >= 0;
-  const html = `
-  <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-  <table style="width:100%;border-collapse:collapse;font-size:0.85rem;margin-top:6px;min-width:440px">
-    <thead>
-      <tr style="color:var(--text-muted);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--border)">
-        <th style="text-align:left;padding:5px 6px;font-weight:500">Day</th>
-        <th style="padding:5px 6px;font-weight:500">
-          <span style="display:flex;align-items:center;gap:3px">
-            <span style="color:#f59e0b">☀</span> kWh
-          </span>
-        </th>
-        <th style="text-align:right;padding:5px 6px;font-weight:500">Kostnad</th>
-        <th style="text-align:right;padding:5px 6px;font-weight:500">Export</th>
-        <th style="text-align:right;padding:5px 6px;font-weight:500">Besparing</th>
-        <th style="text-align:right;padding:5px 4px;font-weight:500;color:#34d399">ROI</th>
-      </tr>
-    </thead>
-    <tbody id="monthly-rows">${rowsHtml}</tbody>
-    <tfoot>
-      <tr style="border-top:2px solid var(--border)">
-        <td colspan="6" style="padding:10px 6px 4px">
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <span style="font-size:0.75rem;color:var(--text-muted)">${rows.length} / ${total_days} dagar</span>
-            <span style="flex:1"></span>
-            <span style="font-size:0.78rem;color:var(--text-muted)">☀ ${sumSolar.toFixed(1)} kWh</span>
-            <span style="font-size:0.78rem;color:var(--negative,#ef4444)">−${(sumCost+fixedMonth).toFixed(2)} kr</span>
-            <span style="font-size:0.78rem;color:#34d399">Besparing +${sumSaved.toFixed(2)} kr</span>
-            <span style="font-size:0.78rem;color:#34d399;font-weight:600">ROI +${sumRoi.toFixed(2)} kr</span>
-            <span style="display:inline-block;background:${gc ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.12)'};color:${gc ? 'var(--positive,#22c55e)' : 'var(--negative,#ef4444)'};font-weight:700;font-size:0.85rem;padding:3px 10px;border-radius:999px">
-              ${gc ? '+' : ''}${grandNet.toFixed(2)} kr
-            </span>
-          </div>
-          <div style="font-size:0.7rem;color:var(--text-muted);margin-top:4px;padding-left:1px">
-            Fast avgift (nät + Fortum + moms): −${fixedMonth.toFixed(2)} kr/mån inkluderat i netto
-          </div>
-        </td>
-      </tr>
-    </tfoot>
-  </table>
+  // --- Summary header ---
+  const summaryHtml = `
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+    <div style="background:var(--card-bg,#1e2535);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+      <div style="font-size:1.35rem;font-weight:700;color:${gc ? 'var(--positive,#22c55e)' : 'var(--negative,#ef4444)'}">${gc ? '+' : ''}${grandNet.toFixed(0)} kr</div>
+      <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">Netto elkostnad</div>
+    </div>
+    <div style="background:var(--card-bg,#1e2535);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+      <div style="font-size:1.35rem;font-weight:700;color:#f59e0b">${sumSolar.toFixed(1)} kWh</div>
+      <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">☀️ Solproduktion</div>
+    </div>
+    <div style="background:var(--card-bg,#1e2535);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+      <div style="font-size:1.1rem;font-weight:700;color:#34d399">+${sumEarn.toFixed(0)} kr</div>
+      <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">📤 Exportintäkt</div>
+    </div>
+    <div style="background:var(--card-bg,#1e2535);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+      <div style="font-size:1.1rem;font-weight:700;color:#34d399">+${sumSaved.toFixed(0)} kr</div>
+      <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">🛡 Besparing</div>
+    </div>
+  </div>
+  <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:10px;padding-left:2px">
+    ${rows.length} / ${total_days} dagar med data · fast avgift −${fixedMonth.toFixed(0)} kr inkluderad i netto
   </div>`;
 
+  // --- Group days into weeks (Mon–Sun ISO weeks, split at month boundaries) ---
+  // Build array of {weekLabel, startD, endD, days:[d,...]}
+  const weeks = [];
+  let currentWeek = null;
+  for (let d = 1; d <= total_days; d++) {
+    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dow     = new Date(dateStr).getDay(); // 0=Sun
+    const isoDay  = dow === 0 ? 7 : dow;       // 1=Mon … 7=Sun
+    if (!currentWeek || isoDay === 1) {
+      currentWeek = { startD: d, days: [] };
+      weeks.push(currentWeek);
+    }
+    currentWeek.days.push(d);
+    currentWeek.endD = d;
+  }
+
+  // Determine which week contains today (for auto-open)
+  const todayD = (today.slice(0,7) === `${year}-${String(month).padStart(2,'0')}`)
+    ? parseInt(today.slice(8)) : null;
+
+  // --- Build week <details> blocks ---
+  let weeksHtml = '';
+  weeks.forEach((wk, wi) => {
+    // Week aggregates
+    let wSolar = 0, wCost = 0, wEarn = 0, wSaved = 0, wRoi = 0, wHasData = false;
+    wk.days.forEach(d => {
+      const ds = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const r  = rowMap[ds];
+      if (r) {
+        wSolar += parseFloat(r.solar_kwh || 0);
+        wCost  += parseFloat(r.cost_kr   || 0);
+        wEarn  += parseFloat(r.earn_kr   || 0);
+        wSaved += parseFloat(r.saved_kr  || 0);
+        wRoi   += parseFloat(r.earn_kr   || 0) + parseFloat(r.saved_kr || 0);
+        wHasData = true;
+      }
+    });
+
+    const isCurrentWeek = todayD !== null && todayD >= wk.startD && todayD <= wk.endD;
+    const isLastWeek    = wi === weeks.length - 1;
+    const openAttr      = (isCurrentWeek || isLastWeek) ? ' open' : '';
+
+    const wNet     = wEarn - wCost;
+    const wNetFg   = wNet >= 0 ? 'var(--positive,#22c55e)' : 'var(--negative,#ef4444)';
+    const wLabel   = wk.startD === wk.endD
+      ? `${String(wk.startD).padStart(2,'0')} ${DAY_NAMES[new Date(`${year}-${String(month).padStart(2,'0')}-${String(wk.startD).padStart(2,'0')}`).getDay()]}`
+      : `${String(wk.startD).padStart(2,'0')}–${String(wk.endD).padStart(2,'0')} ${DAY_NAMES[new Date(`${year}-${String(month).padStart(2,'0')}-${String(wk.startD).padStart(2,'0')}`).getDay()].slice(0,3)}–${DAY_NAMES[new Date(`${year}-${String(month).padStart(2,'0')}-${String(wk.endD).padStart(2,'0')}`).getDay()].slice(0,3)}`;
+
+    // Day rows for this week
+    let dayRowsHtml = '';
+    wk.days.forEach(d => {
+      const dateStr   = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const dow       = new Date(dateStr).getDay();
+      const dayName   = DAY_NAMES[dow];
+      const isWeekend = dow === 0 || dow === 6;
+      const r         = rowMap[dateStr];
+      const isToday   = dateStr === today;
+
+      if (r) {
+        const cost  = parseFloat(r.cost_kr   || 0);
+        const earn  = parseFloat(r.earn_kr   || 0);
+        const saved = parseFloat(r.saved_kr  || 0);
+        const solar = parseFloat(r.solar_kwh || 0);
+        const roi   = earn + saved;
+        const barW  = Math.round((solar / maxSolar) * 100);
+        const todayStyle = isToday ? 'background:rgba(99,102,241,0.08);' : '';
+
+        dayRowsHtml += `
+        <tr class="monthly-day-row" data-date="${dateStr}" style="cursor:pointer;${isWeekend ? 'opacity:0.8' : ''};${todayStyle}">
+          <td style="padding:5px 8px;white-space:nowrap">
+            <span style="font-weight:${isToday ? '700' : '600'};font-size:0.88rem${isToday ? ';color:var(--accent,#818cf8)' : ''}">${String(d).padStart(2,'0')}</span>
+            <span style="font-size:0.7rem;color:var(--text-muted);margin-left:4px">${dayName}</span>
+          </td>
+          <td style="padding:5px 8px;width:80px">
+            <div style="display:flex;align-items:center;gap:4px">
+              <div style="flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+                <div style="width:${barW}%;height:100%;background:#f59e0b;border-radius:3px"></div>
+              </div>
+              <span style="font-size:0.7rem;color:var(--text-muted);width:30px;text-align:right">${solar.toFixed(1)}</span>
+            </div>
+          </td>
+          <td style="text-align:right;padding:5px 8px;color:var(--negative,#ef4444);font-size:0.8rem">−${cost.toFixed(0)}</td>
+          <td style="text-align:right;padding:5px 8px;color:#34d399;font-size:0.8rem;font-weight:600">+${roi.toFixed(0)}</td>
+        </tr>`;
+      } else {
+        dayRowsHtml += `
+        <tr class="monthly-day-row" data-date="${dateStr}" style="cursor:pointer;opacity:0.3">
+          <td style="padding:5px 8px;white-space:nowrap">
+            <span style="font-weight:600;font-size:0.88rem">${String(d).padStart(2,'0')}</span>
+            <span style="font-size:0.7rem;color:var(--text-muted);margin-left:4px">${dayName}</span>
+          </td>
+          <td style="padding:5px 8px"><div style="height:5px;background:var(--border);border-radius:3px"></div></td>
+          <td style="text-align:right;padding:5px 8px;font-size:0.8rem">—</td>
+          <td style="text-align:right;padding:5px 8px;font-size:0.8rem">—</td>
+        </tr>`;
+      }
+    });
+
+    weeksHtml += `
+    <details class="month-week-details"${openAttr} style="margin-bottom:4px;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+      <summary style="list-style:none;cursor:pointer;padding:7px 10px;display:flex;align-items:center;gap:8px;user-select:none;background:var(--bg-card,#151c2e)">
+        <span style="font-size:0.75rem;font-weight:600;color:var(--text-muted);flex:0 0 auto">${wLabel}</span>
+        <span style="flex:1"></span>
+        ${wHasData ? `
+        <span style="font-size:0.72rem;color:#f59e0b;margin-right:4px">☀ ${wSolar.toFixed(1)}</span>
+        <span style="font-size:0.72rem;color:var(--negative,#ef4444);margin-right:4px">−${wCost.toFixed(0)}</span>
+        <span style="font-size:0.72rem;color:#34d399;font-weight:600">+${wRoi.toFixed(0)} kr</span>
+        ` : `<span style="font-size:0.72rem;color:var(--text-muted)">ingen data</span>`}
+        <span style="font-size:0.65rem;color:var(--text-muted);margin-left:6px;transition:transform .2s" class="week-chevron">▾</span>
+      </summary>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+      <table style="width:100%;border-collapse:collapse;font-size:0.82rem;min-width:280px">
+        <thead>
+          <tr style="color:var(--text-muted);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:4px 8px;font-weight:500">Dag</th>
+            <th style="padding:4px 8px;font-weight:500"><span style="color:#f59e0b">☀</span> kWh</th>
+            <th style="text-align:right;padding:4px 8px;font-weight:500">Kostnad</th>
+            <th style="text-align:right;padding:4px 8px;font-weight:500;color:#34d399">ROI</th>
+          </tr>
+        </thead>
+        <tbody>${dayRowsHtml}</tbody>
+      </table>
+      </div>
+    </details>`;
+  });
+
+  const html = summaryHtml + weeksHtml;
   document.getElementById('monthly-table-wrap').innerHTML = html;
+
+  // Rotate chevron on toggle
+  document.querySelectorAll('.month-week-details').forEach(det => {
+    det.addEventListener('toggle', () => {
+      const ch = det.querySelector('.week-chevron');
+      if (ch) ch.style.transform = det.open ? 'rotate(180deg)' : '';
+    });
+    // Set initial chevron state
+    const ch = det.querySelector('.week-chevron');
+    if (ch && det.open) ch.style.transform = 'rotate(180deg)';
+  });
 
   document.querySelectorAll('.monthly-day-row').forEach(tr => {
     tr.addEventListener('click', () => {
@@ -4418,7 +4482,7 @@ function renderMonthlySummary(rows, year, month) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
     tr.addEventListener('mouseenter', () => { tr.style.background = 'var(--bg-hover, rgba(255,255,255,0.04))'; });
-    tr.addEventListener('mouseleave', () => { tr.style.background = ''; });
+    tr.addEventListener('mouseleave', () => { tr.style.background = tr.dataset.date === todayStr() ? 'rgba(99,102,241,0.08)' : ''; });
   });
 }
 
