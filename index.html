@@ -4479,23 +4479,38 @@ function _updateMiniLive(d) {
 function startLivePolling() {
   if (_liveTimer) { clearTimeout(_liveTimer); _liveTimer = null; }
 
+  // Cron fires at :02,:07,:12,...,:57 each minute-of-hour.
+  // Allow 12s for Growatt fetch + Supabase write + cold-start buffer.
+  // Returns ms until the next cron mark + 12s safety margin.
+  function _msUntilNextCron() {
+    const CRON_MINUTES = [2,7,12,17,22,27,32,37,42,47,52,57];
+    const SAFETY_MS    = 12_000;
+    const now   = new Date();
+    const secNow = now.getMinutes() * 60 + now.getSeconds();
+    for (const m of CRON_MINUTES) {
+      const secTarget = m * 60 + 12; // :MM:12
+      if (secTarget > secNow) return (secTarget - secNow) * 1000;
+    }
+    // Past :57:12 — wait until next hour's :02:12
+    return (62 * 60 + 12 - secNow) * 1000;
+  }
+
   async function tick() {
     // Skip the API call if the browser tab is hidden — resume when visible again
     if (document.visibilityState === 'hidden') {
-      _liveTimer = setTimeout(tick, 300_000);
+      _liveTimer = setTimeout(tick, _msUntilNextCron());
       return;
     }
     await loadLive();
-    // Poll every 5 min — matches the cron-job.org collect cadence so each poll
-    // fetches genuinely fresh data. Back off on failures: 5min → 10min → hold.
-    const BACKOFF = [300, 600];
-    const delaySec = _liveFailCount === 0
-      ? 300
+    // Back off on consecutive failures: next cron slot → 2 slots → hold at 10min
+    const BACKOFF = [300_000, 600_000];
+    const delayMs = _liveFailCount === 0
+      ? _msUntilNextCron()
       : BACKOFF[Math.min(_liveFailCount - 1, BACKOFF.length - 1)];
     if (_liveFailCount > 0) {
-      console.info(`[Live] backoff ${delaySec}s (${_liveFailCount} consecutive failures)`);
+      console.info(`[Live] backoff ${delayMs/1000}s (${_liveFailCount} consecutive failures)`);
     }
-    _liveTimer = setTimeout(tick, delaySec * 1000);
+    _liveTimer = setTimeout(tick, delayMs);
   }
 
   // Resume immediately when the tab becomes visible again (register once only)
