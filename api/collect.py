@@ -731,8 +731,12 @@ def _do_autofill(days: int, dry_run: bool) -> tuple[int, dict]:
         except Exception as e:
             print(f"[autofill] battery_stats refresh failed (non-fatal): {e}")
 
+    filled_str = ", ".join(filled_dates) if filled_dates else "none"
     return 200, {
         "ok":              True,
+        "cron_summary":    (f"filled {len(filled_dates)} date(s): {filled_str}"
+                            if filled_dates else
+                            f"checked {len(results)} day(s) — no gaps found"),
         "dry_run":         dry_run,
         "days_checked":    len(results),
         "filled":          filled_dates,
@@ -924,7 +928,7 @@ class handler(BaseHTTPRequestHandler):
                                error=resp.get("error") if status != 200 else None)
             except Exception as e:
                 print(f"[autofill] error: {e}")
-                status, resp = 500, {"ok": False, "error": str(e)}
+                status, resp = 500, {"ok": False, "cron_summary": f"EXCEPTION: {e}", "error": str(e)}
                 record_run("collect_autofill", ok=False, error=str(e))
             self._send(resp, status=status)
             return

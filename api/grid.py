@@ -172,14 +172,16 @@ def _do_fetch() -> dict:
     """Fetch from eSett → aggregate → upsert to Supabase."""
     raw   = _fetch_esett(days=9)
     if not raw:
-        return {"ok": False, "error": "eSett returned no data"}
+        return {"ok": False, "cron_summary": "FAILED: eSett returned no data", "error": "eSett returned no data"}
     hourly = _aggregate_to_hourly(raw)
     written = _upsert_grid(hourly)
     # Invalidate in-process cache so next GET re-reads fresh data
     _CACHE["data"] = None
     _CACHE["ts"]   = 0.0
     print(f"[grid] fetch OK — {len(raw)} raw rows → {written} hourly rows upserted")
-    return {"ok": True, "raw_rows": len(raw), "hourly_rows": written}
+    return {"ok": True,
+            "cron_summary": f"upserted {written} hourly rows ({len(raw)} raw from eSett)",
+            "raw_rows": len(raw), "hourly_rows": written}
 
 
 def _do_serve(days: int) -> list[dict]:

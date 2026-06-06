@@ -68,16 +68,18 @@ class handler(BaseHTTPRequestHandler):
             prices = _fetch_prices(date_str, area)
             if not prices:
                 record_run("save_prices", ok=False, error="no prices returned")
-                self._send({"ok": False, "error": "no prices returned"}, 404)
+                self._send({"ok": False, "cron_summary": f"FAILED: no prices returned for {date_str}",
+                            "error": "no prices returned"}, 404)
                 return
             _upsert_prices(prices, area)
             record_run("save_prices", ok=True)
-            self._send({"ok": True, "date": date_str, "area": area,
-                        "slots": len(prices)})
+            self._send({"ok": True,
+                        "cron_summary": f"saved {len(prices)} slots for {date_str} ({area})",
+                        "date": date_str, "area": area, "slots": len(prices)})
         except Exception as e:
             print(f"[save_prices] {date_str}: {e}")
             record_run("save_prices", ok=False, error=str(e))
-            self._send({"ok": False, "error": str(e)}, 500)
+            self._send({"ok": False, "cron_summary": f"EXCEPTION: {e}", "error": str(e)}, 500)
 
     def _send(self, data, status=200):
         body = json.dumps(data).encode()

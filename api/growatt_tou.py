@@ -1661,7 +1661,7 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if action == "build_suggest":
-            # Vercel crons send GET — build TOU suggestion.
+            # cron-job.org sends GET — build TOU suggestion for tomorrow.
             # Optional ?date=YYYY-MM-DD overrides the default (tomorrow UTC).
             try:
                 date_param = params.get("date", "")
@@ -1669,13 +1669,36 @@ class handler(BaseHTTPRequestHandler):
                     for_date = date.fromisoformat(date_param)
                 else:
                     for_date = date.today() + timedelta(days=1)
+                # Skip if a fresh suggestion already exists (idempotent)
+                if _suggestion_is_fresh(for_date):
+                    print(f"[tou build_suggest] suggestion for {for_date} already fresh — skipping")
+                    self._send({"ok": True, "cron_summary": f"skipped — fresh suggestion already exists for {for_date}",
+                                "skipped": True, "for_date": for_date.isoformat()})
+                    return
                 result = _build_suggestion(for_date)
                 if result.get("ok"):
                     _save_suggestion(result)
-                self._send(result)
+                _record_health("tou_suggest", ok=bool(result.get("ok")),
+                               error=result.get("error"))
+                # Return a slimmed response — full segments/reasoning bloat the
+                # cron-job.org preview making failures hard to spot.
+                segs = result.get("segments") or []
+                self._send({
+                    "ok":           result.get("ok"),
+                    "cron_summary": (f"built {len(segs)} segment(s) for {for_date}"
+                                     if result.get("ok")
+                                     else f"FAILED: {result.get('error')}"),
+                    "for_date":     result.get("for_date"),
+                    "segments":     segs,
+                    "discharge_pct": result.get("discharge_pct"),
+                    "soc_floor_pct": result.get("soc_floor_pct"),
+                    "reasoning":    (result.get("reasoning") or "")[:300],
+                    "error":        result.get("error"),
+                }, 200 if result.get("ok") else 502)
             except Exception as e:
                 print(f"[growatt_tou build_suggest GET] {e}")
-                self._send({"ok": False, "error": str(e)}, 500)
+                _record_health("tou_suggest", ok=False, error=str(e))
+                self._send({"ok": False, "cron_summary": f"EXCEPTION: {e}", "error": str(e)}, 500)
             return
 
         if action == "notify_reset":
