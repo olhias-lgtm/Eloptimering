@@ -1561,6 +1561,7 @@ let state = {
   solarForecastTs:          null,   // timestamp of last successful solar forecast fetch
   intradayForecastSolarKwh: null,   // full-day solar forecast kWh (set after buildIntradayForecast)
   currentDate:       todayStr(),
+  dayType:           null,   // getDayType() result for currentDate — { type, label, badge, holidayName, isWeekend }
   charts:       {},
   hiddenPowerDs: new Set(), // dataset keys hidden by the user (persists across re-renders)
 };
@@ -2085,6 +2086,105 @@ function renderKPIs(rows, priceMap, c, dateStr) {
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Day-type engine — weekday / weekend / Swedish public holiday
+// ---------------------------------------------------------------------------
+
+// Anonymous Gregorian algorithm — returns [month(1-12), day] of Easter Sunday
+function _easterDate(year) {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day   = ((h + l - 7 * m + 114) % 31) + 1;
+  return [month, day];
+}
+
+// Return a Map<dateStr, holidayName> for all Swedish public + cultural holidays in year
+function getSwedishHolidays(year) {
+  const h = new Map();
+  const add = (m, d, name) => {
+    const key = `${year}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    h.set(key, name);
+  };
+  const addOffset = (base, offsetDays, name) => {
+    const d = new Date(base.getTime() + offsetDays * 86400000);
+    add(d.getMonth() + 1, d.getDate(), name);
+  };
+
+  // Fixed holidays
+  add(1,  1,  'Nyårsdagen');
+  add(1,  6,  'Trettondag jul');
+  add(5,  1,  'Första maj');
+  add(6,  6,  'Nationaldagen');
+  add(12, 24, 'Julafton');
+  add(12, 25, 'Juldagen');
+  add(12, 26, 'Annandag jul');
+  add(12, 31, 'Nyårsafton');
+
+  // Easter-based
+  const [em, ed] = _easterDate(year);
+  const easter   = new Date(year, em - 1, ed);
+  addOffset(easter, -2, 'Långfredag');
+  addOffset(easter,  0, 'Påskdagen');
+  addOffset(easter,  1, 'Annandag påsk');
+  addOffset(easter, 39, 'Kristi himmelsfärdsdag');
+  addOffset(easter, 49, 'Pingstdagen');
+
+  // Midsummer Eve = Friday on or before Jun 25
+  // Midsummer Day = Saturday between Jun 20–26
+  for (let d = 19; d <= 25; d++) {
+    const dt = new Date(year, 5, d); // June
+    if (dt.getDay() === 6) { add(6, d, 'Midsommardagen'); add(6, d - 1, 'Midsommarafton'); break; }
+  }
+
+  // All Saints' Day = Saturday between Oct 31 – Nov 6
+  for (let d = 31; d <= 37; d++) {
+    const m = d > 31 ? 11 : 10, day = d > 31 ? d - 31 : d;
+    const dt = new Date(year, m - 1, day);
+    if (dt.getDay() === 6) { add(m, day, 'Alla helgons dag'); break; }
+  }
+
+  return h;
+}
+
+// Cache holidays per year (recomputed at most once per year in a session)
+const _holidayCache = {};
+function _holidays(year) {
+  if (!_holidayCache[year]) _holidayCache[year] = getSwedishHolidays(year);
+  return _holidayCache[year];
+}
+
+/**
+ * getDayType(dateStr) → { type, label, badge, holidayName }
+ *   type:        'holiday' | 'weekend' | 'weekday'
+ *   label:       Swedish display string e.g. 'Helgdag', 'Lördag', 'Måndag'
+ *   badge:       short chip text e.g. '🎉 Helgdag', '🛋 Helg', '💼 Vardag'
+ *   holidayName: e.g. 'Juldagen' or null
+ *   isWeekend:   true for Sat/Sun (regardless of holiday status)
+ */
+function getDayType(dateStr) {
+  const dt   = new Date(dateStr + 'T12:00:00');  // noon avoids DST edge cases
+  const year = dt.getFullYear();
+  const dow  = dt.getDay(); // 0=Sun, 6=Sat
+  const DAY_NAMES = ['Söndag','Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag'];
+  const holidayName = _holidays(year).get(dateStr) || null;
+  const isWeekend   = dow === 0 || dow === 6;
+
+  if (holidayName) {
+    return { type: 'holiday', label: holidayName, badge: `🎉 ${holidayName}`, holidayName, isWeekend };
+  }
+  if (isWeekend) {
+    return { type: 'weekend', label: DAY_NAMES[dow], badge: '🛋️ Helg', holidayName: null, isWeekend: true };
+  }
+  return { type: 'weekday', label: DAY_NAMES[dow], badge: '💼 Vardag', holidayName: null, isWeekend: false };
+}
+
+// ---------------------------------------------------------------------------
 // Appliance recommendation engine
 // ---------------------------------------------------------------------------
 const APPLIANCES = [
@@ -2134,11 +2234,21 @@ function renderApplianceCard(priceMap, c, dateStr) {
 
   const today = todayStr();
   const isTomorrow = dateStr > today;
+  const dayType = getDayType(dateStr);
+
   const labelEl = document.getElementById('appliance-date-label');
   if (labelEl) {
-    if (dateStr === today) labelEl.textContent = 'idag';
-    else if (isTomorrow)  labelEl.textContent = 'imorgon';
-    else                  labelEl.textContent = dateStr;
+    const dateLabel = dateStr === today ? 'idag' : isTomorrow ? 'imorgon' : dateStr;
+    // Badge colour by type
+    const badgeColor = dayType.type === 'holiday' ? 'rgba(251,146,60,0.15)' :
+                       dayType.type === 'weekend'  ? 'rgba(96,165,250,0.12)' :
+                                                     'rgba(148,163,184,0.12)';
+    const textColor  = dayType.type === 'holiday' ? '#fb923c' :
+                       dayType.type === 'weekend'  ? '#60a5fa' : 'var(--text-muted)';
+    labelEl.innerHTML =
+      `<span style="font-size:0.7rem;color:var(--text-muted);margin-right:6px">${dateLabel}</span>`
+      + `<span style="font-size:0.7rem;font-weight:600;padding:2px 7px;border-radius:999px;`
+      + `background:${badgeColor};color:${textColor}">${dayType.badge}</span>`;
   }
 
   let html = '';
@@ -3620,6 +3730,7 @@ function showEnergyError(msg) {
 // ---------------------------------------------------------------------------
 function loadDate(dateStr) {
   state.currentDate = dateStr;
+  state.dayType     = getDayType(dateStr);
   document.getElementById('date-input').value = dateStr;
   _syncLiveVisibility();
   document.getElementById('forecast-notice').style.display = 'none';
