@@ -860,7 +860,7 @@
 </div>
 
 <div class="weather-strip" id="weather-strip">
-  <span style="color:var(--dim);font-size:10px">Loading weather…</span>
+  <span style="color:var(--dim);font-size:10px">Laddar väder…</span>
 </div>
 
 <div id="tab-bar">
@@ -1001,7 +1001,7 @@
 
       <!-- ── SOLAR NODE (top-centre) ── -->
       <circle cx="280" cy="44" r="36" class="flow-node-circle" stroke="#f59e0b"/>
-      <text x="280" y="36" class="flow-node-label" fill="#f59e0b">Solar</text>
+      <text x="280" y="36" class="flow-node-label" fill="#f59e0b">Sol</text>
       <text x="280" y="51" class="flow-node-value" id="fn-solar" fill="#f59e0b">—</text>
       <text x="280" y="65" class="flow-node-unit" fill="#f59e0b">kW</text>
 
@@ -1016,7 +1016,7 @@
 
       <!-- ── GRID NODE (left) ── -->
       <circle cx="76" cy="130" r="36" class="flow-node-circle" id="fn-grid-circle" stroke="#64748b"/>
-      <text x="76" y="122" class="flow-node-label">Grid</text>
+      <text x="76" y="122" class="flow-node-label">Elnät</text>
       <text x="76" y="135" class="flow-node-value" id="fn-grid">—</text>
       <text x="76" y="150" class="flow-node-unit">kW</text>
 
@@ -1035,7 +1035,7 @@
 
       <!-- ── LOAD NODE (bottom-centre) ── -->
       <circle cx="280" cy="216" r="36" class="flow-node-circle" stroke="#60a5fa"/>
-      <text x="280" y="208" class="flow-node-label" fill="#60a5fa">Load</text>
+      <text x="280" y="208" class="flow-node-label" fill="#60a5fa">Last</text>
       <text x="280" y="222" class="flow-node-value" id="fn-load" fill="#60a5fa">—</text>
       <text x="280" y="237" class="flow-node-unit" fill="#60a5fa">kW</text>
     </svg>
@@ -1044,12 +1044,12 @@
   <!-- Mobile live grid (shown instead of SVG on small screens) -->
   <div class="live-mobile-grid" id="live-mobile-grid">
     <div class="lm-tile" style="--accent:#f59e0b">
-      <div class="lm-label">☀ Solar</div>
+      <div class="lm-label">☀ Sol</div>
       <div class="lm-value" id="lm-solar">—</div>
       <div class="lm-unit">kW</div>
     </div>
     <div class="lm-tile" style="--accent:#60a5fa">
-      <div class="lm-label">🏠 Load</div>
+      <div class="lm-label">🏠 Last</div>
       <div class="lm-value" id="lm-load">—</div>
       <div class="lm-unit">kW</div>
     </div>
@@ -1059,7 +1059,7 @@
       <div class="lm-unit">kW</div>
     </div>
     <div class="lm-tile" style="--accent:#a78bfa">
-      <div class="lm-label">🔋 Battery</div>
+      <div class="lm-label">🔋 Batteri</div>
       <div class="lm-value" id="lm-batt">—</div>
       <div class="lm-unit" id="lm-batt-unit">kW</div>
       <div class="lm-sub" id="lm-soc">—%</div>
@@ -1116,7 +1116,7 @@
 
   <!-- Mini live strip — shown when viewing a past date so the full flow diagram is hidden -->
   <div class="tab-live-mini" id="mini-live-nu" style="display:none">
-    <span class="tlm-chip"><span class="tlm-chip-icon">☀️</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-solar">—</b></span><span class="tlm-chip-lbl">Solar</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">☀️</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-solar">—</b></span><span class="tlm-chip-lbl">Sol</span></span></span>
     <span class="tlm-chip"><span class="tlm-chip-icon">🔋</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-soc">—</b></span><span class="tlm-chip-lbl">Batteri SoC</span></span></span>
     <span class="tlm-chip"><span class="tlm-chip-icon">🔌</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-batt">—</b></span><span class="tlm-chip-lbl">Batteri kW</span></span></span>
     <span class="tlm-chip"><span class="tlm-chip-icon">💰</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-price">—</b></span><span class="tlm-chip-lbl">Spotpris</span></span></span>
@@ -1126,24 +1126,24 @@
   <!-- KPI row 1: energy -->
   <div class="kpi-row">
     <div class="kpi solar">
-      <div class="kpi-label">Solar</div>
+      <div class="kpi-label">Sol</div>
       <div class="kpi-value" id="kpi-solar">—</div>
-      <div class="kpi-sub">kWh produced</div>
+      <div class="kpi-sub">kWh producerat</div>
     </div>
     <div class="kpi load">
-      <div class="kpi-label">Load</div>
+      <div class="kpi-label">Last</div>
       <div class="kpi-value" id="kpi-load">—</div>
-      <div class="kpi-sub">kWh consumed</div>
+      <div class="kpi-sub">kWh förbrukat</div>
     </div>
     <div class="kpi import">
       <div class="kpi-label">Import</div>
       <div class="kpi-value" id="kpi-import">—</div>
-      <div class="kpi-sub">kWh from grid</div>
+      <div class="kpi-sub">kWh från elnät</div>
     </div>
     <div class="kpi export">
       <div class="kpi-label">Export</div>
       <div class="kpi-value" id="kpi-export">—</div>
-      <div class="kpi-sub">kWh to grid</div>
+      <div class="kpi-sub">kWh till elnät</div>
     </div>
     <div class="kpi">
       <div class="kpi-label">Urladdning</div>
@@ -1223,11 +1223,11 @@
       <canvas id="power-chart"></canvas>
     </div>
     <div class="legend" id="power-legend">
-      <div class="legend-item" data-ds="solar"><div class="legend-dot" style="background:var(--solar)"></div>Solar</div>
-      <div class="legend-item" data-ds="load"><div class="legend-dot" style="background:var(--load)"></div>Load</div>
+      <div class="legend-item" data-ds="solar"><div class="legend-dot" style="background:var(--solar)"></div>Sol</div>
+      <div class="legend-item" data-ds="load"><div class="legend-dot" style="background:var(--load)"></div>Last</div>
       <div class="legend-item" data-ds="import"><div class="legend-dot" style="background:var(--import)"></div>Import</div>
       <div class="legend-item" data-ds="export"><div class="legend-dot" style="background:var(--export)"></div>Export</div>
-      <div class="legend-item" data-ds="battery"><div class="legend-dot" style="background:var(--battery)"></div>Battery net</div>
+      <div class="legend-item" data-ds="battery"><div class="legend-dot" style="background:var(--battery)"></div>Batteri</div>
       <div class="legend-item" data-ds="soc"><div class="legend-dot" style="background:rgba(167,139,250,0.7);border:1px dashed rgba(167,139,250,0.7);box-sizing:border-box"></div>SoC %</div>
       <button class="legend-show-all" id="power-legend-show-all" style="display:none">Visa alla</button>
     </div>
@@ -1256,7 +1256,7 @@
   <div id="tab-panel-dag" style="display:none">
 
   <div class="tab-live-mini" id="mini-live-dag">
-    <span class="tlm-chip"><span class="tlm-chip-icon">☀️</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-dag-solar">—</b></span><span class="tlm-chip-lbl">Solar</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">☀️</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-dag-solar">—</b></span><span class="tlm-chip-lbl">Sol</span></span></span>
     <span class="tlm-chip"><span class="tlm-chip-icon">🔋</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-dag-soc">—</b></span><span class="tlm-chip-lbl">Batteri SoC</span></span></span>
     <span class="tlm-chip"><span class="tlm-chip-icon">🔌</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-dag-batt">—</b></span><span class="tlm-chip-lbl">Batteri kW</span></span></span>
     <span class="tlm-chip"><span class="tlm-chip-icon">💰</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-dag-price">—</b></span><span class="tlm-chip-lbl">Spotpris</span></span></span>
@@ -1268,8 +1268,8 @@
     <div class="card">
       <div class="card-title">Spotpris idag</div>
       <div class="legend" style="margin-bottom:8px">
-        <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>Spot incl. moms</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#22c55e;border:1px dashed #22c55e;box-sizing:border-box"></div>Spot excl. moms</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>Spot inkl. moms</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#22c55e;border:1px dashed #22c55e;box-sizing:border-box"></div>Spot exkl. moms</div>
       </div>
       <div class="chart-wrap">
         <canvas id="price-chart"></canvas>
@@ -1291,8 +1291,8 @@
     <div class="card" id="tomorrow-price-card" style="display:none">
       <div class="card-title">Spotpris imorgon</div>
       <div class="legend" style="margin-bottom:8px">
-        <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>Spot incl. moms</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#22c55e;border:1px dashed #22c55e;box-sizing:border-box"></div>Spot excl. moms</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>Spot inkl. moms</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#22c55e;border:1px dashed #22c55e;box-sizing:border-box"></div>Spot exkl. moms</div>
       </div>
       <div class="chart-wrap">
         <canvas id="tomorrow-price-chart"></canvas>
@@ -1395,7 +1395,7 @@
     </summary>
     <div style="background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 4px 4px;padding:14px 16px">
       <div id="breakdown-wrap">
-        <div class="loading"><div class="spinner"></div><span>Loading…</span></div>
+        <div class="loading"><div class="spinner"></div><span>Laddar…</span></div>
       </div>
     </div>
   </details>
@@ -1406,7 +1406,7 @@
   <div id="tab-panel-trender" style="display:none">
 
   <div class="tab-live-mini" id="mini-live-trender">
-    <span class="tlm-chip"><span class="tlm-chip-icon">☀️</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-trnd-solar">—</b></span><span class="tlm-chip-lbl">Solar</span></span></span>
+    <span class="tlm-chip"><span class="tlm-chip-icon">☀️</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-trnd-solar">—</b></span><span class="tlm-chip-lbl">Sol</span></span></span>
     <span class="tlm-chip"><span class="tlm-chip-icon">🔋</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-trnd-soc">—</b></span><span class="tlm-chip-lbl">Batteri SoC</span></span></span>
     <span class="tlm-chip"><span class="tlm-chip-icon">🔌</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-trnd-batt">—</b></span><span class="tlm-chip-lbl">Batteri kW</span></span></span>
     <span class="tlm-chip"><span class="tlm-chip-icon">💰</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-trnd-price">—</b></span><span class="tlm-chip-lbl">Spotpris</span></span></span>
@@ -2175,8 +2175,8 @@ function renderPowerChart(rows, isForecast, forecastOverlay) {
   }
 
   const datasets = [
-    { label:`Solar${fSuffix}`,  data: actualByTime('solar_kw'),  borderColor:C.solar,   backgroundColor:'rgba(245,158,11,0.08)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:fDash },
-    { label:`Load${fSuffix}`,   data: actualByTime('load_kw'),   borderColor:C.load,    backgroundColor:'rgba(96,165,250,0.08)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:fDash },
+    { label:`Sol${fSuffix}`,  data: actualByTime('solar_kw'),  borderColor:C.solar,   backgroundColor:'rgba(245,158,11,0.08)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:fDash },
+    { label:`Last${fSuffix}`,   data: actualByTime('load_kw'),   borderColor:C.load,    backgroundColor:'rgba(96,165,250,0.08)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:`Import${fSuffix}`, data: actualByTime('import_kw'), borderColor:C.imp,     backgroundColor:'rgba(239,68,68,0.06)',  tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:`Export${fSuffix}`, data: actualByTime('export_kw'), borderColor:C.exp,     backgroundColor:'rgba(34,197,94,0.06)',  tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:`Urladdning${fSuffix}`, data: actualByTime('discharge_kw'), borderColor:C.battery,              backgroundColor:'rgba(167,139,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
@@ -2188,8 +2188,8 @@ function renderPowerChart(rows, isForecast, forecastOverlay) {
   // Intraday forecast overlay datasets (dashed, lower opacity)
   if (forecastOverlay && forecastOverlay.length > 0) {
     datasets.push(
-      { label:'Solar (prognos)',  data: overlayByTime('solar_kw'),  borderColor:'rgba(245,158,11,0.6)',   backgroundColor:'rgba(245,158,11,0.04)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
-      { label:'Load (prognos)',   data: overlayByTime('load_kw'),   borderColor:'rgba(96,165,250,0.6)',   backgroundColor:'rgba(96,165,250,0.04)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
+      { label:'Sol (prognos)',  data: overlayByTime('solar_kw'),  borderColor:'rgba(245,158,11,0.6)',   backgroundColor:'rgba(245,158,11,0.04)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
+      { label:'Last (prognos)',   data: overlayByTime('load_kw'),   borderColor:'rgba(96,165,250,0.6)',   backgroundColor:'rgba(96,165,250,0.04)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
       { label:'Import (prognos)', data: overlayByTime('import_kw'), borderColor:'rgba(239,68,68,0.55)',   backgroundColor:'transparent',           tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
       { label:'Export (prognos)',     data: overlayByTime('export_kw'),    borderColor:'rgba(34,197,94,0.55)',   backgroundColor:'transparent', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
       { label:'Urladdning (prognos)', data: overlayByTime('discharge_kw'), borderColor:'rgba(167,139,250,0.55)', backgroundColor:'transparent', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
@@ -2237,8 +2237,8 @@ function renderPowerChart(rows, isForecast, forecastOverlay) {
 
 // Map legend data-ds key → label prefix(es) in the power chart datasets
 const _POWER_DS_KEYS = {
-  solar:   ['Solar'],
-  load:    ['Load'],
+  solar:   ['Sol'],
+  load:    ['Last'],
   import:  ['Import'],
   export:  ['Export'],
   battery: ['Urladdning', 'Laddning'],
@@ -2340,19 +2340,19 @@ function renderPowerPriceChart(rows, priceMap, isForecast, forecastOverlay) {
   });
 
   const datasets = [
-    { label:`Solar${fSuffix}`,     data: actualByTime('solar_kw'),     borderColor:C.solar,   backgroundColor:'rgba(245,158,11,0.08)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:fDash },
-    { label:`Load${fSuffix}`,      data: actualByTime('load_kw'),      borderColor:C.load,    backgroundColor:'rgba(96,165,250,0.08)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:fDash },
+    { label:`Sol${fSuffix}`,     data: actualByTime('solar_kw'),     borderColor:C.solar,   backgroundColor:'rgba(245,158,11,0.08)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:fDash },
+    { label:`Last${fSuffix}`,      data: actualByTime('load_kw'),      borderColor:C.load,    backgroundColor:'rgba(96,165,250,0.08)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:`Import${fSuffix}`,    data: actualByTime('import_kw'),    borderColor:C.imp,     backgroundColor:'rgba(239,68,68,0.06)',  tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:`Export${fSuffix}`,    data: actualByTime('export_kw'),    borderColor:C.exp,     backgroundColor:'rgba(34,197,94,0.06)',  tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:`Urladdning${fSuffix}`,data: actualByTime('discharge_kw'), borderColor:C.battery, backgroundColor:'rgba(167,139,250,0.06)',tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
     { label:`Laddning${fSuffix}`,  data: actualByTime('charge_kw'),    borderColor:'rgba(96,205,250,0.9)', backgroundColor:'rgba(96,205,250,0.06)', tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:fDash },
-    { label:'Spot excl. moms (öre/kWh)', data: priceData, borderColor:'#e879f9', backgroundColor:'transparent', stepped:'before', fill:false, pointRadius:0, borderWidth:1.5, yAxisID:'y2', spanGaps:true },
+    { label:'Spot exkl. moms (öre/kWh)', data: priceData, borderColor:'#e879f9', backgroundColor:'transparent', stepped:'before', fill:false, pointRadius:0, borderWidth:1.5, yAxisID:'y2', spanGaps:true },
   ];
 
   if (forecastOverlay && forecastOverlay.length > 0) {
     datasets.push(
-      { label:'Solar (prognos)',      data: overlayByTime('solar_kw'),     borderColor:'rgba(245,158,11,0.6)',   backgroundColor:'rgba(245,158,11,0.04)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
-      { label:'Load (prognos)',       data: overlayByTime('load_kw'),      borderColor:'rgba(96,165,250,0.6)',   backgroundColor:'rgba(96,165,250,0.04)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
+      { label:'Sol (prognos)',      data: overlayByTime('solar_kw'),     borderColor:'rgba(245,158,11,0.6)',   backgroundColor:'rgba(245,158,11,0.04)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
+      { label:'Last (prognos)',       data: overlayByTime('load_kw'),      borderColor:'rgba(96,165,250,0.6)',   backgroundColor:'rgba(96,165,250,0.04)', tension:0.3, fill:true,  pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
       { label:'Import (prognos)',     data: overlayByTime('import_kw'),    borderColor:'rgba(239,68,68,0.55)',   backgroundColor:'transparent',           tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
       { label:'Export (prognos)',     data: overlayByTime('export_kw'),    borderColor:'rgba(34,197,94,0.55)',   backgroundColor:'transparent',           tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
       { label:'Urladdning (prognos)',data: overlayByTime('discharge_kw'), borderColor:'rgba(167,139,250,0.55)', backgroundColor:'transparent',           tension:0.3, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[5,4] },
@@ -2393,8 +2393,8 @@ function renderPriceChart(priceMap, rows, tomorrowMap, isTomorrow) {
   const hours       = Array.from({length:24}, (_,h) => `${String(h).padStart(2,'0')}:00`).filter(t => sourceMap[t] != null);
 
   const datasets = [
-    { label:'Spot incl. moms', data: hours.map(t => Math.round(sourceMap[t] * c.moms)), borderColor:priceColor, backgroundColor:'rgba(251,146,60,0.08)', stepped:true, fill:true,  pointRadius:0, borderWidth:1.5 },
-    { label:'Spot excl. moms', data: hours.map(t => Math.round(sourceMap[t])),          borderColor:exportColor, backgroundColor:'rgba(34,197,94,0.05)',  stepped:true, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[3,3] },
+    { label:'Spot inkl. moms', data: hours.map(t => Math.round(sourceMap[t] * c.moms)), borderColor:priceColor, backgroundColor:'rgba(251,146,60,0.08)', stepped:true, fill:true,  pointRadius:0, borderWidth:1.5 },
+    { label:'Spot exkl. moms', data: hours.map(t => Math.round(sourceMap[t])),          borderColor:exportColor, backgroundColor:'rgba(34,197,94,0.05)',  stepped:true, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[3,3] },
   ];
 
   const opts = chartOpts('öre/kWh', false);
@@ -2527,8 +2527,8 @@ function renderTomorrowPriceChart(tomorrowMap) {
   const hours = Array.from({length:24}, (_,h) => `${String(h).padStart(2,'0')}:00`).filter(t => tomorrowMap[t] != null);
 
   const datasets = [
-    { label:'Spot incl. moms', data: hours.map(t => Math.round(tomorrowMap[t] * c.moms)), borderColor:priceColor, backgroundColor:'rgba(251,146,60,0.08)', stepped:true, fill:true,  pointRadius:0, borderWidth:1.5 },
-    { label:'Spot excl. moms', data: hours.map(t => Math.round(tomorrowMap[t])),          borderColor:exportColor, backgroundColor:'rgba(34,197,94,0.05)',  stepped:true, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[3,3] },
+    { label:'Spot inkl. moms', data: hours.map(t => Math.round(tomorrowMap[t] * c.moms)), borderColor:priceColor, backgroundColor:'rgba(251,146,60,0.08)', stepped:true, fill:true,  pointRadius:0, borderWidth:1.5 },
+    { label:'Spot exkl. moms', data: hours.map(t => Math.round(tomorrowMap[t])),          borderColor:exportColor, backgroundColor:'rgba(34,197,94,0.05)',  stepped:true, fill:false, pointRadius:0, borderWidth:1.5, borderDash:[3,3] },
   ];
 
   const opts = chartOpts('öre/kWh', false);
@@ -3247,7 +3247,7 @@ async function refresh() {
   const today   = todayStr();
   const btn = document.getElementById('refresh-btn');
   btn.disabled = true;
-  btn.textContent = '↻ Loading…';
+  btn.textContent = '↻ Laddar…';
 
   // Compute tomorrow's date string
   const tmrDate = new Date(today);
