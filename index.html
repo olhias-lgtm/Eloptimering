@@ -1401,6 +1401,14 @@
     </div>
   </details>
 
+  <div id="appliance-card" style="display:none;margin-bottom:14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+    <div style="padding:10px 14px 8px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)">
+      <span style="font-size:0.85rem;font-weight:600">🏠 Bästa tid att köra hushållsapparater</span>
+      <span id="appliance-date-label" style="margin-left:auto;font-size:0.7rem;color:var(--text-muted)"></span>
+    </div>
+    <div id="appliance-rows"></div>
+  </div>
+
   </div><!-- /tab-panel-dag -->
 
   <!-- ═══════ TAB: Trender ═══════ -->
@@ -2027,6 +2035,104 @@ function renderKPIs(rows, priceMap, c, dateStr) {
   };
 
   return { totalCost, totalEarn, net, fixedDay, hasPrices };
+}
+
+// ---------------------------------------------------------------------------
+// Appliance recommendation engine
+// ---------------------------------------------------------------------------
+const APPLIANCES = [
+  { id: 'dishwasher',  name: 'Diskmaskin',      icon: '🍽️', kwh: 1.2, hours: 3.5  },
+  { id: 'washer',      name: 'Tvättmaskin',      icon: '👕', kwh: 0.8, hours: 3.0  },
+  { id: 'tumble',      name: 'Torktumlare',      icon: '🌀', kwh: 2.5, hours: 1.0  },
+  { id: 'oven',        name: 'Ugn',              icon: '🔥', kwh: 1.5, hours: 1.0  },
+  { id: 'ev',          name: 'Elbilsladdning',   icon: '🚗', kwh: 7.0, hours: 4.0  },
+  { id: 'vacuum',      name: 'Dammsugare',       icon: '🧹', kwh: 0.3, hours: 0.5  },
+];
+
+function renderApplianceCard(priceMap, c, dateStr) {
+  const card = document.getElementById('appliance-card');
+  if (!card) return;
+
+  // Build hourly price array [0..23] in öre/kWh
+  const hourlyPrices = [];
+  for (let h = 0; h < 24; h++) {
+    const key = `${String(h).padStart(2,'0')}:00`;
+    const p = priceMap[key];
+    if (p != null) hourlyPrices.push({ h, p });
+  }
+  if (hourlyPrices.length < 12) { card.style.display = 'none'; return; }
+
+  // Full consumer price: (spot öre/kWh + nätavgift + energiskatt + påslag) × moms → kr/kWh
+  function consumerKrKwh(oreKwh) {
+    return (oreKwh / 100 + c.nätavgift + c.energiskatt + c.fortumPåslag) * c.moms;
+  }
+
+  // Find cheapest & most expensive consecutive window of `hours` duration
+  function bestWindow(hours) {
+    const slots = Math.max(1, Math.round(hours));  // 1-hour granularity
+    let best = null, worst = null;
+    for (let start = 0; start <= 24 - slots; start++) {
+      let sum = 0, count = 0;
+      for (let i = start; i < start + slots; i++) {
+        const entry = hourlyPrices.find(e => e.h === i);
+        if (entry) { sum += entry.p; count++; }
+      }
+      if (count < slots) continue;
+      const avg = sum / count;
+      if (best  === null || avg < best.avg)  best  = { start, avg };
+      if (worst === null || avg > worst.avg) worst = { start, avg };
+    }
+    return { best, worst };
+  }
+
+  const today = todayStr();
+  const isTomorrow = dateStr > today;
+  const labelEl = document.getElementById('appliance-date-label');
+  if (labelEl) {
+    if (dateStr === today) labelEl.textContent = 'idag';
+    else if (isTomorrow)  labelEl.textContent = 'imorgon';
+    else                  labelEl.textContent = dateStr;
+  }
+
+  let html = '';
+  APPLIANCES.forEach((app, idx) => {
+    const { best, worst } = bestWindow(app.hours);
+    if (!best) return;
+
+    const slots     = Math.max(1, Math.round(app.hours));
+    const endH      = best.start + slots;
+    const startFmt  = `${String(best.start).padStart(2,'0')}:00`;
+    const endFmt    = `${String(endH % 24).padStart(2,'0')}:00`;
+    const costKr    = consumerKrKwh(best.avg) * app.kwh;
+    const costWorst = consumerKrKwh(worst.avg) * app.kwh;
+    const savings   = costWorst - costKr;
+
+    const isLast = idx === APPLIANCES.length - 1;
+    const borderBottom = isLast ? '' : 'border-bottom:1px solid var(--border);';
+
+    // Colour the time slot based on price quartile
+    const prices = hourlyPrices.map(e => e.p);
+    const pMin = Math.min(...prices), pMax = Math.max(...prices);
+    const pRange = pMax - pMin || 1;
+    const ratio = (best.avg - pMin) / pRange;  // 0=cheapest, 1=most expensive
+    const timeFg = ratio < 0.33 ? '#22c55e' : ratio < 0.66 ? '#f59e0b' : '#ef4444';
+
+    html += `
+    <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;${borderBottom}">
+      <span style="font-size:1.1rem;flex:0 0 auto">${app.icon}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:0.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${app.name}</div>
+        <div style="font-size:0.7rem;color:var(--text-muted)">${app.kwh} kWh · ${app.hours < 1 ? Math.round(app.hours*60)+'min' : app.hours % 1 === 0 ? app.hours+'h' : Math.floor(app.hours)+'h '+Math.round((app.hours%1)*60)+'min'}</div>
+      </div>
+      <div style="text-align:right;flex:0 0 auto">
+        <div style="font-size:0.85rem;font-weight:700;color:${timeFg}">${startFmt}–${endFmt}</div>
+        <div style="font-size:0.72rem;color:var(--text-muted)">~${costKr.toFixed(2)} kr${savings > 0.10 ? ` · <span style="color:#34d399">spara ${savings.toFixed(2)} kr</span>` : ''}</div>
+      </div>
+    </div>`;
+  });
+
+  document.getElementById('appliance-rows').innerHTML = html;
+  card.style.display = '';
 }
 
 function renderBreakdown(rows, priceMap, c, dateStr) {
@@ -3347,6 +3453,7 @@ async function refresh() {
 
     renderKPIs(energyRaw, activePriceMap, c, calcDateStr);
     renderBreakdown(energyRaw, activePriceMap, c, calcDateStr);
+    renderApplianceCard(activePriceMap, c, calcDateStr);
 
     // Intraday forecast overlay when viewing today (non-blocking)
     let intradayOverlay = null;
