@@ -77,6 +77,12 @@ STORM_SOC_FLOOR    = 0.40   # raise battery floor to 40 % during storm watch
 # Adaptive SoC floor (Gap 4) — scale floor based on tomorrow's expected solar harvest
 # Thresholds are estimated kWh for D+1 (12 kWp system, Stockholm).
 # Each tuple: (min_kwh_threshold, floor_fraction)  — first matching threshold wins.
+# Battery degradation cost (Gap 6) — cost per kWh cycled through the battery.
+# Formula: battery_replacement_cost / (expected_cycles × usable_kwh_per_cycle)
+# 80 000 kr / (6 000 cycles × 20 kWh) ≈ 0.067 kr/kWh
+# The LP will not schedule a cycle unless the price spread exceeds this cost.
+DEGRADATION_KR_KWH = 0.067
+
 ADAPTIVE_SOC_THRESHOLDS = [
     (15.0, 0.10),   # good solar day  → floor 10 % (battery will recharge fully)
     ( 8.0, 0.15),   # moderate solar  → floor 15 %
@@ -588,20 +594,19 @@ def _fetch_prices_for_date(d: date) -> list:
         return []
 
 
-def _fetch_gti_forecast(d: date) -> dict:
-    """Return {hour: gti_wm2} for date d using the met.no-adjusted GTI from Supabase.
+def _fetch_gti_forecast(d: date) -> tuple:
+    """Return ({hour: gti_wm2}, {hour: cloud_cover_pct}) for date d.
 
-    Reads from weather_forecast table (populated by /api/weather).
+    Tries the Supabase weather_forecast table first (gti_adj + cloud_cover columns).
     Falls back to a direct Open-Meteo call if Supabase has no data.
-    Using the adjusted GTI means the TOU suggestion already incorporates
-    the better Scandinavian cloud model from met.no.
+    Cloud cover is used by _build_suggestion to scale the solar haircut per hour
+    (Gap 7 — probabilistic forecast uncertainty).
     """
     from datetime import timezone as _tz
 
     # Try Supabase weather_forecast first (gti_adj = met.no-corrected GTI)
     if SUPABASE_URL and SUPABASE_KEY:
         try:
-            # Date d is local (CEST = UTC+2) — fetch UTC window
             cest = _tz(timedelta(hours=2))
             day_start = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=cest)
             day_end   = datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=cest)
@@ -609,29 +614,31 @@ def _fetch_gti_forecast(d: date) -> dict:
                    f"?valid_time=gte.{urllib.parse.quote(day_start.astimezone(_tz.utc).isoformat())}"
                    f"&valid_time=lte.{urllib.parse.quote(day_end.astimezone(_tz.utc).isoformat())}"
                    f"&order=valid_time.asc"
-                   f"&select=valid_time,gti_adj")
+                   f"&select=valid_time,gti_adj,cloud_cover")
             req = urllib.request.Request(url, headers=_sb_headers())
             with urllib.request.urlopen(req, timeout=8) as r:
                 rows = json.loads(r.read())
             if rows:
-                result = {}
+                gti_h   = {}
+                cloud_h = {}
                 for row in rows:
                     dt_utc  = datetime.fromisoformat(row["valid_time"].replace("Z", "+00:00"))
                     dt_cest = dt_utc.astimezone(cest)
-                    result[dt_cest.hour] = float(row["gti_adj"] or 0)
-                print(f"[tou_suggest] GTI loaded from Supabase weather_forecast for {d} "
-                      f"({len(result)} hours)")
-                return result
+                    h = dt_cest.hour
+                    gti_h[h]   = float(row["gti_adj"] or 0)
+                    cloud_h[h] = float(row["cloud_cover"] or 0) if row.get("cloud_cover") is not None else 50.0
+                print(f"[tou_suggest] GTI+cloud loaded from Supabase for {d} ({len(gti_h)} hours)")
+                return gti_h, cloud_h
         except Exception as e:
             print(f"[tou_suggest] Supabase GTI fetch failed, falling back to Open-Meteo: {e}")
 
-    # Fallback: direct Open-Meteo call (best-effort — may be unavailable)
+    # Fallback: direct Open-Meteo call — fetch GTI + cloudcover in one request
     try:
-        print(f"[tou_suggest] Fetching GTI direct from Open-Meteo for {d}")
+        print(f"[tou_suggest] Fetching GTI+cloud direct from Open-Meteo for {d}")
         url = (
             f"https://api.open-meteo.com/v1/forecast"
             f"?latitude={LAT}&longitude={LON}"
-            f"&hourly=global_tilted_irradiance"
+            f"&hourly=global_tilted_irradiance,cloudcover"
             f"&tilt={PANEL_TILT}&azimuth={PANEL_AZ}"
             f"&timezone=Europe%2FStockholm"
             f"&forecast_days=2&past_days=0"
@@ -639,15 +646,21 @@ def _fetch_gti_forecast(d: date) -> dict:
         req = urllib.request.Request(url, headers={"User-Agent": "electricity-dashboard/tou-suggest"})
         with urllib.request.urlopen(req, timeout=12) as r:
             data = json.loads(r.read())
-        target = d.isoformat()
-        result = {}
-        for t, v in zip(data["hourly"]["time"], data["hourly"]["global_tilted_irradiance"]):
-            if t.startswith(target) and v is not None:
-                result[int(t[11:13])] = float(v)
-        return result
+        target  = d.isoformat()
+        gti_h   = {}
+        cloud_h = {}
+        times   = data["hourly"]["time"]
+        gtis    = data["hourly"]["global_tilted_irradiance"]
+        clouds  = data["hourly"].get("cloudcover", [None] * len(times))
+        for t, gv, cv in zip(times, gtis, clouds):
+            if t.startswith(target):
+                h = int(t[11:13])
+                gti_h[h]   = float(gv or 0)
+                cloud_h[h] = float(cv or 50.0)
+        return gti_h, cloud_h
     except Exception as e:
         print(f"[tou_suggest] Open-Meteo GTI also unavailable: {e}. Returning empty GTI.")
-        return {}  # _build_suggestion handles missing GTI gracefully (solar_by_hour → 0)
+        return {}, {}  # _build_suggestion handles missing GTI gracefully (solar_by_hour → 0)
 
 
 def _fetch_solar_model() -> dict:
@@ -1031,7 +1044,7 @@ def _lp_dispatch(price_h: dict, solar_h: dict,
             if dh <= ch:
                 continue
             spread = exp_rate[dh] * CHARGE_EFF - imp_rate[ch]
-            if spread > 0.01:
+            if spread > 0.01 + DEGRADATION_KR_KWH:
                 pairs.append((spread, ch, dh))
     pairs.sort(reverse=True)   # highest spread first
 
@@ -1197,24 +1210,32 @@ def _build_suggestion(for_date: date) -> dict:
     if not price_by_hour:
         return {"ok": False, "error": "Could not parse prices"}
 
-    # Solar forecast with model correction + haircut
-    gti = _fetch_gti_forecast(for_date)
+    # Solar forecast with model correction + per-hour uncertainty haircut (Gap 7)
+    gti, cloud_by_hour = _fetch_gti_forecast(for_date)
     model = _fetch_solar_model()
 
-    # Convert GTI → kW per hour using per-slot ratios
-    # slot = hour * 12 (top-of-hour slot); if no ratio use simple panel_kWp estimate
+    # Convert GTI → kW per hour using per-slot ratios.
+    # Haircut scales with cloud cover: low cloud → 10% (forecast reliable),
+    # high cloud → 30% (GTI model less accurate under broken/overcast sky).
+    # Formula: haircut = 0.10 + cloud_fraction * 0.20  (range 10–30%)
     PANEL_KWP = 12.0
     solar_by_hour = {}
     for h in range(24):
-        slot = h * 12
+        slot    = h * 12
         gti_val = gti.get(h, 0.0)
+        cloud   = cloud_by_hour.get(h, 50.0)          # default 50% if unknown
+        haircut = 0.10 + (cloud / 100.0) * 0.20       # 10%–30%
         if slot in model:
-            kw = model[slot] * gti_val  # ratio is kW / (W/m²)
+            kw = model[slot] * gti_val
         elif gti_val > 0:
-            kw = (gti_val / 1000) * PANEL_KWP * 0.85  # simple physics fallback
+            kw = (gti_val / 1000) * PANEL_KWP * 0.85
         else:
             kw = 0.0
-        solar_by_hour[h] = kw * (1 - SOLAR_HAIRCUT)
+        solar_by_hour[h] = kw * (1 - haircut)
+
+    avg_haircut = sum(
+        0.10 + (cloud_by_hour.get(h, 50.0) / 100.0) * 0.20 for h in range(24)
+    ) / 24
 
     prices_sorted = sorted(price_by_hour.values())
 
@@ -1368,7 +1389,7 @@ def _build_suggestion(for_date: date) -> dict:
         f"LP-optimering {for_date}: priser {min(prices_sorted):.2f}–{max(prices_sorted):.2f} SEK/kWh. "
         f"Laddning (Battery First): {cheap_hours}. "
         f"Urladdning (Grid First): {exp_hours}. "
-        f"Solpeak (−{int(SOLAR_HAIRCUT*100)}%): {solar_peak[1]:.1f} kW kl {solar_peak[0]:02d}:00. "
+        f"Solpeak (−{int(avg_haircut*100)}% molnavdrag): {solar_peak[1]:.1f} kW kl {solar_peak[0]:02d}:00. "
         f"Medelbelastning: {avg_load_kw:.2f} kW (säsongsmodell). "
         f"SoC vid start: {soc_start*100:.0f}%."
         + (f"  {storm_note}" if storm_note else "")
