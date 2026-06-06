@@ -3023,6 +3023,8 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
   //    actual line nor the forecast line renders.
   //    Instead, scan backwards for the last slot that has a real non-trivial reading
   //    (same criterion as renderPowerChart's lastActualTime) so both cutoffs agree.
+  const realBySlot = {};
+  actualRows.forEach(r => { realBySlot[Math.round(r.minutes / 5)] = r; });
   let lastMeaningfulSlot = -1;
   for (let i = nowSlot; i >= 0; i--) {
     const r = realBySlot[i];
