@@ -2570,6 +2570,7 @@ function renderPowerChart(rows, isForecast, forecastOverlay) {
   const y2Max = Math.ceil((100 / maxKw) * maxKw / 10) * 10 * (100 / maxKw);
 
   const opts = chartOpts('kW', false);
+  opts.scales.y.min = 0;  // power flow: never goes negative
   opts.plugins.tooltip.callbacks.label = ctx => {
     const unit = ctx.dataset.yAxisID === 'y2' ? '%' : ' kW';
     const val  = ctx.parsed.y?.toFixed(ctx.dataset.yAxisID === 'y2' ? 0 : 2);
@@ -2732,6 +2733,7 @@ function renderPowerPriceChart(rows, priceMap, isForecast, forecastOverlay) {
   }
 
   const opts = chartOpts('kW', false);
+  opts.scales.y.min = 0;  // power flow: never goes negative
   opts.plugins.tooltip.callbacks.label = ctx => {
     const isPrice = ctx.dataset.yAxisID === 'y2';
     const val = ctx.parsed.y?.toFixed(isPrice ? 0 : 2);
@@ -2936,7 +2938,6 @@ function chartOpts(yLabel, stacked) {
       },
       y: {
         stacked: !!stacked,
-        min: 0,
         ticks: { color:'#64748b', font:{family:'JetBrains Mono', size:9} },
         grid:  { color:'#1e2530' },
         title: { display:true, text:yLabel, color:'#64748b', font:{size:9} },
