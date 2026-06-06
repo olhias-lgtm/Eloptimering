@@ -39,17 +39,79 @@ SUPABASE_KEY = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 # Keep this below 1 hour so we proactively re-login before it goes stale.
 SESSION_MAX_AGE_HOURS = 0.75  # 45 minutes
 
-# ---------------------------------------------------------------------------
-# Hard pause — set to None to re-enable Growatt API access.
-# While set, ensure_ready() raises immediately without touching the network.
-# Account was locked 2026-06-01; pause until 2026-06-03 12:00 CEST to be safe.
-# ---------------------------------------------------------------------------
-_HARD_PAUSED_UNTIL = None  # lifted 2026-06-02 ~22:44 CEST
-
-# Login-failure cooldown: after a failed login, refuse to retry for this many seconds.
-# Helps on warm Lambda reuse within the same invocation window.
+# In-process login-failure cooldown (warm Lambda reuse within same invocation window).
 _LOGIN_COOLDOWN_SECS = 300   # 5 minutes
 _login_failed_at: float = 0  # time.monotonic() of last failure; 0 = never failed
+
+# ---------------------------------------------------------------------------
+# Supabase-backed cooldown — survives cold starts and crosses all functions
+# ---------------------------------------------------------------------------
+# When Growatt returns a rate-limit (429), account-lock, or repeated auth
+# failures, _set_cooldown(hours) writes cooldown_until into growatt_session
+# row id=1. Every ensure_ready() call checks this before touching the network.
+# This replaces the old _HARD_PAUSED_UNTIL constant which required a code deploy
+# to lift.
+
+# Keywords in Growatt login responses that indicate account lock / rate-limiting
+_LOCK_KEYWORDS = ("lock", "disabled", "too many", "frequent", "blocked", "账号", "禁止")
+
+def _load_cooldown() -> datetime | None:
+    """Return cooldown_until datetime if an active cooldown exists, else None."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return None
+    try:
+        url = (f"{SUPABASE_URL}/rest/v1/growatt_session"
+               f"?id=eq.1&select=cooldown_until")
+        req = urllib.request.Request(url, headers=_sb_headers())
+        with urllib.request.urlopen(req, timeout=5) as r:
+            rows = json.loads(r.read())
+        if not rows or not rows[0].get("cooldown_until"):
+            return None
+        until = datetime.fromisoformat(rows[0]["cooldown_until"].replace("Z", "+00:00"))
+        if until > datetime.now(timezone.utc):
+            return until
+        return None   # cooldown has expired
+    except Exception as e:
+        print(f"[Growatt] cooldown check failed: {e}")
+        return None
+
+
+def _set_cooldown(hours: float = 2.0, reason: str = "") -> None:
+    """Write a cooldown_until timestamp to Supabase. Skips all Growatt calls until then."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return
+    until = datetime.now(timezone.utc) + timedelta(hours=hours)
+    try:
+        body = json.dumps({"id": 1, "cooldown_until": until.isoformat()}).encode()
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/growatt_session",
+            data=body,
+            headers={**_sb_headers(), "Prefer": "resolution=merge-duplicates"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=5).read()
+        print(f"[Growatt] ⛔ Cooldown set until {until.strftime('%Y-%m-%d %H:%M UTC')}"
+              + (f" — {reason}" if reason else ""))
+    except Exception as e:
+        print(f"[Growatt] Could not write cooldown to Supabase: {e}")
+
+
+def _clear_cooldown() -> None:
+    """Clear any active cooldown (e.g. after a successful login)."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return
+    try:
+        body = json.dumps({"id": 1, "cooldown_until": None}).encode()
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/growatt_session",
+            data=body,
+            headers={**_sb_headers(), "Prefer": "resolution=merge-duplicates"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=5).read()
+        print("[Growatt] ✅ Cooldown cleared")
+    except Exception as e:
+        print(f"[Growatt] Could not clear cooldown: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -209,16 +271,28 @@ class GrowattSession:
             _login_failed_at = time.monotonic()
             raise RuntimeError(f"Growatt login network error: {e}") from e
 
+        # 429 on the login endpoint = explicit rate limit
+        if resp.status_code == 429:
+            _login_failed_at = time.monotonic()
+            _set_cooldown(hours=2.0, reason="HTTP 429 on login")
+            raise RuntimeError("Growatt login rate-limited (429) — cooldown set for 2h")
+
         data = resp.json()
         back = data.get("back", {})
         if not back.get("success"):
             _login_failed_at = time.monotonic()
+            msg = str(back.get("msg", "")).lower()
+            # Account lock / repeated-failure indicators → longer cooldown
+            if any(k in msg for k in _LOCK_KEYWORDS):
+                _set_cooldown(hours=12.0, reason=f"account lock: {back.get('msg')}")
+                raise RuntimeError(f"Growatt account locked/rate-limited: {back.get('msg')} — cooldown 12h")
             raise RuntimeError(f"Growatt login failed: {back.get('msg','unknown')} | {data}")
 
         user           = back.get("user") or {}
         self.user_id   = str(user.get("id") or user.get("userId") or "")
         self.logged_in = True
-        _login_failed_at = 0  # clear cooldown
+        _login_failed_at = 0  # clear in-process cooldown
+        _clear_cooldown()     # clear Supabase-backed cooldown on successful login
 
         plant_list = back.get("data") or []
         if plant_list:
@@ -277,15 +351,15 @@ class GrowattSession:
     # ------------------------------------------------------------------
 
     def ensure_ready(self) -> None:
-        # Hard pause check — zero network traffic while paused
-        if _HARD_PAUSED_UNTIL is not None:
-            now = datetime.now(timezone.utc)
-            if now < _HARD_PAUSED_UNTIL:
-                remaining_h = int((_HARD_PAUSED_UNTIL - now).total_seconds() / 3600)
-                raise RuntimeError(
-                    f"Growatt API paused — återkommer om ca {remaining_h}h "
-                    f"(konto låst 2026-06-01, paus till 2026-06-03 12:00 CEST)"
-                )
+        # Supabase-backed cooldown check — zero network traffic while active
+        cooldown_until = _load_cooldown()
+        if cooldown_until is not None:
+            remaining_h = (cooldown_until - datetime.now(timezone.utc)).total_seconds() / 3600
+            raise RuntimeError(
+                f"Growatt API på paus — återkommer om ca {remaining_h:.1f}h "
+                f"(rate-limit/kontospärr detekterad, paus till "
+                f"{cooldown_until.strftime('%Y-%m-%d %H:%M UTC')})"
+            )
 
         if not self.logged_in:
             # Try to restore from Supabase before falling back to a fresh login
@@ -348,6 +422,9 @@ class GrowattSession:
                 },
                 timeout=15,
             )
+            if resp.status_code == 429:
+                _set_cooldown(hours=2.0, reason="HTTP 429 on getEnergyProdAndCons_KW")
+                raise RuntimeError("Growatt API rate-limited (429) — cooldown set for 2h")
             data = resp.json()
             if not self._session_expired(data):
                 result = self._normalize_tlx(data)
@@ -400,6 +477,10 @@ class GrowattSession:
             print(f"[live] detail status={detail_resp.status_code} body={detail_resp.text[:200]!r}")
 
             # Detect session expiry: HTML login page OR explicit auth message in JSON
+            if detail_resp.status_code == 429:
+                _set_cooldown(hours=2.0, reason="HTTP 429 on getTlxDetailData")
+                raise RuntimeError("Growatt API rate-limited (429) — cooldown set for 2h")
+
             if self._looks_like_html(detail_resp):
                 if attempt == 0:
                     print("[live] detail returned HTML — session expired, re-logging in")
