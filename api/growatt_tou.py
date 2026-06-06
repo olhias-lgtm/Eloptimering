@@ -1095,8 +1095,24 @@ def _lp_dispatch(price_h: dict, solar_h: dict,
         modes[h] = 1   # Battery First — maximise storage, minimise export
         committed_charge.add(h)
 
+    # Trim Grid First hours where the battery is already at floor (no meaningful discharge).
+    # These arise when a prior Grid First hour consumed the remaining charge, leaving nothing
+    # for subsequent Grid First assignments. Revert them to Load First so the inverter
+    # doesn't sit in Grid First mode with an empty battery importing grid to cover load.
+    final_soc = _sim(modes)
+    trimmed = []
+    for h in range(24):
+        if modes[h] == 2:
+            soc_pre = (soc_start * BATT_KWH) if h == 0 else final_soc[h - 1]
+            actual_dis = max(0.0, soc_pre - final_soc[h])
+            if actual_dis < MIN_KWH:
+                modes[h] = 0
+                trimmed.append(h)
+    if trimmed:
+        print(f"[tou lp] trimmed empty Grid First hours (battery at floor): {trimmed}")
+
     n_charge    = len(committed_charge)
-    n_discharge = len(committed_discharge)
+    n_discharge = len(committed_discharge) - len(trimmed)
     if neg_export_hours:
         print(f"[tou lp] negative export rate hours (spot+nätnytta<0): {neg_export_hours} "
               f"→ forced Battery First")
@@ -1386,45 +1402,38 @@ def _build_suggestion(for_date: date) -> dict:
     if storm_triggered:
         rec_soc_floor = max(rec_soc_floor, int(STORM_SOC_FLOOR * 100))
 
-    # Recommend discharge power % — spread available kWh evenly across the Grid First window.
+    # Discharge power recommendation — blast strategy.
     #
-    # Previous formula used USABLE_KWH = 18 kWh (full capacity from 100 % SoC), which was
-    # always wrong: at 50 % SoC only 8 kWh is available, so the battery drained in ~1.3 h
-    # of a 4-hour window regardless of the recommended rate.
-    #
-    # Fix: simulate the assigned modes hour-by-hour from soc_start up to the first Grid First
-    # hour to get the actual available kWh at the moment discharge begins.
-    RATED_KW  = BATT_KWH * 0.6         # 12 kW rated max (same as C_RATE_KW)
-    _floor_k  = SOC_FLOOR * BATT_KWH   # 2 kWh
-    first_gf_h = min((h for h, m in hour_mode.items() if m == 2), default=None)
-    if first_gf_h is not None:
-        _soc = soc_start * BATT_KWH
-        for _h in range(first_gf_h):
-            _s  = solar_by_hour.get(_h, 0.0)
-            _ld = load_by_hour[_h] if isinstance(load_by_hour, dict) else load_by_hour
-            _m  = hour_mode.get(_h, 0)
-            if _m == 1:   # Battery First preceding the discharge window
-                headroom = min(C_RATE_KW, (BATT_KWH - _soc) / CHARGE_EFF)
-                _soc = min(BATT_KWH, _soc + headroom * CHARGE_EFF)
-            elif _m == 0:  # Load First
-                _net = _s - _ld
-                if _net > 0:
-                    _chg = min(_net, C_RATE_KW, (BATT_KWH - _soc) / CHARGE_EFF)
-                    _soc = min(BATT_KWH, _soc + _chg * CHARGE_EFF)
-                else:
-                    _dis = min(-_net, C_RATE_KW, _soc - _floor_k)
-                    _soc = max(_floor_k, _soc - _dis)
-        available_kwh = max(0.0, _soc - _floor_k)
-    else:
-        available_kwh = max(0.0, (soc_start - SOC_FLOOR) * BATT_KWH)
+    # The LP has already identified the most profitable Grid First hours and trimmed any
+    # hours where the battery would be at floor. The right strategy is to discharge at
+    # maximum rate: concentrate export in the highest-price hours, let the battery empty
+    # quickly, and rely on the SoC floor (inc. the solar gap reserve below) to prevent
+    # over-discharging into hours where load can't be covered by solar.
+    rec_pct = 100 if grid_first_hours > 0 else 100  # always 100 — blast or no-op
 
+    # Solar gap reserve — Gap 5 floor layer.
+    #
+    # When the battery hits the SoC floor (discharge stops), solar production must cover
+    # load. If solar isn't ramping up yet, the load falls back to grid import at whatever
+    # price those hours carry. Reserve the kWh needed to bridge load from the last Grid
+    # First hour to the first hour where solar self-sustains the load.
+    #
+    # This is added to rec_soc_floor so the inverter respects it automatically.
+    last_gf_h = gap_kwh = gap_floor_pct = None  # initialise; set below if Grid First exists
     if grid_first_hours > 0:
-        target_kw = available_kwh / grid_first_hours if available_kwh > 0 else 0.0
-        raw_pct   = (target_kw / RATED_KW) * 100
-        # Round to nearest 5 %, clamp 20–100 % (hardware supports 1–100 %; 20 % is practical min)
-        rec_pct   = int(min(100, max(20, round(raw_pct / 5) * 5)))
-    else:
-        rec_pct = 100   # no Grid First → setting doesn't matter, keep at max
+        last_gf_h  = max(h for h, m in hour_mode.items() if m == 2)
+        gap_kwh    = 0.0
+        for _gh in range(last_gf_h + 1, 24):
+            _s  = solar_by_hour.get(_gh, 0.0)
+            _ld = load_by_hour[_gh] if isinstance(load_by_hour, dict) else load_by_hour
+            if _s >= _ld:
+                break   # solar covers load from here — no more reserve needed
+            gap_kwh += (_ld - _s)
+        gap_floor_pct = min(40, int((gap_kwh / BATT_KWH) * 100))
+        if gap_floor_pct > rec_soc_floor:
+            print(f"[tou] solar gap reserve: {gap_kwh:.2f} kWh after h={last_gf_h} "
+                  f"→ floor raised {rec_soc_floor}% → {gap_floor_pct}%")
+            rec_soc_floor = gap_floor_pct
 
     # Human-readable reasoning
     cheap_hours  = sorted(h for h, m in hour_mode.items() if m == 1)
@@ -1438,18 +1447,20 @@ def _build_suggestion(for_date: date) -> dict:
             adaptive_note = (f"  🌥 Adaptivt SoC-golv: {adaptive_floor_pct}% "
                              f"(prognos D+1: {d1_kwh:.1f} kWh sol).")
 
-    drain_hours = round(available_kwh / (rec_pct / 100 * RATED_KW), 1) if rec_pct and grid_first_hours > 0 and available_kwh > 0 else None
+    gap_note = ""
+    if grid_first_hours > 0 and gap_floor_pct:
+        gap_note = (f"  ☀️ Solreserv: {gap_kwh:.1f} kWh hålls för last kl "
+                    f"{last_gf_h+1:02d}:00–sol ({gap_floor_pct}% golv).")
     reasoning = (
         f"LP-optimering {for_date}: priser {min(prices_sorted):.2f}–{max(prices_sorted):.2f} SEK/kWh. "
         f"Laddning (Battery First): {cheap_hours}. "
-        f"Urladdning (Grid First): {exp_hours}"
-        + (f" ({available_kwh:.1f} kWh tillgänglig vid kl {first_gf_h:02d}:00"
-           f", töms på ~{drain_hours}h vid {rec_pct}%)" if grid_first_hours > 0 and drain_hours else "")
-        + f". Solpeak (−{int(avg_haircut*100)}% molnavdrag): {solar_peak[1]:.1f} kW kl {solar_peak[0]:02d}:00. "
+        f"Urladdning (Grid First): {exp_hours} — urladdning 100% (blast)."
+        + f" Solpeak (−{int(avg_haircut*100)}% molnavdrag): {solar_peak[1]:.1f} kW kl {solar_peak[0]:02d}:00. "
         f"Medelbelastning: {avg_load_kw:.2f} kW (säsongsmodell). "
         f"SoC vid start: {soc_start*100:.0f}%."
         + (f"  {storm_note}" if storm_note else "")
         + adaptive_note
+        + gap_note
     )
 
     # Battery simulation — daily KPI totals using per-hour load
