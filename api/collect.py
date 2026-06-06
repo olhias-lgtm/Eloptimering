@@ -642,10 +642,13 @@ def _do_retention(dry_run: bool = False) -> tuple[int, dict]:
 
     # ── 3. Delete granular tables older than 180 days ─────────────────────────
     tables_granular = [
-        ("energy_readings", f"ts=lt.{cutoff_granular}T00:00:00Z"),
-        ("energy_chart",    f"date=lt.{cutoff_granular}"),
-        ("grid_production", f"ts=lt.{cutoff_granular}T00:00:00Z"),
-        ("spot_prices",     f"ts=lt.{cutoff_granular}T00:00:00Z"),
+        ("energy_readings",  f"ts=lt.{cutoff_granular}T00:00:00Z"),
+        ("energy_chart",     f"date=lt.{cutoff_granular}"),
+        ("grid_production",  f"ts=lt.{cutoff_granular}T00:00:00Z"),
+        # Spot prices: keep 90 days (shorter than granular cutoff; never touch last 7d)
+        ("spot_prices",      f"ts=lt.{(now_utc - timedelta(days=90)).date().isoformat()}T00:00:00Z"),
+        # TOU suggestions: keep 90 days (useful for reviewing recent decisions)
+        ("tou_suggestions",  f"for_date=lt.{(now_utc - timedelta(days=90)).date().isoformat()}"),
     ]
     # Weather forecast: delete rows with valid_time in the past (>24h ago)
     past_weather = (now_utc - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")

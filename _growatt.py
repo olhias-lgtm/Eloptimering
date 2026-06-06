@@ -68,7 +68,12 @@ def _load_cooldown() -> datetime | None:
         if not rows or not rows[0].get("cooldown_until"):
             return None
         until = datetime.fromisoformat(rows[0]["cooldown_until"].replace("Z", "+00:00"))
-        if until > datetime.now(timezone.utc):
+        now   = datetime.now(timezone.utc)
+        # Sanity cap: if stored value is >48 h away it's corrupt — ignore it
+        if until > now + timedelta(hours=48):
+            print(f"[Growatt] ⚠ cooldown_until={until.isoformat()} is >48h away — treating as corrupt, ignoring")
+            return None
+        if until > now:
             return until
         return None   # cooldown has expired
     except Exception as e:
@@ -80,6 +85,7 @@ def _set_cooldown(hours: float = 2.0, reason: str = "") -> None:
     """Write a cooldown_until timestamp to Supabase. Skips all Growatt calls until then."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return
+    hours = min(hours, 48.0)   # sanity cap — never lock out for more than 48 h
     until = datetime.now(timezone.utc) + timedelta(hours=hours)
     try:
         body = json.dumps({"id": 1, "cooldown_until": until.isoformat()}).encode()
