@@ -1386,18 +1386,45 @@ def _build_suggestion(for_date: date) -> dict:
     if storm_triggered:
         rec_soc_floor = max(rec_soc_floor, int(STORM_SOC_FLOOR * 100))
 
-    # Recommend discharge power % — drain usable battery within the Grid First window
-    # Formula: target_kw = usable_kwh / grid_first_hours; pct = target_kw / normal_kw
-    # Capped 50–100 %, rounded to nearest 5 %
-    NORMAL_KW = BATT_KWH * 0.6   # nominal inverter/battery max = C_RATE_KW
-    USABLE_KWH = BATT_KWH * (SOC_CEIL - SOC_FLOOR)   # 18 kWh
-    if grid_first_hours > 0:
-        target_kw   = USABLE_KWH / grid_first_hours
-        raw_pct     = (target_kw / NORMAL_KW) * 100
-        # Round to nearest 5 %, clamp 50–100
-        rec_pct     = int(min(100, max(50, round(raw_pct / 5) * 5)))
+    # Recommend discharge power % — spread available kWh evenly across the Grid First window.
+    #
+    # Previous formula used USABLE_KWH = 18 kWh (full capacity from 100 % SoC), which was
+    # always wrong: at 50 % SoC only 8 kWh is available, so the battery drained in ~1.3 h
+    # of a 4-hour window regardless of the recommended rate.
+    #
+    # Fix: simulate the assigned modes hour-by-hour from soc_start up to the first Grid First
+    # hour to get the actual available kWh at the moment discharge begins.
+    RATED_KW  = BATT_KWH * 0.6         # 12 kW rated max (same as C_RATE_KW)
+    _floor_k  = SOC_FLOOR * BATT_KWH   # 2 kWh
+    first_gf_h = min((h for h, m in hour_mode.items() if m == 2), default=None)
+    if first_gf_h is not None:
+        _soc = soc_start * BATT_KWH
+        for _h in range(first_gf_h):
+            _s  = solar_by_hour.get(_h, 0.0)
+            _ld = load_by_hour[_h] if isinstance(load_by_hour, dict) else load_by_hour
+            _m  = hour_mode.get(_h, 0)
+            if _m == 1:   # Battery First preceding the discharge window
+                headroom = min(C_RATE_KW, (BATT_KWH - _soc) / CHARGE_EFF)
+                _soc = min(BATT_KWH, _soc + headroom * CHARGE_EFF)
+            elif _m == 0:  # Load First
+                _net = _s - _ld
+                if _net > 0:
+                    _chg = min(_net, C_RATE_KW, (BATT_KWH - _soc) / CHARGE_EFF)
+                    _soc = min(BATT_KWH, _soc + _chg * CHARGE_EFF)
+                else:
+                    _dis = min(-_net, C_RATE_KW, _soc - _floor_k)
+                    _soc = max(_floor_k, _soc - _dis)
+        available_kwh = max(0.0, _soc - _floor_k)
     else:
-        rec_pct = 100   # no Grid First → doesn't matter, keep at max
+        available_kwh = max(0.0, (soc_start - SOC_FLOOR) * BATT_KWH)
+
+    if grid_first_hours > 0:
+        target_kw = available_kwh / grid_first_hours if available_kwh > 0 else 0.0
+        raw_pct   = (target_kw / RATED_KW) * 100
+        # Round to nearest 5 %, clamp 20–100 % (hardware supports 1–100 %; 20 % is practical min)
+        rec_pct   = int(min(100, max(20, round(raw_pct / 5) * 5)))
+    else:
+        rec_pct = 100   # no Grid First → setting doesn't matter, keep at max
 
     # Human-readable reasoning
     cheap_hours  = sorted(h for h, m in hour_mode.items() if m == 1)
@@ -1411,11 +1438,14 @@ def _build_suggestion(for_date: date) -> dict:
             adaptive_note = (f"  🌥 Adaptivt SoC-golv: {adaptive_floor_pct}% "
                              f"(prognos D+1: {d1_kwh:.1f} kWh sol).")
 
+    drain_hours = round(available_kwh / (rec_pct / 100 * RATED_KW), 1) if rec_pct and grid_first_hours > 0 and available_kwh > 0 else None
     reasoning = (
         f"LP-optimering {for_date}: priser {min(prices_sorted):.2f}–{max(prices_sorted):.2f} SEK/kWh. "
         f"Laddning (Battery First): {cheap_hours}. "
-        f"Urladdning (Grid First): {exp_hours}. "
-        f"Solpeak (−{int(avg_haircut*100)}% molnavdrag): {solar_peak[1]:.1f} kW kl {solar_peak[0]:02d}:00. "
+        f"Urladdning (Grid First): {exp_hours}"
+        + (f" ({available_kwh:.1f} kWh tillgänglig vid kl {first_gf_h:02d}:00"
+           f", töms på ~{drain_hours}h vid {rec_pct}%)" if grid_first_hours > 0 and drain_hours else "")
+        + f". Solpeak (−{int(avg_haircut*100)}% molnavdrag): {solar_peak[1]:.1f} kW kl {solar_peak[0]:02d}:00. "
         f"Medelbelastning: {avg_load_kw:.2f} kW (säsongsmodell). "
         f"SoC vid start: {soc_start*100:.0f}%."
         + (f"  {storm_note}" if storm_note else "")
