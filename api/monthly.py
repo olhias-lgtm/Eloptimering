@@ -14,24 +14,26 @@ SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 
 
 def _fetch_roi_total() -> dict:
-    """All-time sum of export_earn_kr + saved_kr from daily_summary."""
+    """All-time sum of export_earn_kr + saved_kr from daily_summary,
+    plus lifetime battery throughput from energy_readings via RPC."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return {}
+    headers = {
+        "apikey":        SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+    }
     url = (
         f"{SUPABASE_URL}/rest/v1/daily_summary"
         f"?select=export_earn_kr,saved_kr,day"
         f"&order=day.asc"
     )
-    req = urllib.request.Request(url, headers={
-        "apikey":        SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-    })
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             rows = json.loads(r.read())
         total_earn  = sum(float(r.get("export_earn_kr") or 0) for r in rows)
         total_saved = sum(float(r.get("saved_kr")       or 0) for r in rows)
-        return {
+        result = {
             "total_roi_kr": round(total_earn + total_saved, 2),
             "earn_kr":      round(total_earn,  2),
             "saved_kr":     round(total_saved, 2),
@@ -42,6 +44,27 @@ def _fetch_roi_total() -> dict:
     except Exception as e:
         print(f"[monthly roi] {e}")
         return {}
+
+    # Lifetime battery throughput — separate RPC query (non-fatal if unavailable)
+    try:
+        batt_url = f"{SUPABASE_URL}/rest/v1/rpc/get_lifetime_battery_kwh"
+        batt_req = urllib.request.Request(
+            batt_url,
+            data=b"{}",
+            method="POST",
+            headers={**headers, "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(batt_req, timeout=10) as r:
+            batt = json.loads(r.read())
+        if batt:
+            b = batt[0] if isinstance(batt, list) else batt
+            result["batt_charge_kwh"]    = float(b.get("total_charge_kwh")    or 0)
+            result["batt_discharge_kwh"] = float(b.get("total_discharge_kwh") or 0)
+            result["batt_day_count"]     = int(b.get("day_count")             or 0)
+    except Exception as e:
+        print(f"[monthly roi battery] {e}")
+
+    return result
 
 
 def _fetch_month(year: int, month: int) -> list:

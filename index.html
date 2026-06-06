@@ -4062,8 +4062,10 @@ function startLivePolling() {
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 // ROI / investment payback constants
-const ROI_INVESTMENT_KR = 119_000;
-const ROI_INSTALL_DATE  = '2025-04-01';
+const ROI_INVESTMENT_KR  = 119_000;
+const ROI_INSTALL_DATE   = '2025-04-01';
+const BATT_KWH           = 20.0;    // usable battery capacity
+const BATT_CYCLE_LIFE    = 6000;    // LiFePO4 expected full cycles to 80% SoH
 // Estimated ROI before daily_summary data collection started
 // Apr–Dec 2025: Solar 9.1 MWh, Load 6 MWh, Import 1.5 MWh
 //   Self-consumed 4 500 kWh × 2.10 kr =  9 450 kr savings
@@ -4139,6 +4141,29 @@ function renderRoiCard(roi) {
 
   const fmtKr = v => Math.round(v).toLocaleString('sv-SE') + ' kr';
 
+  // Battery health row — derived from lifetime throughput RPC
+  let battRow = '';
+  const chgKwh  = parseFloat(roi.batt_charge_kwh    || 0);
+  const disKwh  = parseFloat(roi.batt_discharge_kwh || 0);
+  if (chgKwh > 0 || disKwh > 0) {
+    const throughput = Math.round(chgKwh + disKwh);
+    // Cycles = charge throughput / usable capacity (one full cycle = one full charge)
+    const cycles     = chgKwh / BATT_KWH;
+    const soh        = Math.max(0, (1 - cycles / BATT_CYCLE_LIFE) * 100);
+    // Round-trip efficiency = discharge / charge (ideally ~95%)
+    const rtEff      = chgKwh > 0 ? Math.round((disKwh / chgKwh) * 100) : null;
+    const sohColor   = soh >= 90 ? '#34d399' : soh >= 75 ? '#fbbf24' : '#f87171';
+    battRow = `
+      <div style="font-size:0.69rem;color:var(--text-muted);display:flex;gap:12px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:8px;margin-top:6px">
+        <span>🔋 Batteri: <b style="color:var(--text)">${cycles.toFixed(1)} cyklar</b></span>
+        <span>⚡ Genomflöde: <b style="color:var(--text)">${throughput.toLocaleString('sv-SE')} kWh</b></span>
+        <span>❤️ SoH: <b style="color:${sohColor}">${soh.toFixed(1)}%</b>
+          <span style="opacity:0.6">(av ${BATT_CYCLE_LIFE.toLocaleString('sv-SE')} cykler)</span>
+        </span>
+        ${rtEff != null ? `<span>🔄 Verkningsgrad: <b style="color:var(--text)">${rtEff}%</b></span>` : ''}
+      </div>`;
+  }
+
   el.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
       <span style="font-size:0.78rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;font-weight:600">Investering återbetald</span>
@@ -4173,7 +4198,8 @@ function renderRoiCard(roi) {
       <span>📊 App-data: ${fmtKr(appKr)} (${dayCount} dagar${firstDay ? ' fr. ' + firstDay : ''})</span>
       <span>〜 Estimerat apr–dec 2025: ${fmtKr(ROI_PRE_APP_2025_KR)}</span>
       <span>〜 Estimerat jan–maj 2026: ${fmtKr(ROI_PRE_APP_2026_KR)}</span>
-    </div>`;
+    </div>
+    ${battRow}`;
 }
 
 function daysInMonth(year, month) {
