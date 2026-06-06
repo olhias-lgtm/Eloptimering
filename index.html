@@ -1111,10 +1111,15 @@
       <input type="number" id="cfg-soc-start"      value="50">
     </div>
     <button class="refresh-btn" id="refresh-btn" onclick="refresh()">↻ Refresh</button>
-    <div style="margin-top:0.6rem;padding-top:0.6rem;border-top:1px solid var(--border);text-align:center">
+    <div style="margin-top:0.6rem;padding-top:0.6rem;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:1rem;flex-wrap:wrap">
       <a href="/setup" style="font-size:0.72rem;color:var(--text-muted);text-decoration:none" target="_blank">
         📋 Installationsguide (för ny användare) →
       </a>
+      <button onclick="exportKpiCsv()"
+        style="font-size:0.72rem;padding:3px 10px;border-radius:3px;border:1px solid var(--border);
+               background:var(--muted);color:var(--text-muted);cursor:pointer;letter-spacing:.4px">
+        ⬇ Exportera KPI (.csv)
+      </button>
     </div>
   </div>
   <!-- ═══════ TAB: Nu ═══════ -->
@@ -1127,6 +1132,34 @@
     <span class="tlm-chip"><span class="tlm-chip-icon">🔌</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-batt">—</b></span><span class="tlm-chip-lbl">Batteri kW</span></span></span>
     <span class="tlm-chip"><span class="tlm-chip-icon">💰</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-price">—</b></span><span class="tlm-chip-lbl">Spotpris</span></span></span>
     <span class="tlm-chip"><span class="tlm-chip-icon">⚡</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-grid">—</b></span><span class="tlm-chip-lbl">Elnät</span></span></span>
+  </div>
+
+  <!-- Power flow chart -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">
+      Effektflöde
+      <span class="badge" id="interval-badge" style="display:none">— intervals</span>
+    </div>
+    <div class="chart-wrap-tall">
+      <canvas id="power-chart"></canvas>
+    </div>
+    <div class="legend" id="power-legend">
+      <div class="legend-item" data-ds="solar"><div class="legend-dot" style="background:var(--solar)"></div>Sol</div>
+      <div class="legend-item" data-ds="load"><div class="legend-dot" style="background:var(--load)"></div>Last</div>
+      <div class="legend-item" data-ds="import"><div class="legend-dot" style="background:var(--import)"></div>Import</div>
+      <div class="legend-item" data-ds="export"><div class="legend-dot" style="background:var(--export)"></div>Export</div>
+      <div class="legend-item" data-ds="battery"><div class="legend-dot" style="background:var(--battery)"></div>Batteri</div>
+      <div class="legend-item" data-ds="soc"><div class="legend-dot" style="background:rgba(167,139,250,0.7);border:1px dashed rgba(167,139,250,0.7);box-sizing:border-box"></div>SoC %</div>
+      <button class="legend-show-all" id="power-legend-show-all" style="display:none">Visa alla</button>
+    </div>
+  </div>
+
+  <!-- Power + Spot Price chart -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">Effektflöde &amp; Spotpris</div>
+    <div class="chart-wrap-tall">
+      <canvas id="power-price-chart"></canvas>
+    </div>
   </div>
 
   <!-- KPI row 1: energy -->
@@ -1199,7 +1232,6 @@
       <div class="kpi-sub">kr egenanvändning</div>
     </div>
   </div>
-
   <!-- KPI row 3: price averages -->
   <div class="kpi-row-cost">
     <div class="kpi">
@@ -1213,52 +1245,13 @@
       <div class="kpi-sub">öre/kWh viktat exkl. moms</div>
     </div>
   </div>
-
   <!-- Stale data warning (shown when autofill cron hasn't run successfully in >26h) -->
   <div id="stale-banner" style="display:none;margin-bottom:10px;padding:8px 14px;border-radius:4px;border:1px solid rgba(251,146,60,0.4);background:rgba(251,146,60,0.07);font-size:0.78rem;color:#fb923c">
     ⚠ <span id="stale-banner-text"></span>
   </div>
-
   <!-- Forecast notice -->
   <div class="forecast-notice" id="forecast-notice" style="display:none">
     📈 <span id="forecast-notice-text">Tomorrow's prices available — forecast shown for rest of today and tomorrow</span>
-  </div>
-
-  <!-- Power flow chart -->
-  <div class="card" style="margin-bottom:14px">
-    <div class="card-title">
-      Effektflöde
-      <span class="badge" id="interval-badge" style="display:none">— intervals</span>
-    </div>
-    <div class="chart-wrap-tall">
-      <canvas id="power-chart"></canvas>
-    </div>
-    <div class="legend" id="power-legend">
-      <div class="legend-item" data-ds="solar"><div class="legend-dot" style="background:var(--solar)"></div>Sol</div>
-      <div class="legend-item" data-ds="load"><div class="legend-dot" style="background:var(--load)"></div>Last</div>
-      <div class="legend-item" data-ds="import"><div class="legend-dot" style="background:var(--import)"></div>Import</div>
-      <div class="legend-item" data-ds="export"><div class="legend-dot" style="background:var(--export)"></div>Export</div>
-      <div class="legend-item" data-ds="battery"><div class="legend-dot" style="background:var(--battery)"></div>Batteri</div>
-      <div class="legend-item" data-ds="soc"><div class="legend-dot" style="background:rgba(167,139,250,0.7);border:1px dashed rgba(167,139,250,0.7);box-sizing:border-box"></div>SoC %</div>
-      <button class="legend-show-all" id="power-legend-show-all" style="display:none">Visa alla</button>
-    </div>
-  </div>
-
-  <!-- Power + Spot Price chart -->
-  <div class="card" style="margin-bottom:14px">
-    <div class="card-title">Effektflöde &amp; Spotpris</div>
-    <div class="chart-wrap-tall">
-      <canvas id="power-price-chart"></canvas>
-    </div>
-  </div>
-
-  <!-- CSV export -->
-  <div style="text-align:right;margin-bottom:14px">
-    <button onclick="exportKpiCsv()"
-      style="font-size:11px;padding:4px 12px;border-radius:3px;border:1px solid var(--border);
-             background:var(--muted);color:var(--text-muted);cursor:pointer;letter-spacing:.4px">
-      ⬇ Exportera KPI (.csv)
-    </button>
   </div>
 
   </div><!-- /tab-panel-nu -->
