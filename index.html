@@ -2160,13 +2160,31 @@ function _holidays(year) {
 }
 
 /**
- * getDayType(dateStr) → { type, label, badge, holidayName }
+ * getDayType(dateStr) → { type, label, badge, holidayName, isWeekend, isStaddag }
  *   type:        'holiday' | 'weekend' | 'weekday'
  *   label:       Swedish display string e.g. 'Helgdag', 'Lördag', 'Måndag'
  *   badge:       short chip text e.g. '🎉 Helgdag', '🛋 Helg', '💼 Vardag'
  *   holidayName: e.g. 'Juldagen' or null
  *   isWeekend:   true for Sat/Sun (regardless of holiday status)
+ *   isStaddag:   true if this date is a bi-weekly cleaning Thursday
  */
+
+// Bi-weekly cleaning day detection.
+// Anchor: 2025-06-12 (first known städdag). Odd ISO week → städdag.
+// Week parity is stable regardless of year boundaries.
+function isStaddag(dateStr) {
+  const dt = new Date(dateStr + 'T12:00:00');
+  if (dt.getDay() !== 4) return false; // must be Thursday
+  // ISO week number
+  const tmp = new Date(dt);
+  tmp.setHours(0, 0, 0, 0);
+  tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
+  const week1 = new Date(tmp.getFullYear(), 0, 4);
+  const isoWeek = 1 + Math.round(((tmp - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+  // Anchor week: 2025-06-12 = ISO week 24 (even). Städdag = even weeks.
+  return isoWeek % 2 === 0;
+}
+
 function getDayType(dateStr) {
   const dt   = new Date(dateStr + 'T12:00:00');  // noon avoids DST edge cases
   const year = dt.getFullYear();
@@ -2174,14 +2192,15 @@ function getDayType(dateStr) {
   const DAY_NAMES = ['Söndag','Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag'];
   const holidayName = _holidays(year).get(dateStr) || null;
   const isWeekend   = dow === 0 || dow === 6;
+  const staddag     = isStaddag(dateStr);
 
   if (holidayName) {
-    return { type: 'holiday', label: holidayName, badge: `🎉 ${holidayName}`, holidayName, isWeekend };
+    return { type: 'holiday', label: holidayName, badge: `🎉 ${holidayName}`, holidayName, isWeekend, isStaddag: staddag };
   }
   if (isWeekend) {
-    return { type: 'weekend', label: DAY_NAMES[dow], badge: '🛋️ Helg', holidayName: null, isWeekend: true };
+    return { type: 'weekend', label: DAY_NAMES[dow], badge: '🛋️ Helg', holidayName: null, isWeekend: true, isStaddag: false };
   }
-  return { type: 'weekday', label: DAY_NAMES[dow], badge: '💼 Vardag', holidayName: null, isWeekend: false };
+  return { type: 'weekday', label: DAY_NAMES[dow], badge: '💼 Vardag', holidayName: null, isWeekend: false, isStaddag: staddag };
 }
 
 // ---------------------------------------------------------------------------
@@ -2284,10 +2303,15 @@ function renderApplianceCard(priceMap, c, dateStr) {
                                               'rgba(148,163,184,0.12)';
     const textColor  = dtype === 'holiday' ? '#fb923c' :
                        dtype === 'weekend'  ? '#60a5fa' : 'var(--text-muted)';
+    const staddagBadge = dayType.isStaddag
+      ? ` <span style="font-size:0.7rem;font-weight:600;padding:2px 7px;border-radius:999px;`
+        + `background:rgba(167,139,250,0.15);color:#a78bfa;margin-left:4px">🧹 Städdag</span>`
+      : '';
     labelEl.innerHTML =
       `<span style="font-size:0.7rem;color:var(--text-muted);margin-right:6px">${dateLabel}</span>`
       + `<span style="font-size:0.7rem;font-weight:600;padding:2px 7px;border-radius:999px;`
-      + `background:${badgeColor};color:${textColor}">${dayType.badge}</span>`;
+      + `background:${badgeColor};color:${textColor}">${dayType.badge}</span>`
+      + staddagBadge;
   }
 
   // Context note at top of rows for non-weekdays
@@ -2302,6 +2326,10 @@ function renderApplianceCard(priceMap, c, dateStr) {
   } else if (dtype === 'weekend') {
     contextHtml = `<div style="padding:6px 14px 4px;font-size:0.72rem;color:#60a5fa;border-bottom:1px solid var(--border)">`
       + `🛋️ Helg — friare tidsplan, tider anpassade</div>`;
+  }
+  if (dayType.isStaddag) {
+    contextHtml += `<div style="padding:6px 14px 4px;font-size:0.72rem;color:#a78bfa;border-bottom:1px solid var(--border)">`
+      + `🧹 Städdag — dammsugning 08–14 körs oavsett pris. Boka tunga maskiner utanför städfönstret.</div>`;
   }
 
   let rowsHtml = '';
