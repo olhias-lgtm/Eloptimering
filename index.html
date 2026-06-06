@@ -5140,7 +5140,7 @@ function renderTouTable(segments) {
   const badge = document.getElementById('tou-badge');
   if (badge) badge.textContent = `${segments.length} segment`;
 
-  const rows = segments.map(seg => {
+  const _renderTouRow = seg => {
     // parse "HH:MM" or "HH:MM:SS" start/stop strings
     const startStr = (seg.start || '00:00').substring(0, 5);
     const stopStr  = (seg.stop  || '00:00').substring(0, 5);
@@ -5174,14 +5174,35 @@ function renderTouTable(segments) {
             onclick="saveTouSegment(${seg.segment_id})" disabled>Spara</button>
         </td>
       </tr>`;
-  }).join('');
+  };
+
+  const TOU_VISIBLE = 3;
+  const visibleRows = segments.slice(0, TOU_VISIBLE).map(_renderTouRow).join('');
+  const extraRows   = segments.slice(TOU_VISIBLE).map(_renderTouRow).join('');
+  const extraCount  = segments.length - TOU_VISIBLE;
+  const toggleRow   = extraCount > 0
+    ? `<tr id="tou-editor-toggle-row">
+         <td colspan="6" style="padding:4px 6px;text-align:center">
+           <button onclick="
+             const extra = document.getElementById('tou-editor-extra');
+             const btn   = this;
+             const shown = extra.style.display !== 'none';
+             extra.style.display = shown ? 'none' : '';
+             btn.textContent = shown ? '▼ Visa ${extraCount} fler tidsluckor' : '▲ Dölj';
+           " style="font-size:11px;background:none;border:none;color:var(--text-muted);cursor:pointer;padding:2px 8px;border-radius:3px">
+             ▼ Visa ${extraCount} fler tidsluckor
+           </button>
+         </td>
+       </tr>`
+    : '';
 
   document.getElementById('tou-wrap').innerHTML = `
     <table class="tou-table">
       <thead><tr>
         <th>#</th><th>Aktiv</th><th>Start</th><th>Slut</th><th>Läge</th><th></th>
       </tr></thead>
-      <tbody>${rows}</tbody>
+      <tbody>${visibleRows}${toggleRow}</tbody>
+      <tbody id="tou-editor-extra" style="display:none">${extraRows}</tbody>
     </table>`;
 }
 
