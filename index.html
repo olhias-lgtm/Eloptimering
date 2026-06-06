@@ -2193,10 +2193,11 @@ function getDayType(dateStr) {
 // note:  short Swedish context shown under the time on weekdays
 const APPLIANCES = [
   { id: 'dishwasher', name: 'Diskmaskin',   icon: '🍽️', kwh: 1.2, hours: 3.5,
-    window: { weekday: { earliest: 19, latestEnd: 23 },
+    window: { weekday: [{ earliest:  7, latestEnd: 11 },   // after breakfast
+                        { earliest: 19, latestEnd: 23 }],  // after dinner
               weekend: { earliest:  8, latestEnd: 23 },
               holiday: { earliest:  8, latestEnd: 23 } },
-    note:   { weekday: 'efter middagen', weekend: null, holiday: null } },
+    note:   { weekday: 'frukost eller middag', weekend: null, holiday: null } },
 
   { id: 'washer',     name: 'Tvättmaskin',  icon: '👕', kwh: 0.8, hours: 3.0,
     window: { weekday: { earliest:  7, latestEnd: 21 },
@@ -2305,8 +2306,16 @@ function renderApplianceCard(priceMap, c, dateStr) {
 
   let rowsHtml = '';
   APPLIANCES.forEach((app, idx) => {
-    const win = app.window?.[dtype] ?? { earliest: 0, latestEnd: 24 };
-    const { best, worst } = bestWindow(app.hours, win.earliest, win.latestEnd);
+    const winDef = app.window?.[dtype] ?? { earliest: 0, latestEnd: 24 };
+    const wins = Array.isArray(winDef) ? winDef : [winDef];
+    // Search all allowed windows; pick cheapest best across them
+    let best = null, worst = null;
+    for (const win of wins) {
+      const r = bestWindow(app.hours, win.earliest, win.latestEnd);
+      if (r.best  && (best  === null || r.best.avg  < best.avg))  best  = r.best;
+      if (r.worst && (worst === null || r.worst.avg > worst.avg)) worst = r.worst;
+    }
+    if (!best) { const r = bestWindow(app.hours, 0, 24); best = r.best; worst = r.worst; }
     if (!best) return;
 
     const slots    = Math.max(1, Math.round(app.hours));
