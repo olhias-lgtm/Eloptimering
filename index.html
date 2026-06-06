@@ -1357,6 +1357,12 @@
     <div id="storm-watch-banner-text"></div>
   </div>
 
+  <div id="neg-export-notice" style="display:none;margin-bottom:14px;padding:10px 14px;border-radius:4px;border:1px solid rgba(99,102,241,0.4);background:rgba(99,102,241,0.07);font-size:0.8rem;line-height:1.6;color:#a5b4fc;position:relative">
+    <button onclick="document.getElementById('neg-export-notice').style.display='none'"
+      style="position:absolute;top:7px;right:10px;background:none;border:none;cursor:pointer;font-size:14px;opacity:0.5;color:inherit;padding:0;line-height:1">×</button>
+    <div id="neg-export-notice-text"></div>
+  </div>
+
   <!-- TOU Suggestion panel -->
   <div class="card" style="margin-bottom:14px">
     <div class="card-title" style="display:flex;align-items:center;gap:8px">
@@ -5289,6 +5295,9 @@ function renderTouSuggestion(data) {
 
   // Storm Watch / Adaptive SoC floor banner
   _renderStormWatchBanner(data.storm_watch, data.adaptive_soc);
+
+  // Negative export rate notice
+  _renderNegExportNotice(data.neg_export);
 }
 
 function _renderStormWatchBanner(sw, adap) {
@@ -5333,6 +5342,22 @@ function _renderStormWatchBanner(sw, adap) {
   } else {
     banner.style.display = 'none';
   }
+}
+
+function _renderNegExportNotice(neg) {
+  const el   = document.getElementById('neg-export-notice');
+  const text = document.getElementById('neg-export-notice-text');
+  if (!el || !text) return;
+  const hours = neg?.hours;
+  if (!hours || hours.length === 0) { el.style.display = 'none'; return; }
+  const fmt = h => `${String(h).padStart(2,'0')}:00–${String(h+1).padStart(2,'0')}:00`;
+  const spans = hours.map(fmt).join(', ');
+  text.innerHTML = (
+    `⚡ <b>Negativt exportpris</b> imorgon — spot + nätnytta &lt; 0 under ${hours.length} timm${hours.length === 1 ? 'e' : 'ar'}: `
+    + `<b>${spans}</b>.<br>`
+    + `Optimeraren sätter <em>Battery First</em> dessa timmar för att ladda batteriet istället för att exportera.`
+  );
+  el.style.display = '';
 }
 
 function applyTouSuggestion() {

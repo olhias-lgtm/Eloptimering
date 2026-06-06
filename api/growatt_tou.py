@@ -1081,11 +1081,29 @@ def _lp_dispatch(price_h: dict, solar_h: dict,
         committed_discharge.add(dh)
         cur_soc = trial   # update running SoC reference for next iteration
 
+    # Negative export rate hours: spot + nätnytta < 0 means exporting actually costs money.
+    # Force Battery First for any such hour that isn't already assigned, so solar surplus
+    # fills the battery rather than being exported at a loss.
+    neg_export_hours = []
+    for h in range(24):
+        if exp_rate[h] >= 0:
+            continue
+        neg_export_hours.append(h)
+        if h in committed_charge or h in committed_discharge:
+            continue
+        modes[h] = 1   # Battery First — maximise storage, minimise export
+        committed_charge.add(h)
+
     n_charge    = len(committed_charge)
     n_discharge = len(committed_discharge)
+    if neg_export_hours:
+        print(f"[tou lp] negative export rate hours (spot+nätnytta<0): {neg_export_hours} "
+              f"→ forced Battery First")
     print(f"[tou lp] scheduled {n_charge} Battery First + {n_discharge} Grid First hours "
           f"from {len(pairs)} candidate pairs")
-    return dict(modes)
+    result = dict(modes)
+    result['_neg_export_hours'] = neg_export_hours
+    return result
 
 
 def _simulate_battery(solar_h: dict, load_h,
@@ -1157,7 +1175,11 @@ def _simulate_battery(solar_h: dict, load_h,
             import_rate_ore = spot * 100 + FIXED_IMPORT_ORE
             export_rate_ore = spot * 100 + EXPORT_BONUS_ORE
             total_cost_kr  += import_kwh * import_rate_ore / 100
-            total_earn_kr  += export_kwh * export_rate_ore / 100
+            # When export rate is negative (spot + nätnytta < 0), model as curtailment:
+            # earn = 0 rather than negative. The Battery First mode above already minimises
+            # export during these hours; any remaining surplus is treated as wasted kWh.
+            if export_rate_ore > 0:
+                total_earn_kr += export_kwh * export_rate_ore / 100
             # Savings = self-consumed kWh valued at full import rate
             self_kwh        = max(0.0, load - import_kwh)
             total_saved_kr += self_kwh * import_rate_ore / 100
@@ -1282,6 +1304,9 @@ def _build_suggestion(for_date: date) -> dict:
     #   • Raises SOC_FLOOR via adaptive floor (Gap 4) and Storm Watch (Gap 3)
     hour_mode = _lp_dispatch(price_by_hour, solar_by_hour, load_by_hour, soc_start,
                              soc_floor=effective_soc_floor)
+
+    # Extract negative export metadata before passing modes to simulator
+    neg_export_hours = hour_mode.pop('_neg_export_hours', [])
 
     # Merge consecutive same-mode hours into runs, skip Load First runs
     # (Load First is the inverter default; we only need segments for modes 1 and 2)
@@ -1420,6 +1445,10 @@ def _build_suggestion(for_date: date) -> dict:
         "adaptive_soc": {
             "d1_kwh":       round(d1_kwh, 1) if d1_kwh is not None else None,
             "floor_pct":    adaptive_floor_pct,
+        },
+        "neg_export": {
+            "hours":        neg_export_hours,
+            "count":        len(neg_export_hours),
         },
     }
 
