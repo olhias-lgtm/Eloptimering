@@ -5438,6 +5438,9 @@ function renderTouSuggestion(data) {
 
   _currentSuggestion = data;
   const forDate = data.for_date || '';
+  // Human-readable day label for the suggestion's target date
+  const _tmrw = (() => { const d = new Date(); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10); })();
+  const dayLabel = forDate === todayStr() ? 'idag' : forDate === _tmrw ? 'imorgon' : forDate;
   badge.textContent = forDate;
   applyBtn.style.display = '';
 
@@ -5515,7 +5518,7 @@ function renderTouSuggestion(data) {
     headlineEl.style.borderColor  = hlBorder;
     headlineEl.style.color        = hlColor;
     headlineEl.innerHTML = (
-      `<span style="font-size:1.05rem;font-weight:700">💰 ~${fmt(total, 0)} kr imorgon</span>`
+      `<span style="font-size:1.05rem;font-weight:700">💰 ~${fmt(total, 0)} kr ${dayLabel}</span>`
       + `<span style="opacity:0.7;margin-left:10px;font-size:0.78rem">`
       + `${fmt(k.earn_kr, 1)} kr export · ${fmt(k.saved_kr, 1)} kr besparing`
       + `</span>`
@@ -5604,7 +5607,7 @@ function _renderStormWatchBanner(sw, adap) {
     // Elevated adaptive floor but no storm — quieter notice
     text.innerHTML = (
       `🌥 <b>Adaptivt SoC-golv: ${adaptFloor}%</b>`
-      + ` — prognos visar ${d1Kwh.toFixed(1)} kWh sol imorgon.`
+      + ` — prognos visar ${d1Kwh.toFixed(1)} kWh sol ${dayLabel}.`
       + ` Batteriet behåller reserv för kvällen.`
     );
     banner.style.background   = 'rgba(96,165,250,0.07)';
@@ -5623,10 +5626,13 @@ function _renderNegExportNotice(neg) {
   if (!el || !text) return;
   const hours = neg?.hours;
   if (!hours || hours.length === 0) { el.style.display = 'none'; return; }
+  const _fd = _currentSuggestion?.for_date || '';
+  const _tmrw2 = (() => { const d = new Date(); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10); })();
+  const _negDayLabel = _fd === todayStr() ? 'idag' : _fd === _tmrw2 ? 'imorgon' : _fd;
   const fmt = h => `${String(h).padStart(2,'0')}:00–${String(h+1).padStart(2,'0')}:00`;
   const spans = hours.map(fmt).join(', ');
   text.innerHTML = (
-    `⚡ <b>Negativt exportpris</b> imorgon — spot + nätnytta &lt; 0 under ${hours.length} timm${hours.length === 1 ? 'e' : 'ar'}: `
+    `⚡ <b>Negativt exportpris</b> ${_negDayLabel} — spot + nätnytta &lt; 0 under ${hours.length} timm${hours.length === 1 ? 'e' : 'ar'}: `
     + `<b>${spans}</b>.<br>`
     + `Optimeraren sätter <em>Battery First</em> dessa timmar för att ladda batteriet istället för att exportera.`
   );
