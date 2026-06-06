@@ -3,11 +3,13 @@
   "builds": [
     { "src": "index.html",        "use": "@vercel/static" },
     { "src": "architecture.html", "use": "@vercel/static" },
+    { "src": "setup.html",        "use": "@vercel/static" },
     { "src": "api/*.py",          "use": "@vercel/python" }
   ],
   "routes": [
     { "src": "/api/(.*)",      "dest": "/api/$1.py" },
     { "src": "/architecture",  "dest": "/architecture.html" },
+    { "src": "/setup",         "dest": "/setup.html" },
     { "src": "/(.*)",          "dest": "/index.html" }
   ],
   "crons": [

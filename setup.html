@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Setup — Growatt Electricity Dashboard</title>
+  <style>
+    :root {
+      --bg:          #0f1117;
+      --surface:     #151b27;
+      --surface2:    #1a2030;
+      --border:      #1e2a3a;
+      --text:        #e2e8f0;
+      --text-muted:  #64748b;
+      --accent:      #38bdf8;
+      --green:       #34d399;
+      --amber:       #f59e0b;
+      --red:         #f87171;
+      --purple:      #a78bfa;
+      --mono:        'JetBrains Mono', 'Fira Mono', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 0.92rem;
+      line-height: 1.65;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Layout ── */
+    .page {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 2.5rem 1.5rem 5rem;
+    }
+
+    /* ── Header ── */
+    .page-header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .page-header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 0.35rem;
+    }
+    .page-header p { color: var(--text-muted); font-size: 0.85rem; }
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      margin-bottom: 1.2rem;
+    }
+    .back-link:hover { color: var(--accent); }
+
+    /* ── Section ── */
+    section { margin-bottom: 2.5rem; }
+    h2 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    h2::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+      margin-left: 0.5rem;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+      margin-bottom: 1rem;
+    }
+    .card-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 0.9rem;
+    }
+
+    /* ── Param table ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th {
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      text-align: left;
+      padding: 4px 8px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 6px 8px;
+      font-size: 0.82rem;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    td.param {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--accent);
+      white-space: nowrap;
+      padding-right: 16px;
+    }
+    td.val {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: #fde68a;
+      white-space: nowrap;
+    }
+    td.desc { color: var(--text-muted); font-size: 0.8rem; }
+
+    /* ── Code block ── */
+    pre {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 1rem 1.2rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: #c4b5fd;
+      overflow-x: auto;
+      margin: 0.6rem 0;
+      line-height: 1.7;
+    }
+    pre .comment { color: var(--text-muted); }
+    pre .key     { color: var(--accent); }
+    pre .val     { color: #fde68a; }
+    pre .str     { color: var(--green); }
+
+    /* ── Badge ── */
+    .badge {
+      display: inline-block;
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 1px 7px;
+      border-radius: 999px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .badge-required { background: rgba(248,113,113,0.15); color: var(--red); }
+    .badge-optional { background: rgba(52,211,153,0.13); color: var(--green); }
+    .badge-ui       { background: rgba(56,189,248,0.13); color: var(--accent); }
+    .badge-code     { background: rgba(167,139,250,0.15); color: var(--purple); }
+
+    /* ── Alert box ── */
+    .alert {
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      font-size: 0.82rem;
+      margin: 0.8rem 0;
+      display: flex;
+      gap: 0.6rem;
+      align-items: flex-start;
+    }
+    .alert-info  { background: rgba(56,189,248,0.08);  border-left: 3px solid var(--accent); }
+    .alert-warn  { background: rgba(245,158,11,0.09);  border-left: 3px solid var(--amber); }
+    .alert-ok    { background: rgba(52,211,153,0.08);  border-left: 3px solid var(--green); }
+
+    /* ── Step list ── */
+    ol.steps { padding-left: 1.4rem; }
+    ol.steps li {
+      margin-bottom: 0.55rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    ol.steps li strong { color: var(--text); }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      td.val, td.param { white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <a class="back-link" href="/">← Tillbaka till dashboarden</a>
+
+  <div class="page-header">
+    <h1>⚡ Growatt Dashboard — Installationsguide</h1>
+    <p>Allt du behöver ändra för att köra den här dashboarden med din egen installation.
+       Kod och infrastruktur är generisk — värdena nedan är specifika för den ursprungliga
+       installationen och måste anpassas till din.</p>
+  </div>
+
+  <!-- ───────────────────────────────── PREREQUISITES ── -->
+  <section>
+    <h2>🧰 Förutsättningar</h2>
+    <div class="card">
+      <div class="card-title">Krav för att komma igång</div>
+      <ol class="steps">
+        <li><strong>Growatt-konto</strong> — inverter registrerad på <a href="https://server.growatt.com" target="_blank">server.growatt.com</a>. Notiera ditt användarnamn och lösenord.</li>
+        <li><strong>Supabase-projekt (gratis tier räcker)</strong> — skapa på <a href="https://supabase.com" target="_blank">supabase.com</a>. Du behöver Project URL och anon key.</li>
+        <li><strong>Vercel-konto (Hobby tier räcker)</strong> — deployas via <a href="https://vercel.com" target="_blank">vercel.com</a>. Python Serverless Functions används.</li>
+        <li><strong>Supabase-tabeller skapade</strong> — kör SQL-migrationerna i ordningen i databasen (se README.md).</li>
+      </ol>
+    </div>
+    <div class="alert alert-warn">
+      ⚠️ Hobby-planen på Vercel tillåter max <strong>12 serverless functions</strong>. Projektet använder exakt 12 — lägg inte till fler <code>.py</code>-filer under <code>api/</code> utan att ta bort en befintlig.
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────── ENV VARS ── -->
+  <section>
+    <h2>🔐 Miljövariabler (Vercel)</h2>
+    <p style="color:var(--text-muted);font-size:0.83rem;margin-bottom:0.9rem">
+      Sätt dessa under <em>Vercel → Project → Settings → Environment Variables</em>.
+      De är aldrig synliga i frontend-koden.
+    </p>
+    <div class="card">
+      <table>
+        <tr><th>Variabel</th><th>Värde</th><th>Beskrivning</th></tr>
+        <tr>
+          <td class="param">GROWATT_USER</td>
+          <td class="val">"ditt@email.com"</td>
+          <td class="desc">Ditt Growatt-kontos inloggningsemail <span class="badge badge-required">krävs</span></td>
+        </tr>
+        <tr>
+          <td class="param">GROWATT_PASS</td>
+          <td class="val">"ditt-lösenord"</td>
+          <td class="desc">Growatt-lösenord (MD5-hashat av appen automatiskt) <span class="badge badge-required">krävs</span></td>
+        </tr>
+        <tr>
+          <td class="param">SUPABASE_URL</td>
+          <td class="val">"https://xxx.supabase.co"</td>
+          <td class="desc">Din Supabase-projektets URL <span class="badge badge-required">krävs</span></td>
+        </tr>
+        <tr>
+          <td class="param">SUPABASE_ANON_KEY</td>
+          <td class="val">"eyJ..."</td>
+          <td class="desc">Supabase anon/public key — används av serverless functions <span class="badge badge-required">krävs</span></td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="alert alert-info">
+      ℹ️ Supabase anon key är även hårdkodad i <code>index.html</code> (rad ~1576) för direkta
+      frontend-läsningar. Anon key är publik per design — den kan läsa data men skriver
+      inget utan RLS-policy. Byt ut <code>SUPABASE_URL</code> och <code>SUPABASE_KEY</code>-konstanterna
+      i index.html till dina egna.
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────── BACKEND CONSTANTS ── -->
+  <section>
+    <h2>🐍 Backend — konstanter att byta (Python)</h2>
+    <p style="color:var(--text-muted);font-size:0.83rem;margin-bottom:0.9rem">
+      Dessa värden finns direkt i källkoden och måste ändras med en texteditor.
+    </p>
+
+    <div class="card">
+      <div class="card-title">Plats &amp; solpaneler — 3 filer</div>
+      <div class="alert alert-info" style="margin-bottom:0.8rem">
+        Samma konstanter finns i <code>api/solar_model.py</code>, <code>api/growatt_tou.py</code>
+        och <code>api/weather.py</code> — ändra i alla tre.
+      </div>
+      <table>
+        <tr><th>Konstant</th><th>Ursprungsvärde</th><th>Vad du ändrar till</th></tr>
+        <tr>
+          <td class="param">LAT</td>
+          <td class="val">59.28</td>
+          <td class="desc">Din latitud (WGS84). Hitta via maps.google.com → högerklick → "Vad finns här?"</td>
+        </tr>
+        <tr>
+          <td class="param">LON</td>
+          <td class="val">18.00</td>
+          <td class="desc">Din longitud (WGS84).</td>
+        </tr>
+        <tr>
+          <td class="param">PANEL_TILT</td>
+          <td class="val">45</td>
+          <td class="desc">Panelernas lutning i grader (0° = horisontellt, 90° = vertikalt).</td>
+        </tr>
+        <tr>
+          <td class="param">PANEL_AZ</td>
+          <td class="val">−68</td>
+          <td class="desc">Azimut från söder i grader. 0° = rakt söderut, −90° = öster, +90° = väster. Negativt = öst om syd.</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Batteri &amp; tariff — <code>api/growatt_tou.py</code> (rad ~684–693)</div>
+      <table>
+        <tr><th>Konstant</th><th>Ursprungsvärde</th><th>Vad du ändrar till</th></tr>
+        <tr>
+          <td class="param">BATT_KWH</td>
+          <td class="val">20.0</td>
+          <td class="desc">Batteriets användbara kapacitet i kWh. Originalinstallation: 4 × 5 kWh APX.</td>
+        </tr>
+        <tr>
+          <td class="param">AREA</td>
+          <td class="val">"SE3"</td>
+          <td class="desc">Elprisområde. Sverige: SE1–SE4. SE1=Luleå, SE2=Sundsvall, SE3=Stockholm, SE4=Malmö.</td>
+        </tr>
+        <tr>
+          <td class="param">NATAVG_IN_ORE</td>
+          <td class="val">26.0</td>
+          <td class="desc">Nätavgift inmatning öre/kWh — hämta från din nätoperatörs prislista.</td>
+        </tr>
+        <tr>
+          <td class="param">ENERGISKATT_ORE</td>
+          <td class="val">54.25</td>
+          <td class="desc">Energiskatt öre/kWh — fastställs av riksdagen varje år.</td>
+        </tr>
+        <tr>
+          <td class="param">FORTUM_ORE</td>
+          <td class="val">4.9</td>
+          <td class="desc">Elhandelns rörliga påslag öre/kWh — beror på din elleverantör.</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Growatt fallback-värden — <code>_growatt.py</code> (rad ~317–319)</div>
+      <div class="alert alert-ok" style="margin-bottom:0.8rem">
+        ✅ Dessa behövs normalt <strong>inte</strong> — plant_id och mix_serial hämtas automatiskt vid inloggning.
+        De används bara om Growatts API inte returnerar dem. Du kan lämna dem tomma eller sätta dina egna som extra säkerhet.
+      </div>
+      <table>
+        <tr><th>Konstant</th><th>Ursprungsvärde</th><th>Hitta ditt värde</th></tr>
+        <tr>
+          <td class="param">plant_id fallback</td>
+          <td class="val">"10119069"</td>
+          <td class="desc">Hittas i URL:en på server.growatt.com när du är inloggad och tittar på din anläggning.</td>
+        </tr>
+        <tr>
+          <td class="param">mix_serial fallback</td>
+          <td class="val">"KJN6EXV00L"</td>
+          <td class="desc">Inverterns serienummer — finns på en etikett på inverterns sida, och i Growatt-appen.</td>
+        </tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────── FRONTEND CONFIG ── -->
+  <section>
+    <h2>🖥️ Frontend — konfigurationspanelen (UI)</h2>
+    <p style="color:var(--text-muted);font-size:0.83rem;margin-bottom:0.9rem">
+      Dessa inställningar finns i dashboardens ⚙️ Inställningar-panel och sparas i
+      <code>localStorage</code>. Du kan ändra dem direkt i webbläsaren utan att ändra kod.
+      Standardvärdena i källkoden (<code>index.html</code>) bör ändå uppdateras för att
+      vara korrekta vid första laddning på en ny enhet.
+    </p>
+    <div class="card">
+      <table>
+        <tr><th>Fält</th><th>Ursprungsvärde</th><th>Beskrivning</th></tr>
+        <tr>
+          <td class="param">Prisområde</td>
+          <td class="val">SE3</td>
+          <td class="desc">SE1–SE4 beroende på din ort. <span class="badge badge-ui">UI</span></td>
+        </tr>
+        <tr>
+          <td class="param">Solkapacitet (kWp)</td>
+          <td class="val">11.0</td>
+          <td class="desc">Installerad toppeffekt i kilowatt-peak. <span class="badge badge-ui">UI</span></td>
+        </tr>
+        <tr>
+          <td class="param">Batterikapacitet (kWh)</td>
+          <td class="val">20.0</td>
+          <td class="desc">Användbar batterikapacitet kWh. Måste matcha BATT_KWH i backend. <span class="badge badge-ui">UI</span></td>
+        </tr>
+        <tr>
+          <td class="param">Fast avgift (Ellevio)</td>
+          <td class="val">390 kr/mån</td>
+          <td class="desc">Nätabonnemangets fasta månadsavgift. Ändrades till 590 kr 2026-06-01 i ursprungsinstallationen. <span class="badge badge-ui">UI</span></td>
+        </tr>
+        <tr>
+          <td class="param">Nätavgift import (öre/kWh)</td>
+          <td class="val">26.0</td>
+          <td class="desc">Rörlig nätavgift per förbrukad kWh. Hämta från din nätoperatör. <span class="badge badge-ui">UI</span></td>
+        </tr>
+        <tr>
+          <td class="param">Nätnytta hög/låg (öre/kWh)</td>
+          <td class="val">5.50 / 4.12</td>
+          <td class="desc">Nätoperatörens exportkompensation — beror på din operatör och avtal. <span class="badge badge-ui">UI</span></td>
+        </tr>
+        <tr>
+          <td class="param">Energiskatt (öre/kWh)</td>
+          <td class="val">54.875</td>
+          <td class="desc">Statlig energiskatt — ändras 1 januari varje år. <span class="badge badge-ui">UI</span></td>
+        </tr>
+        <tr>
+          <td class="param">Elhandel påslag (öre/kWh)</td>
+          <td class="val">6.96</td>
+          <td class="desc">Elleverantörens rörliga påslag. Beror på ditt avtal. <span class="badge badge-ui">UI</span></td>
+        </tr>
+        <tr>
+          <td class="param">Elhandel fast (kr/mån)</td>
+          <td class="val">55.20</td>
+          <td class="desc">Elleverantörens fasta månadsavgift. <span class="badge badge-ui">UI</span></td>
+        </tr>
+        <tr>
+          <td class="param">Panellutning (°)</td>
+          <td class="val">45</td>
+          <td class="desc">Används i solmodellen för GTI-beräkning. Måste matcha backend PANEL_TILT. <span class="badge badge-ui">UI</span></td>
+        </tr>
+        <tr>
+          <td class="param">Panelazimut (°)</td>
+          <td class="val">−68</td>
+          <td class="desc">0=söder, −90=öster, +90=väster. Negativt = öst om syd. Måste matcha PANEL_AZ. <span class="badge badge-ui">UI</span></td>
+        </tr>
+        <tr>
+          <td class="param">Batteriverkningsgrad (%)</td>
+          <td class="val">95</td>
+          <td class="desc">Round-trip-effektivitet. LiFePO4 ≈ 95 %. <span class="badge badge-ui">UI</span></td>
+        </tr>
+        <tr>
+          <td class="param">Start-SoC (%)</td>
+          <td class="val">50</td>
+          <td class="desc">Startantagande i SoC-simulering för dagar utan historik. <span class="badge badge-ui">UI</span></td>
+        </tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────── LIFESTYLE ── -->
+  <section>
+    <h2>🏠 Hushållsanpassningar (kod)</h2>
+    <p style="color:var(--text-muted);font-size:0.83rem;margin-bottom:0.9rem">
+      Dessa är inbyggda i <code>index.html</code> och speglar specifika vanor och rutiner
+      i ursprungshushållet. De kräver en kodredigering för att ändras, men är tydligt
+      markerade med kommentarer.
+    </p>
+
+    <div class="card">
+      <div class="card-title">Städdag-schema — <code>isStaddag()</code> (rad ~2165)</div>
+      <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.8rem">
+        Detekterar varannan-torsdag som städdag baserat på ISO-veckonummer.
+        Ankarveckan är <strong>2025-W24 (12 juni 2025)</strong> = jämna veckor.
+        Ändra ankaret om din städdag infaller på udda veckor, annan veckodag, eller annan frekvens.
+      </p>
+      <pre><span class="comment">// Ändra dessa rader i isStaddag():</span>
+<span class="key">if</span> (dt.getDay() !== <span class="val">4</span>) <span class="key">return</span> <span class="val">false</span>;  <span class="comment">// 4 = torsdag (0=sön … 6=lör)</span>
+<span class="key">return</span> isoWeek % <span class="val">2</span> === <span class="val">0</span>;  <span class="comment">// 0=jämna, 1=udda veckor</span></pre>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Tariff-tidslinje — <code>TARIFF_SCHEDULE</code> (rad ~1484)</div>
+      <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.8rem">
+        Anger när fast avgift och nätavgift ändrades. Används för att auto-fylla
+        rätt värden i inställningspanelen beroende på vilket datum du tittar på.
+        Lägg till en ny rad när din nätoperatör ändrar taxan.
+      </p>
+      <pre><span class="key">const</span> TARIFF_SCHEDULE = [
+  { from: <span class="str">'2026-06-01'</span>, fastAvgift: <span class="val">590</span>, natavgIn: <span class="val">26.0</span> },
+  { from: <span class="str">'2000-01-01'</span>, fastAvgift: <span class="val">390</span>, natavgIn: <span class="val">26.0</span> },  <span class="comment">// baseline</span>
+];</pre>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Hushållsapparater &amp; tidsfönster — <code>APPLIANCES</code> (rad ~2209)</div>
+      <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.8rem">
+        Varje apparat har förbrukningsprofil och tillåtna tidsfönster per dagtyp
+        (vardag / helg / helgdag). Anpassa till dina vanor — t.ex. när du diskar,
+        tvättar, lagar mat.
+      </p>
+      <table>
+        <tr><th>Apparat</th><th>kWh/cykel</th><th>Timmar/cykel</th><th>Vardag: fönster</th></tr>
+        <tr>
+          <td class="param">Diskmaskin</td>
+          <td class="val">1.2</td>
+          <td class="val">3.5</td>
+          <td class="desc">07–11 (frukost) eller 19–23 (middag)</td>
+        </tr>
+        <tr>
+          <td class="param">Tvättmaskin</td>
+          <td class="val">0.8</td>
+          <td class="val">3.0</td>
+          <td class="desc">07–21</td>
+        </tr>
+        <tr>
+          <td class="param">Torktumlare</td>
+          <td class="val">2.5</td>
+          <td class="val">1.0</td>
+          <td class="desc">07–22</td>
+        </tr>
+        <tr>
+          <td class="param">Ugn</td>
+          <td class="val">1.5</td>
+          <td class="val">1.0</td>
+          <td class="desc">11–21 (lunch eller middag)</td>
+        </tr>
+        <tr>
+          <td class="param">Dammsugare</td>
+          <td class="val">0.3</td>
+          <td class="val">0.5</td>
+          <td class="desc">08–20</td>
+        </tr>
+      </table>
+      <p style="font-size:0.78rem;color:var(--text-muted);margin-top:0.7rem">
+        Förbrukningsvärdena är avrundade typvärden — se din apparats etiketter eller
+        Energimyndighetens databas för exakta mätvärden.
+      </p>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────── CRON / VERCEL ── -->
+  <section>
+    <h2>⏰ Cron-jobb (vercel.json)</h2>
+    <p style="font-size:0.83rem;color:var(--text-muted);margin-bottom:0.9rem">
+      Samtliga cron-jobb körs i UTC. Justera om du befinner dig utanför CET/CEST-zonen.
+    </p>
+    <div class="card">
+      <table>
+        <tr><th>Schema (UTC)</th><th>Endpoint</th><th>Syfte</th></tr>
+        <tr><td class="param">0 1 * * *</td><td class="val">/api/collect?action=autofill&days=3</td><td class="desc">Nattlig bakåtfyllning av chartdata</td></tr>
+        <tr><td class="param">0 3 * * *</td><td class="val">/api/weather</td><td class="desc">Daglig vädercache-uppdatering</td></tr>
+        <tr><td class="param">0 4 * * *</td><td class="val">/api/solar_model?action=build</td><td class="desc">Bygg om solmodellen (90 dagars data)</td></tr>
+        <tr><td class="param">0 6 * * *</td><td class="val">/api/save_prices?area=SE3</td><td class="desc">Hämta dagens spotpriser</td></tr>
+        <tr><td class="param">0 8 * * *</td><td class="val">/api/grid?action=fetch</td><td class="desc">Hämta nationell elproduktionsmix</td></tr>
+        <tr><td class="param">0 13 * * *</td><td class="val">/api/save_prices?area=SE3&date=tomorrow</td><td class="desc">Hämta morgondagens spotpriser (efter Nordpool)</td></tr>
+        <tr><td class="param">0 20 * * *</td><td class="val">/api/growatt_tou?action=notify_reset</td><td class="desc">Återställ TOU-notifieringstillstånd</td></tr>
+        <tr><td class="param">10 22 * * *</td><td class="val">/api/growatt_tou?action=build_suggest</td><td class="desc">Bygg TOU-förslag för morgondagen</td></tr>
+      </table>
+    </div>
+    <div class="alert alert-warn">
+      ⚠️ Ändra <code>area=SE3</code> till ditt prisområde i de två <code>save_prices</code>-cronerna och
+      i konstanten <code>AREA</code> i <code>api/growatt_tou.py</code>.
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────── CHECKLIST ── -->
+  <section>
+    <h2>✅ Checklista för ny installation</h2>
+    <div class="card">
+      <ol class="steps">
+        <li>Forka repot till ditt eget GitHub-konto.</li>
+        <li>Skapa ett nytt Supabase-projekt och kör SQL-migrationerna från <code>README.md</code>.</li>
+        <li>Sätt de 4 miljövariablerna i Vercel (GROWATT_USER, GROWATT_PASS, SUPABASE_URL, SUPABASE_ANON_KEY).</li>
+        <li>Byt ut <code>SUPABASE_URL</code> och <code>SUPABASE_KEY</code> i <code>index.html</code> (~rad 1576) till dina egna.</li>
+        <li>Ändra <code>LAT</code>, <code>LON</code>, <code>PANEL_TILT</code>, <code>PANEL_AZ</code> i <strong>tre</strong> Python-filer: <code>solar_model.py</code>, <code>growatt_tou.py</code>, <code>weather.py</code>.</li>
+        <li>Ändra <code>BATT_KWH</code> och tariffkonstanterna i <code>growatt_tou.py</code>.</li>
+        <li>Ändra <code>area=SE3</code> till ditt elprisområde i <code>vercel.json</code>.</li>
+        <li>Uppdatera standard-värdena i konfigurationspanelens HTML-inputs i <code>index.html</code> (~rad 1093–1110).</li>
+        <li>Anpassa <code>TARIFF_SCHEDULE</code> (~rad 1484) och <code>APPLIANCES</code> (~rad 2209) till dina egna tariffer och vanor.</li>
+        <li>Deploya till Vercel — cron-jobben aktiveras automatiskt.</li>
+        <li>Testa <code>GET /api/status</code> — kontrollera att <code>logged_in: true</code> och att <code>env_ok: true</code> returneras.</li>
+        <li>Trigga <code>GET /api/collect</code> manuellt för att fylla in de första datapunkterna.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────── FOOTER ── -->
+  <div style="border-top:1px solid var(--border);padding-top:1.2rem;margin-top:1rem;font-size:0.78rem;color:var(--text-muted);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+    <span>Growatt Electricity Dashboard — öppen källkod</span>
+    <a href="https://github.com/olhias-lgtm/Eloptimering" target="_blank">GitHub →</a>
+  </div>
+
+</div>
+</body>
+</html>
