@@ -5473,9 +5473,18 @@ function renderTouSuggestion(data) {
   const applyBtn  = document.getElementById('suggest-apply-btn');
   const reasoning = document.getElementById('suggest-reasoning');
 
-  if (!data.ok || !data.segments || !data.segments.length) {
-    wrap.innerHTML = `<p style="color:var(--text-muted);font-size:12px">Inget förslag tillgängligt ännu — genereras 00:05 varje natt.</p>`;
+  if (!data.ok) {
+    wrap.innerHTML = `<p style="color:var(--text-muted);font-size:12px">Inget förslag tillgängligt ännu — genereras 00:10 varje natt.</p>`;
     badge.textContent = 'ej tillgänglig';
+    applyBtn.style.display = 'none';
+    const hl = document.getElementById('suggest-headline');
+    if (hl) hl.style.display = 'none';
+    return;
+  }
+  if (!data.segments || !data.segments.length) {
+    const _fd = data.for_date || '';
+    wrap.innerHTML = `<p style="color:var(--text-muted);font-size:12px">✅ Analyserat — ingen lönsam arbitrage hittad för ${_fd}. Prisdifferensen är för liten för att motivera Grid First.</p>`;
+    badge.textContent = _fd;
     applyBtn.style.display = 'none';
     const hl = document.getElementById('suggest-headline');
     if (hl) hl.style.display = 'none';
