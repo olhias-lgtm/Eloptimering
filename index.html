@@ -4482,14 +4482,15 @@ function startLivePolling() {
   async function tick() {
     // Skip the API call if the browser tab is hidden — resume when visible again
     if (document.visibilityState === 'hidden') {
-      _liveTimer = setTimeout(tick, 60_000);
+      _liveTimer = setTimeout(tick, 300_000);
       return;
     }
     await loadLive();
-    // Back off on consecutive failures: 60s → 2min → 5min → 10min, then hold
-    const BACKOFF = [60, 120, 300, 600];
+    // Poll every 5 min — matches the cron-job.org collect cadence so each poll
+    // fetches genuinely fresh data. Back off on failures: 5min → 10min → hold.
+    const BACKOFF = [300, 600];
     const delaySec = _liveFailCount === 0
-      ? 60
+      ? 300
       : BACKOFF[Math.min(_liveFailCount - 1, BACKOFF.length - 1)];
     if (_liveFailCount > 0) {
       console.info(`[Live] backoff ${delaySec}s (${_liveFailCount} consecutive failures)`);
