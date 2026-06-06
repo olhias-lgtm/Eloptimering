@@ -10,6 +10,8 @@ import urllib.parse
 import urllib.request
 from datetime import date, datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler
+import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from _cron_health import record_run
 
 SUPABASE_URL  = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY  = os.environ.get("SUPABASE_ANON_KEY", "")
@@ -65,13 +67,16 @@ class handler(BaseHTTPRequestHandler):
         try:
             prices = _fetch_prices(date_str, area)
             if not prices:
+                record_run("save_prices", ok=False, error="no prices returned")
                 self._send({"ok": False, "error": "no prices returned"}, 404)
                 return
             _upsert_prices(prices, area)
+            record_run("save_prices", ok=True)
             self._send({"ok": True, "date": date_str, "area": area,
                         "slots": len(prices)})
         except Exception as e:
             print(f"[save_prices] {date_str}: {e}")
+            record_run("save_prices", ok=False, error=str(e))
             self._send({"ok": False, "error": str(e)}, 500)
 
     def _send(self, data, status=200):

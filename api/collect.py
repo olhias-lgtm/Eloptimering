@@ -24,6 +24,7 @@ from urllib.parse import urlparse, parse_qs
 
 from _growatt import get_session
 from _schema import CHART_FIELD_MAP, CHART_NULL_FIELDS
+from _cron_health import record_run
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
@@ -685,9 +686,13 @@ class handler(BaseHTTPRequestHandler):
                 days = 2
             try:
                 status, resp = _do_autofill(days, dry_run)
+                if not dry_run:
+                    record_run("collect_autofill", ok=(status == 200),
+                               error=resp.get("error") if status != 200 else None)
             except Exception as e:
                 print(f"[autofill] error: {e}")
                 status, resp = 500, {"ok": False, "error": str(e)}
+                record_run("collect_autofill", ok=False, error=str(e))
             self._send(resp, status=status)
             return
 

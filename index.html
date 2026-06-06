@@ -1209,6 +1209,11 @@
     </div>
   </div>
 
+  <!-- Stale data warning (shown when autofill cron hasn't run successfully in >26h) -->
+  <div id="stale-banner" style="display:none;margin-bottom:10px;padding:8px 14px;border-radius:4px;border:1px solid rgba(251,146,60,0.4);background:rgba(251,146,60,0.07);font-size:0.78rem;color:#fb923c">
+    ⚠ <span id="stale-banner-text"></span>
+  </div>
+
   <!-- Forecast notice -->
   <div class="forecast-notice" id="forecast-notice" style="display:none">
     📈 <span id="forecast-notice-text">Tomorrow's prices available — forecast shown for rest of today and tomorrow</span>
@@ -1669,6 +1674,22 @@ async function loadStatus() {
     } else {
       dot.className = 'status-dot err';
       txt.textContent = '.env not configured';
+    }
+    // Stale data check — warn if autofill cron hasn't succeeded in >26h
+    const staleBanner = document.getElementById('stale-banner');
+    const staleText   = document.getElementById('stale-banner-text');
+    const health = s.cron_health || {};
+    const autofill = health['collect_autofill'];
+    if (staleBanner && staleText && autofill) {
+      const lastOk = autofill.last_ok_at ? new Date(autofill.last_ok_at) : null;
+      const ageH = lastOk ? (Date.now() - lastOk.getTime()) / 3600000 : Infinity;
+      if (!autofill.last_ok || ageH > 26) {
+        const since = lastOk ? lastOk.toLocaleString('sv-SE', {hour:'2-digit', minute:'2-digit', day:'numeric', month:'short'}) : 'okänt';
+        staleText.textContent = `Energidata kan vara inaktuell — senaste lyckade insamling: ${since}.${autofill.last_error ? ' Fel: ' + autofill.last_error.slice(0,80) : ''}`;
+        staleBanner.style.display = '';
+      } else {
+        staleBanner.style.display = 'none';
+      }
     }
   } catch(e) {
     dot.className = 'status-dot err';

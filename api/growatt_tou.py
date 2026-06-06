@@ -44,6 +44,7 @@ from datetime import date, timedelta, timezone, datetime
 from http.server import BaseHTTPRequestHandler
 
 from _growatt import get_session
+from _cron_health import record_run as _record_health
 
 SERIAL = "KJN6EXV00L"
 BASE   = "https://openapi.growatt.com"
@@ -1634,9 +1635,12 @@ class handler(BaseHTTPRequestHandler):
                 result = _build_suggestion(tomorrow)
                 if result.get("ok"):
                     _save_suggestion(result)
+                _record_health("tou_suggest", ok=bool(result.get("ok")),
+                               error=result.get("error"))
                 self._send(result)
             except Exception as e:
                 print(f"[growatt_tou build_suggest] {e}")
+                _record_health("tou_suggest", ok=False, error=str(e))
                 self._send({"ok": False, "error": str(e)}, 500)
             return
 

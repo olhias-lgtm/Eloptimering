@@ -502,6 +502,13 @@ class handler(BaseHTTPRequestHandler):
 
         # 3. Fetch fresh from both APIs
         try:
+            import sys as _sys, os as _os
+            _sys.path.insert(0, _os.path.dirname(_os.path.dirname(__file__)))
+            from _cron_health import record_run as _record_run
+        except Exception:
+            _record_run = lambda *a, **kw: None
+
+        try:
             om    = _fetch_om()
             metno = _fetch_metno()
             data, sb_rows = _build_combined(om, metno)
@@ -512,9 +519,11 @@ class handler(BaseHTTPRequestHandler):
                 _save_to_supabase(sb_rows)
             except Exception as e:
                 print(f"[weather] save error (non-fatal): {e}")
+            _record_run("weather", ok=True)
             self._send(data)
         except Exception as e:
             print(f"[weather] fetch error: {e}")
+            _record_run("weather", ok=False, error=str(e))
             # Serve stale cache if available (in-process first, then Supabase)
             if _cache["data"]:
                 self._send(_cache["data"])
