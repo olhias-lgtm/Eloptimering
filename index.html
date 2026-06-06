@@ -138,6 +138,39 @@
     margin-bottom: 18px;
   }
 
+  .kpi-row-ratio {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .kpi-ratio {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left-width: 3px;
+    padding: 10px 14px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .kpi-ratio-value {
+    font-size: 1.45rem;
+    font-weight: 700;
+    line-height: 1;
+    min-width: 52px;
+  }
+  .kpi-ratio-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+  .kpi-ratio-sublabel {
+    font-size: 0.65rem;
+    color: var(--dim);
+    margin-top: 2px;
+  }
+
   .kpi {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -709,6 +742,7 @@
   @media (max-width: 900px) {
     .kpi-row { grid-template-columns: repeat(3, 1fr); }
     .kpi-row-cost { grid-template-columns: repeat(3, 1fr); }
+    .kpi-row-ratio { grid-template-columns: 1fr 1fr; }
     .chart-grid { grid-template-columns: 1fr; }
     .chart-grid-bottom { grid-template-columns: 1fr; }
   }
@@ -772,8 +806,11 @@
     .flow-diagram    { padding: 14px 8px 10px; }
 
     /* KPI grid: 3 columns each row, compact */
-    .kpi-row      { grid-template-columns: repeat(3, 1fr); gap: 6px; }
-    .kpi-row-cost { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .kpi-row       { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .kpi-row-cost  { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .kpi-row-ratio { grid-template-columns: 1fr 1fr; gap: 6px; }
+    .kpi-ratio     { padding: 8px 10px; gap: 8px; }
+    .kpi-ratio-value { font-size: 1.2rem; min-width: 44px; }
     .card         { padding: 12px 10px; }
 
     /* Scale up flow diagram text (SVG viewBox 560 → ~360px display = 0.64×) */
@@ -1117,6 +1154,23 @@
       <div class="kpi-label">Laddning</div>
       <div class="kpi-value" id="kpi-charge" style="color:var(--charge,#42a5f5)">—</div>
       <div class="kpi-sub">kWh till batteri</div>
+    </div>
+  </div>
+  <!-- KPI row 1b: efficiency ratios -->
+  <div class="kpi-row-ratio">
+    <div class="kpi-ratio" id="kpi-ratio-selfcons">
+      <div class="kpi-ratio-value" id="kpi-selfcons-val">—</div>
+      <div>
+        <div class="kpi-ratio-label">Självförbrukning</div>
+        <div class="kpi-ratio-sublabel">solar som stannade hemma</div>
+      </div>
+    </div>
+    <div class="kpi-ratio" id="kpi-ratio-autarky">
+      <div class="kpi-ratio-value" id="kpi-autarky-val">—</div>
+      <div>
+        <div class="kpi-ratio-label">Självförsörjning</div>
+        <div class="kpi-ratio-sublabel">last täckt utan elnät</div>
+      </div>
     </div>
   </div>
   <!-- KPI row 2: cost -->
@@ -1812,6 +1866,43 @@ function renderKPIs(rows, priceMap, c, dateStr) {
     netEl.textContent = '—';
   }
   netEl.style.color = hasPrices ? 'var(--export)' : '';
+
+  // Efficiency ratio KPIs: self-consumption rate + autarky rate
+  (function _renderRatioKpis() {
+    function _ratioColor(pct) {
+      if (pct === null) return 'var(--border)';
+      if (pct >= 70)   return '#34d399';   // green
+      if (pct >= 40)   return '#fbbf24';   // amber
+      return '#f87171';                    // red
+    }
+    function _applyRatio(chipId, valId, pct) {
+      const chip = document.getElementById(chipId);
+      const val  = document.getElementById(valId);
+      if (!chip || !val) return;
+      const color = _ratioColor(pct);
+      chip.style.borderLeftColor = color;
+      if (pct === null) {
+        val.textContent = '—';
+        val.style.color = 'var(--text-muted)';
+      } else {
+        val.textContent = Math.round(pct) + '%';
+        val.style.color = color;
+      }
+    }
+
+    // Self-consumption: (solar − export) / solar — undefined when no solar
+    const scPct = solar > 0.01
+      ? Math.min(100, Math.max(0, (solar - exp) / solar * 100))
+      : null;
+
+    // Autarky: (load − import) / load — undefined when no load
+    const autarkyPct = load > 0.01
+      ? Math.min(100, Math.max(0, (load - imp) / load * 100))
+      : null;
+
+    _applyRatio('kpi-ratio-selfcons', 'kpi-selfcons-val', scPct);
+    _applyRatio('kpi-ratio-autarky',  'kpi-autarky-val',  autarkyPct);
+  })();
 
   // Auto-save daily summary to Supabase — only for fully completed days.
   // Never write forecast rows (tomorrow) or today's in-progress partial data.
@@ -3204,9 +3295,13 @@ function clearCharts() {
     }
   });
   // Reset KPIs
-  ['kpi-solar','kpi-load','kpi-import','kpi-export','kpi-discharge','kpi-cost','kpi-saved','kpi-net','kpi-buy-price','kpi-sell-price'].forEach(id => {
+  ['kpi-solar','kpi-load','kpi-import','kpi-export','kpi-discharge','kpi-cost','kpi-saved','kpi-net','kpi-buy-price','kpi-sell-price','kpi-selfcons-val','kpi-autarky-val'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.textContent = '—';
+    if (el) { el.textContent = '—'; el.style.color = ''; }
+  });
+  ['kpi-ratio-selfcons','kpi-ratio-autarky'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.borderLeftColor = 'var(--border)';
   });
   document.getElementById('interval-badge').textContent = '— intervals';
 }
