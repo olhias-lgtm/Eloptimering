@@ -682,7 +682,7 @@ def _fetch_solar_model() -> dict:
 # Battery simulation constants
 # ---------------------------------------------------------------------------
 BATT_KWH    = 20.0   # usable capacity (4 × 5 kWh APX)
-C_RATE_KW   = 12.0   # max charge/discharge (0.6 C × 20 kWh)
+C_RATE_KW   = 10.0   # max charge/discharge (practical limit; inverter nominal 12 kW)
 SOC_FLOOR   = 0.10   # 10 % minimum SoC
 SOC_CEIL    = 1.00   # 100 % maximum SoC
 CHARGE_EFF  = 0.95   # round-trip charge efficiency
