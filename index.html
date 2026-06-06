@@ -2187,13 +2187,40 @@ function getDayType(dateStr) {
 // ---------------------------------------------------------------------------
 // Appliance recommendation engine
 // ---------------------------------------------------------------------------
+// window: { weekday, weekend, holiday } — each { earliest, latestEnd }
+//   earliest:  earliest allowed start hour (inclusive)
+//   latestEnd: latest hour the cycle must have FINISHED by
+// note:  short Swedish context shown under the time on weekdays
 const APPLIANCES = [
-  { id: 'dishwasher',  name: 'Diskmaskin',      icon: '🍽️', kwh: 1.2, hours: 3.5  },
-  { id: 'washer',      name: 'Tvättmaskin',      icon: '👕', kwh: 0.8, hours: 3.0  },
-  { id: 'tumble',      name: 'Torktumlare',      icon: '🌀', kwh: 2.5, hours: 1.0  },
-  { id: 'oven',        name: 'Ugn',              icon: '🔥', kwh: 1.5, hours: 1.0  },
-  { id: 'ev',          name: 'Elbilsladdning',   icon: '🚗', kwh: 7.0, hours: 4.0  },
-  { id: 'vacuum',      name: 'Dammsugare',       icon: '🧹', kwh: 0.3, hours: 0.5  },
+  { id: 'dishwasher', name: 'Diskmaskin',   icon: '🍽️', kwh: 1.2, hours: 3.5,
+    window: { weekday: { earliest: 19, latestEnd: 23 },
+              weekend: { earliest:  8, latestEnd: 23 },
+              holiday: { earliest:  8, latestEnd: 23 } },
+    note:   { weekday: 'efter middagen', weekend: null, holiday: null } },
+
+  { id: 'washer',     name: 'Tvättmaskin',  icon: '👕', kwh: 0.8, hours: 3.0,
+    window: { weekday: { earliest:  7, latestEnd: 21 },
+              weekend: { earliest:  8, latestEnd: 21 },
+              holiday: { earliest:  8, latestEnd: 21 } },
+    note:   { weekday: 'klar innan kvällen', weekend: null, holiday: null } },
+
+  { id: 'tumble',     name: 'Torktumlare', icon: '🌀', kwh: 2.5, hours: 1.0,
+    window: { weekday: { earliest:  7, latestEnd: 22 },
+              weekend: { earliest:  7, latestEnd: 22 },
+              holiday: { earliest:  7, latestEnd: 22 } },
+    note:   { weekday: null, weekend: null, holiday: null } },
+
+  { id: 'oven',       name: 'Ugn',         icon: '🔥', kwh: 1.5, hours: 1.0,
+    window: { weekday: { earliest: 11, latestEnd: 21 },
+              weekend: { earliest: 10, latestEnd: 21 },
+              holiday: { earliest: 10, latestEnd: 21 } },
+    note:   { weekday: 'lunch eller middag', weekend: null, holiday: null } },
+
+  { id: 'vacuum',     name: 'Dammsugare',  icon: '🧹', kwh: 0.3, hours: 0.5,
+    window: { weekday: { earliest:  8, latestEnd: 20 },
+              weekend: { earliest:  9, latestEnd: 20 },
+              holiday: { earliest:  9, latestEnd: 20 } },
+    note:   { weekday: null, weekend: 'inte för tidigt', holiday: 'inte för tidigt' } },
 ];
 
 function renderApplianceCard(priceMap, c, dateStr) {
@@ -2214,72 +2241,105 @@ function renderApplianceCard(priceMap, c, dateStr) {
     return (oreKwh + c.natavgIn + c.energiskatt + c.fortumPaslag) * c.moms / 100;
   }
 
-  // Find cheapest & most expensive consecutive window of `hours` duration
-  function bestWindow(hours) {
-    const slots = Math.max(1, Math.round(hours));  // 1-hour granularity
+  // Find cheapest window of `hours` duration within an optional allowed range.
+  // constrained: search only within [earliest, latestEnd - slots].
+  // Falls back to unconstrained if no valid window exists in the allowed range.
+  function bestWindow(hours, earliest = 0, latestEnd = 24) {
+    const slots = Math.max(1, Math.round(hours));
     let best = null, worst = null;
-    for (let start = 0; start <= 24 - slots; start++) {
-      let sum = 0, count = 0;
-      for (let i = start; i < start + slots; i++) {
-        const entry = hourlyPrices.find(e => e.h === i);
-        if (entry) { sum += entry.p; count++; }
+
+    const tryRange = (from, to) => {
+      let found = null, w = null;
+      for (let start = from; start <= to - slots; start++) {
+        let sum = 0, count = 0;
+        for (let i = start; i < start + slots; i++) {
+          const entry = hourlyPrices.find(e => e.h === i);
+          if (entry) { sum += entry.p; count++; }
+        }
+        if (count < slots) continue;
+        const avg = sum / count;
+        if (found === null || avg < found.avg) found = { start, avg };
+        if (w     === null || avg > w.avg)     w     = { start, avg };
       }
-      if (count < slots) continue;
-      const avg = sum / count;
-      if (best  === null || avg < best.avg)  best  = { start, avg };
-      if (worst === null || avg > worst.avg) worst = { start, avg };
-    }
-    return { best, worst };
+      return { best: found, worst: w };
+    };
+
+    // Try constrained window first; fall back to full day if nothing found
+    let result = tryRange(earliest, latestEnd);
+    if (!result.best) result = tryRange(0, 24);
+    return result;
   }
 
   const today = todayStr();
   const isTomorrow = dateStr > today;
   const dayType = getDayType(dateStr);
+  const dtype = dayType.type; // 'weekday' | 'weekend' | 'holiday'
 
   const labelEl = document.getElementById('appliance-date-label');
   if (labelEl) {
     const dateLabel = dateStr === today ? 'idag' : isTomorrow ? 'imorgon' : dateStr;
-    // Badge colour by type
-    const badgeColor = dayType.type === 'holiday' ? 'rgba(251,146,60,0.15)' :
-                       dayType.type === 'weekend'  ? 'rgba(96,165,250,0.12)' :
-                                                     'rgba(148,163,184,0.12)';
-    const textColor  = dayType.type === 'holiday' ? '#fb923c' :
-                       dayType.type === 'weekend'  ? '#60a5fa' : 'var(--text-muted)';
+    const badgeColor = dtype === 'holiday' ? 'rgba(251,146,60,0.15)' :
+                       dtype === 'weekend'  ? 'rgba(96,165,250,0.12)' :
+                                              'rgba(148,163,184,0.12)';
+    const textColor  = dtype === 'holiday' ? '#fb923c' :
+                       dtype === 'weekend'  ? '#60a5fa' : 'var(--text-muted)';
     labelEl.innerHTML =
       `<span style="font-size:0.7rem;color:var(--text-muted);margin-right:6px">${dateLabel}</span>`
       + `<span style="font-size:0.7rem;font-weight:600;padding:2px 7px;border-radius:999px;`
       + `background:${badgeColor};color:${textColor}">${dayType.badge}</span>`;
   }
 
-  let html = '';
+  // Context note at top of rows for non-weekdays
+  const prices = hourlyPrices.map(e => e.p);
+  const pMin = Math.min(...prices), pMax = Math.max(...prices);
+  const pRange = pMax - pMin || 1;
+
+  let contextHtml = '';
+  if (dtype === 'holiday') {
+    contextHtml = `<div style="padding:6px 14px 4px;font-size:0.72rem;color:#fb923c;border-bottom:1px solid var(--border)">`
+      + `🎉 ${dayType.holidayName} — tider anpassade för helgdag</div>`;
+  } else if (dtype === 'weekend') {
+    contextHtml = `<div style="padding:6px 14px 4px;font-size:0.72rem;color:#60a5fa;border-bottom:1px solid var(--border)">`
+      + `🛋️ Helg — friare tidsplan, tider anpassade</div>`;
+  }
+
+  let rowsHtml = '';
   APPLIANCES.forEach((app, idx) => {
-    const { best, worst } = bestWindow(app.hours);
+    const win = app.window?.[dtype] ?? { earliest: 0, latestEnd: 24 };
+    const { best, worst } = bestWindow(app.hours, win.earliest, win.latestEnd);
     if (!best) return;
 
-    const slots     = Math.max(1, Math.round(app.hours));
-    const endH      = best.start + slots;
-    const startFmt  = `${String(best.start).padStart(2,'0')}:00`;
-    const endFmt    = `${String(endH % 24).padStart(2,'0')}:00`;
-    const costKr    = consumerKrKwh(best.avg) * app.kwh;
-    const costWorst = consumerKrKwh(worst.avg) * app.kwh;
-    const savings   = costWorst - costKr;
+    const slots    = Math.max(1, Math.round(app.hours));
+    const endH     = best.start + slots;
+    const startFmt = `${String(best.start).padStart(2,'0')}:00`;
+    const endFmt   = `${String(endH % 24).padStart(2,'0')}:00`;
+    const costKr   = consumerKrKwh(best.avg) * app.kwh;
+    const savings  = worst ? (consumerKrKwh(worst.avg) * app.kwh) - costKr : 0;
 
-    const isLast = idx === APPLIANCES.length - 1;
+    const isLast      = idx === APPLIANCES.length - 1;
     const borderBottom = isLast ? '' : 'border-bottom:1px solid var(--border);';
 
-    // Colour the time slot based on price quartile
-    const prices = hourlyPrices.map(e => e.p);
-    const pMin = Math.min(...prices), pMax = Math.max(...prices);
-    const pRange = pMax - pMin || 1;
-    const ratio = (best.avg - pMin) / pRange;  // 0=cheapest, 1=most expensive
+    const ratio  = (best.avg - pMin) / pRange;
     const timeFg = ratio < 0.33 ? '#22c55e' : ratio < 0.66 ? '#f59e0b' : '#ef4444';
 
-    html += `
+    const durLabel = app.hours < 1
+      ? Math.round(app.hours * 60) + 'min'
+      : app.hours % 1 === 0
+        ? app.hours + 'h'
+        : Math.floor(app.hours) + 'h ' + Math.round((app.hours % 1) * 60) + 'min';
+
+    const ctxNote = app.note?.[dtype];
+    const sublabel = [
+      `${app.kwh} kWh · ${durLabel}`,
+      ctxNote ? `<span style="color:var(--text-muted);font-style:italic">${ctxNote}</span>` : null
+    ].filter(Boolean).join(' · ');
+
+    rowsHtml += `
     <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;${borderBottom}">
       <span style="font-size:1.1rem;flex:0 0 auto">${app.icon}</span>
       <div style="flex:1;min-width:0">
         <div style="font-size:0.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${app.name}</div>
-        <div style="font-size:0.7rem;color:var(--text-muted)">${app.kwh} kWh · ${app.hours < 1 ? Math.round(app.hours*60)+'min' : app.hours % 1 === 0 ? app.hours+'h' : Math.floor(app.hours)+'h '+Math.round((app.hours%1)*60)+'min'}</div>
+        <div style="font-size:0.7rem;color:var(--text-muted)">${sublabel}</div>
       </div>
       <div style="text-align:right;flex:0 0 auto">
         <div style="font-size:0.85rem;font-weight:700;color:${timeFg}">${startFmt}–${endFmt}</div>
@@ -2288,7 +2348,7 @@ function renderApplianceCard(priceMap, c, dateStr) {
     </div>`;
   });
 
-  document.getElementById('appliance-rows').innerHTML = html;
+  document.getElementById('appliance-rows').innerHTML = contextHtml + rowsHtml;
   card.style.display = '';
 }
 
