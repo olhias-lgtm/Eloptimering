@@ -5483,7 +5483,7 @@ function renderTouSuggestion(data) {
   }
   if (!data.segments || !data.segments.length) {
     const _fd = data.for_date || '';
-    wrap.innerHTML = `<p style="color:var(--text-muted);font-size:12px">✅ Analyserat — ingen lönsam arbitrage hittad för ${_fd}. Prisdifferensen är för liten för att motivera Grid First.</p>`;
+    wrap.innerHTML = `<p style="color:var(--text-muted);font-size:12px">✅ Analyserat — ingen lönsam arbitrage hittad för ${_fd}. Prisdifferensen är för liten för att motivera Elnät Först.</p>`;
     badge.textContent = _fd;
     applyBtn.style.display = 'none';
     const hl = document.getElementById('suggest-headline');
@@ -5555,14 +5555,14 @@ function renderTouSuggestion(data) {
     ? `<tr><td colspan="4" style="padding:6px 6px 2px;border-top:1px solid var(--border)">
          <span style="font-size:11px;color:var(--text-muted)">⚡ Urladdningseffekt: </span>
          <span style="font-size:12px;font-weight:600;color:#60a5fa">${discPct}% (${discKw} kW)</span>
-         <span style="font-size:10px;color:var(--dim);margin-left:6px">— dränerar batteri på ~${discPct === 100 ? '1–2' : Math.ceil(18 / (discPct * 12 / 100))} h Grid First</span>
+         <span style="font-size:10px;color:var(--dim);margin-left:6px">— dränerar batteri på ~${discPct === 100 ? '1–2' : Math.ceil(18 / (discPct * 12 / 100))} h Elnät Först</span>
        </td></tr>`
     : '';
   const socRow   = socFloor != null
     ? `<tr><td colspan="4" style="padding:2px 6px 6px">
          <span style="font-size:11px;color:var(--text-muted)">🔋 SoC-golv: </span>
          <span style="font-size:12px;font-weight:600;color:#a78bfa">${socFloor}%</span>
-         <span style="font-size:10px;color:var(--dim);margin-left:6px">${socFloor <= 10 ? '— full urladdning för maximal arbitrage' : socFloor <= 15 ? '— liten reserv vid svag prisskillnad' : '— reserv utan Grid First-tillfällen'}</span>
+         <span style="font-size:10px;color:var(--dim);margin-left:6px">${socFloor <= 10 ? '— full urladdning för maximal arbitrage' : socFloor <= 15 ? '— liten reserv vid svag prisskillnad' : '— reserv utan Elnät Först-tillfällen'}</span>
        </td></tr>`
     : '';
 
