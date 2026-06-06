@@ -3012,9 +3012,24 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
   const socRows = realRows.filter(r => r.soc_pct != null);
   if (socRows.length > 0) latestSocPct = socRows[socRows.length - 1].soc_pct;
 
-  // 5. Cutoff = current time slot (API zeroes future slots, so use clock not last row)
-  const lastRow    = realRows.length > 0 ? realRows[realRows.length - 1] : null;
-  const cutoffSlot = nowSlot + 1;  // forecast starts from the next slot after now
+  // 5. Cutoff = last slot with meaningful data, not wall-clock time.
+  //    Growatt has a ~5–15 min reporting lag — the API back-fills recent slots with
+  //    zeros before the real data arrives.  Using nowSlot as the cutoff puts those
+  //    zero-filled slots into the _actual zone, leaving a gap where neither the
+  //    actual line nor the forecast line renders.
+  //    Instead, scan backwards for the last slot that has a real non-trivial reading
+  //    (same criterion as renderPowerChart's lastActualTime) so both cutoffs agree.
+  let lastMeaningfulSlot = -1;
+  for (let i = nowSlot; i >= 0; i--) {
+    const r = realBySlot[i];
+    if (r && ((r.solar_kw  || 0) > 0.01 || (r.load_kw   || 0) > 0.01 ||
+              (r.import_kw || 0) > 0.01 || (r.export_kw  || 0) > 0.01)) {
+      lastMeaningfulSlot = i;
+      break;
+    }
+  }
+  // Fall back to nowSlot if no meaningful data found yet (e.g. pre-dawn)
+  const cutoffSlot = (lastMeaningfulSlot >= 0 ? lastMeaningfulSlot : nowSlot) + 1;
 
   // 3b. Apply learned per-slot corrections to future forecast slots (where we have ≥5 days data)
   try {
