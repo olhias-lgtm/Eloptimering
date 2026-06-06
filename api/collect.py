@@ -512,12 +512,32 @@ def _do_autofill(days: int, dry_run: bool) -> tuple[int, dict]:
     if not dry_run:
         zeros_deleted = _delete_future_chart_zeros(today_local)
 
+    # Refresh materialised battery stats after any writes
+    batt_refreshed = False
+    if not dry_run and (filled_dates or zeros_deleted):
+        try:
+            url = f"{SUPABASE_URL}/rest/v1/rpc/refresh_battery_stats"
+            req = urllib.request.Request(
+                url, data=b"{}", method="POST",
+                headers={
+                    "apikey":        SUPABASE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_KEY}",
+                    "Content-Type":  "application/json",
+                },
+            )
+            urllib.request.urlopen(req, timeout=10).read()
+            batt_refreshed = True
+            print("[autofill] battery_stats refreshed")
+        except Exception as e:
+            print(f"[autofill] battery_stats refresh failed (non-fatal): {e}")
+
     return 200, {
         "ok":              True,
         "dry_run":         dry_run,
         "days_checked":    len(results),
         "filled":          filled_dates,
         "zeros_deleted":   zeros_deleted,
+        "batt_refreshed":  batt_refreshed,
         "results":         results,
     }
 
