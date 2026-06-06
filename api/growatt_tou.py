@@ -17,7 +17,9 @@ Suggestion algorithm (build_suggest):
   2. Fetch tomorrow's hourly GTI forecast (Open-Meteo) × solar model ratios → kW
   3. Apply SOLAR_HAIRCUT (15%) safety margin
   4. Fetch per-hour seasonal load profile from get_load_profile_by_slot RPC
-  5. LP-equivalent greedy dispatch (_lp_dispatch):
+  5. Storm Watch — fetch 5-day GTI forecast, detect ≥2 consecutive low-solar days;
+     if triggered: raise effective SOC_FLOOR to 40% and rec_soc_floor to 40%
+  6. LP-equivalent greedy dispatch (_lp_dispatch):
        Enumerate (charge, discharge) hour pairs sorted by spread descending.
        Commit each pair if SoC feasibility holds after assignment.
        Battery First  — committed charge hours (grid-charges battery)
@@ -66,6 +68,11 @@ SOLAR_LOW_KW       = 0.3    # hourly avg kW below which we treat the hour as "da
 LOW_PRICE_PCTILE   = 0.30   # cheapest 30% of hours → candidate for Battery First
 HIGH_PRICE_PCTILE  = 0.70   # most expensive 30% of hours → candidate for Grid First
 MAX_SEGMENTS       = 6      # leave headroom below the 9-segment limit
+
+# Storm Watch — pre-charge when consecutive low-solar days are forecast
+STORM_LOW_KWH      = 3.0    # daily estimated harvest below this → "low-solar day"
+STORM_DAYS         = 2      # number of consecutive low-solar days that triggers watch
+STORM_SOC_FLOOR    = 0.40   # raise battery floor to 40 % during storm watch
 
 LAT        = 59.28
 LON        = 18.00
@@ -783,8 +790,152 @@ def _fetch_soc_start() -> float:
     return 0.5  # default to 50 %
 
 
+def _fetch_solar_forecast_days(n_days: int = 5) -> list:
+    """Return list of estimated solar kWh for D+1 … D+n_days.
+
+    Tries the Supabase weather_forecast table (gti_adj column) first, then
+    falls back to a direct Open-Meteo call.  Converts hourly GTI to kWh using
+    the same solar model ratios as _build_suggestion.
+
+    Returns a list of floats, index 0 = D+1, index 1 = D+2, …
+    On any error returns an empty list (caller must handle gracefully).
+    """
+    from datetime import timezone as _tz
+    today   = date.today()
+    PANEL_KWP = 12.0
+
+    # Load model ratios once (used to convert GTI → kW)
+    model = _fetch_solar_model()
+
+    def _gti_hours_to_kwh(hourly: dict) -> float:
+        """Sum hourly GTI dict → estimated kWh using model ratios."""
+        total = 0.0
+        for h, gti_val in hourly.items():
+            if gti_val <= 0:
+                continue
+            slot = h * 12
+            if slot in model:
+                kw = model[slot] * gti_val
+            else:
+                kw = (gti_val / 1000) * PANEL_KWP * 0.85
+            total += kw * (1 - SOLAR_HAIRCUT)
+        return total
+
+    # --- Try Supabase weather_forecast ---
+    if SUPABASE_URL and SUPABASE_KEY:
+        try:
+            cest = _tz(timedelta(hours=2))
+            start_dt = datetime(today.year, today.month, today.day,
+                                0, 0, 0, tzinfo=cest) + timedelta(days=1)
+            end_dt   = start_dt + timedelta(days=n_days)
+            url = (f"{SUPABASE_URL}/rest/v1/weather_forecast"
+                   f"?valid_time=gte.{urllib.parse.quote(start_dt.astimezone(_tz.utc).isoformat())}"
+                   f"&valid_time=lt.{urllib.parse.quote(end_dt.astimezone(_tz.utc).isoformat())}"
+                   f"&order=valid_time.asc"
+                   f"&select=valid_time,gti_adj")
+            req = urllib.request.Request(url, headers=_sb_headers())
+            with urllib.request.urlopen(req, timeout=8) as r:
+                rows = json.loads(r.read())
+
+            if rows:
+                # Bucket into days (CEST local date)
+                from collections import defaultdict as _dd
+                by_day: dict = _dd(dict)
+                for row in rows:
+                    dt_utc  = datetime.fromisoformat(row["valid_time"].replace("Z", "+00:00"))
+                    dt_cest = dt_utc.astimezone(cest)
+                    d_key   = dt_cest.date()
+                    by_day[d_key][dt_cest.hour] = float(row["gti_adj"] or 0)
+
+                result = []
+                for offset in range(1, n_days + 1):
+                    d_key  = today + timedelta(days=offset)
+                    hourly = by_day.get(d_key, {})
+                    result.append(_gti_hours_to_kwh(hourly))
+
+                print(f"[storm_watch] solar forecast D+1…D+{n_days}: "
+                      f"{[round(v,1) for v in result]} kWh (from Supabase)")
+                return result
+        except Exception as e:
+            print(f"[storm_watch] Supabase forecast fetch failed: {e}, trying Open-Meteo")
+
+    # --- Fallback: Open-Meteo ---
+    try:
+        url = (
+            f"https://api.open-meteo.com/v1/forecast"
+            f"?latitude={LAT}&longitude={LON}"
+            f"&hourly=global_tilted_irradiance"
+            f"&tilt={PANEL_TILT}&azimuth={PANEL_AZ}"
+            f"&timezone=Europe%2FStockholm"
+            f"&forecast_days={n_days + 1}&past_days=0"
+        )
+        req = urllib.request.Request(url, headers={"User-Agent": "electricity-dashboard/storm-watch"})
+        with urllib.request.urlopen(req, timeout=12) as r:
+            data = json.loads(r.read())
+
+        from collections import defaultdict as _dd
+        by_day: dict = _dd(dict)
+        for t, v in zip(data["hourly"]["time"], data["hourly"]["global_tilted_irradiance"]):
+            d_str = t[:10]
+            h     = int(t[11:13])
+            by_day[d_str][h] = float(v or 0)
+
+        result = []
+        for offset in range(1, n_days + 1):
+            d_key  = (today + timedelta(days=offset)).isoformat()
+            hourly = by_day.get(d_key, {})
+            result.append(_gti_hours_to_kwh(hourly))
+
+        print(f"[storm_watch] solar forecast D+1…D+{n_days}: "
+              f"{[round(v,1) for v in result]} kWh (from Open-Meteo)")
+        return result
+
+    except Exception as e:
+        print(f"[storm_watch] Open-Meteo forecast also failed: {e}")
+        return []
+
+
+def _check_storm_watch(daily_kwh: list) -> tuple:
+    """Detect consecutive low-solar days in the forecast.
+
+    daily_kwh : list where index 0 = D+1, index 1 = D+2, …
+
+    Returns (triggered: bool, low_days: list[int], note: str).
+    'low_days' contains the 1-based day offsets that are below STORM_LOW_KWH.
+    'triggered' is True only when STORM_DAYS or more consecutive days starting
+    at D+1 are low (we care about the near-term window, not isolated future dips).
+    """
+    if not daily_kwh:
+        return False, [], ""
+
+    low_days = [i + 1 for i, kwh in enumerate(daily_kwh) if kwh < STORM_LOW_KWH]
+
+    # Check for STORM_DAYS consecutive low days starting at D+1
+    triggered = False
+    run = 0
+    for offset in range(1, len(daily_kwh) + 1):
+        if offset in low_days:
+            run += 1
+            if run >= STORM_DAYS:
+                triggered = True
+                break
+        else:
+            run = 0
+
+    if triggered:
+        kwh_strs = [f"D+{d}: {daily_kwh[d-1]:.1f} kWh" for d in low_days[:STORM_DAYS]]
+        note = (f"⛈ Storm Watch: {STORM_DAYS} dagar låg solinstrålning: "
+                f"{', '.join(kwh_strs)}. "
+                f"SoC-golv höjt till {int(STORM_SOC_FLOOR*100)}% — förladdar inför molnigt väder.")
+    else:
+        note = ""
+
+    return triggered, low_days, note
+
+
 def _lp_dispatch(price_h: dict, solar_h: dict,
-                 load_h: dict, soc_start: float) -> dict:
+                 load_h: dict, soc_start: float,
+                 soc_floor: float = SOC_FLOOR) -> dict:
     """Optimal 24-hour battery dispatch — LP-equivalent greedy algorithm.
 
     For a battery with linear costs and convex SoC constraints the optimal
@@ -813,7 +964,7 @@ def _lp_dispatch(price_h: dict, solar_h: dict,
     -------
     {hour: 0|1|2}  —  0 = Load First, 1 = Battery First, 2 = Grid First
     """
-    floor_kwh = SOC_FLOOR * BATT_KWH
+    floor_kwh = soc_floor * BATT_KWH
     ceil_kwh  = BATT_KWH
     MIN_KWH   = 0.3   # minimum useful dispatch per hour (kWh)
 
@@ -1063,13 +1214,20 @@ def _build_suggestion(for_date: date) -> dict:
     # Per-hour load profile for tomorrow (seasonal monthly averages)
     load_by_hour = _fetch_load_profile_for_date(for_date)
 
+    # Storm Watch — check multi-day solar forecast before LP so we can raise floor
+    daily_solar_kwh          = _fetch_solar_forecast_days(5)
+    storm_triggered, storm_low_days, storm_note = _check_storm_watch(daily_solar_kwh)
+    effective_soc_floor = STORM_SOC_FLOOR if storm_triggered else SOC_FLOOR
+
     # LP-equivalent optimal dispatch
     # Replaces the former percentile-threshold heuristic with a SoC-aware
     # greedy pair-matching algorithm that:
     #   • Uses per-hour load (seasonal) instead of a flat average
     #   • Validates SoC feasibility before committing each charge/discharge hour
     #   • Only schedules pairs where the spread covers the full import cost
-    hour_mode = _lp_dispatch(price_by_hour, solar_by_hour, load_by_hour, soc_start)
+    #   • Raises SOC_FLOOR when Storm Watch detects ≥2 consecutive low-solar days ahead
+    hour_mode = _lp_dispatch(price_by_hour, solar_by_hour, load_by_hour, soc_start,
+                             soc_floor=effective_soc_floor)
 
     # Merge consecutive same-mode hours into runs, skip Load First runs
     # (Load First is the inverter default; we only need segments for modes 1 and 2)
@@ -1130,7 +1288,7 @@ def _build_suggestion(for_date: date) -> dict:
     # Count Grid First hours (used by both SOC floor and discharge power recommendations)
     grid_first_hours = sum(1 for m in hour_mode.values() if m == 2)
 
-    # Recommend SOC floor — 10% when arbitrage is worthwhile, 20% otherwise
+    # Recommend SOC floor — baseline from price spread, but Storm Watch overrides upward
     price_spread = max(prices_sorted) - min(prices_sorted)
     if grid_first_hours > 0 and price_spread >= 0.30:
         rec_soc_floor = 10   # worth draining fully
@@ -1138,6 +1296,9 @@ def _build_suggestion(for_date: date) -> dict:
         rec_soc_floor = 15   # mild arbitrage — keep small reserve
     else:
         rec_soc_floor = 20   # no Grid First — keep comfortable reserve
+    # Storm Watch overrides: never let battery drop below 40% if low-solar days ahead
+    if storm_triggered:
+        rec_soc_floor = max(rec_soc_floor, int(STORM_SOC_FLOOR * 100))
 
     # Recommend discharge power % — drain usable battery within the Grid First window
     # Formula: target_kw = usable_kwh / grid_first_hours; pct = target_kw / normal_kw
@@ -1164,6 +1325,7 @@ def _build_suggestion(for_date: date) -> dict:
         f"Solpeak (−{int(SOLAR_HAIRCUT*100)}%): {solar_peak[1]:.1f} kW kl {solar_peak[0]:02d}:00. "
         f"Medelbelastning: {avg_load_kw:.2f} kW (säsongsmodell). "
         f"SoC vid start: {soc_start*100:.0f}%."
+        + (f"  {storm_note}" if storm_note else "")
     )
 
     # Battery simulation — daily KPI totals using per-hour load
@@ -1180,7 +1342,13 @@ def _build_suggestion(for_date: date) -> dict:
         "price_range": {"min": round(min(prices_sorted), 4),
                         "max": round(max(prices_sorted), 4)},
         "solar_peak_kw": round(solar_peak[1], 2),
-        "sim_kpis":   sim_kpis,
+        "sim_kpis":      sim_kpis,
+        "storm_watch": {
+            "triggered":    storm_triggered,
+            "low_days":     storm_low_days,
+            "daily_kwh":    [round(v, 1) for v in daily_solar_kwh],
+            "note":         storm_note,
+        },
     }
 
 
