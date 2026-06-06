@@ -2062,9 +2062,9 @@ function renderApplianceCard(priceMap, c, dateStr) {
   }
   if (hourlyPrices.length < 12) { card.style.display = 'none'; return; }
 
-  // Full consumer price: (spot öre/kWh + nätavgift + energiskatt + påslag) × moms → kr/kWh
+  // Full consumer price: all components in öre/kWh → sum × moms / 100 → kr/kWh
   function consumerKrKwh(oreKwh) {
-    return (oreKwh / 100 + c.natavgIn + c.energiskatt + c.fortumPaslag) * c.moms;
+    return (oreKwh + c.natavgIn + c.energiskatt + c.fortumPaslag) * c.moms / 100;
   }
 
   // Find cheapest & most expensive consecutive window of `hours` duration
