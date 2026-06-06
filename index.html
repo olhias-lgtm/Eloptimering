@@ -282,16 +282,12 @@
   .tou-sw input:checked + .slider { background:#22c55e; }
   .tou-sw input:checked + .slider:before { transform:translateX(16px); }
   .tou-mode-tip { display:inline-block;margin-left:4px;font-size:10px;color:var(--text-muted);cursor:help;vertical-align:middle;position:relative; }
-  .tou-mode-tip:hover::after {
-    content: attr(data-tip);
-    position:absolute; left:50%; transform:translateX(-50%); top:calc(100% + 6px);
+  /* Tooltip rendered via JS into #tou-tip-popup (avoids CSS overflow/clip issues) */
+  #tou-tip-popup {
+    display:none; position:fixed; z-index:9999; pointer-events:none;
     background:#1e2433; color:#e2e8f0; border:1px solid #334155;
     border-radius:6px; padding:7px 10px; font-size:11px; line-height:1.5;
-    width:240px; white-space:normal; z-index:999; pointer-events:none;
-    box-shadow:0 4px 12px rgba(0,0,0,0.4);
-  }
-  .tou-mode-tip.tip-above:hover::after {
-    top:auto; bottom:calc(100% + 6px);
+    width:240px; white-space:normal; box-shadow:0 4px 12px rgba(0,0,0,0.4);
   }
   .tou-save-btn { font-size:11px; padding:3px 8px; border-radius:3px; border:1px solid var(--border); background:var(--muted); color:var(--text-muted); cursor:pointer; transition:background .15s; }
   .tou-save-btn.dirty { background:#22c55e; color:#000; border-color:#22c55e; }
@@ -5167,7 +5163,7 @@ function renderTouTable(segments) {
           <select class="tou-mode" style="color:${TOU_MODE_COLORS[mode]}"
             onchange="this.style.color=TOU_MODE_COLORS[this.value];markTouDirty(${seg.segment_id});this.nextElementSibling.dataset.tip=TOU_MODE_TIPS[this.value]">
             ${modeOpts}
-          </select><span class="tou-mode-tip${seg.segment_id >= 7 ? ' tip-above' : ''}" data-tip="${TOU_MODE_TIPS[mode].replace(/"/g,'&quot;')}">ⓘ</span>
+          </select><span class="tou-mode-tip" data-tip="${TOU_MODE_TIPS[mode].replace(/"/g,'&quot;')}">ⓘ</span>
         </td>
         <td>
           <button id="tou-btn-${seg.segment_id}" class="tou-save-btn"
@@ -6081,6 +6077,46 @@ detectMode().then(() => {
 setInterval(() => {
   if (state.currentDate === todayStr()) refresh();
 }, 5 * 60 * 1000);
+
+// ── TOU mode tooltip — JS-positioned to stay within viewport ──────────────
+(function() {
+  const TIP_W = 240, TIP_PAD = 8;
+  const popup = document.getElementById('tou-tip-popup');
+  if (!popup) return;
+
+  document.addEventListener('mouseover', e => {
+    const el = e.target.closest('.tou-mode-tip');
+    if (!el || !el.dataset.tip) return;
+    popup.textContent = el.dataset.tip;
+    popup.style.display = 'block';
+
+    const r   = el.getBoundingClientRect();
+    const vw  = window.innerWidth;
+    const vh  = window.innerHeight;
+
+    // Horizontal: centre on icon, clamp within viewport
+    let left = r.left + r.width / 2 - TIP_W / 2;
+    left = Math.max(TIP_PAD, Math.min(left, vw - TIP_W - TIP_PAD));
+
+    // Vertical: prefer below, flip above if not enough room
+    const tipH = popup.offsetHeight || 80;
+    let top;
+    if (r.bottom + tipH + TIP_PAD < vh) {
+      top = r.bottom + 6;           // below
+    } else {
+      top = r.top - tipH - 6;       // above
+    }
+
+    popup.style.left = left + 'px';
+    popup.style.top  = top  + 'px';
+  });
+
+  document.addEventListener('mouseout', e => {
+    if (e.target.closest('.tou-mode-tip')) popup.style.display = 'none';
+  });
+})();
 </script>
+
+<div id="tou-tip-popup"></div>
 </body>
 </html>
