@@ -1628,6 +1628,26 @@ async function fetchJSON(url, timeoutMs) {
   return r.json();
 }
 
+// fetchCached: sessionStorage-backed wrapper with a TTL (seconds).
+// Saves one API round-trip per session for slow-changing data like solar/load models.
+async function fetchCached(url, ttlSeconds = 3600, timeoutMs) {
+  const key = `_fc:${url}`;
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (raw) {
+      const { ts, data } = JSON.parse(raw);
+      if (Date.now() - ts < ttlSeconds * 1000) {
+        return data;
+      }
+    }
+  } catch(e) { /* sessionStorage unavailable or parse error — fall through */ }
+  const data = await fetchJSON(url, timeoutMs);
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ ts: Date.now(), data }));
+  } catch(e) { /* storage full or unavailable — ignore */ }
+  return data;
+}
+
 async function loadStatus() {
   const dot   = document.getElementById('status-dot');
   const txt   = document.getElementById('status-text');
@@ -2982,7 +3002,7 @@ async function buildTomorrowForecast(tomorrowStr, c) {
   // 2a. Load model — per-slot, per-month average load (seasonal awareness)
   let loadModelRows = [];
   try {
-    loadModelRows = await fetchJSON('/api/solar_model?type=load', 5000);
+    loadModelRows = await fetchCached('/api/solar_model?type=load', 3600, 5000);
   } catch(e) {
     console.warn('[forecast] load model unavailable, falling back to yesterday actuals:', e.message);
   }
@@ -3111,7 +3131,7 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
 
   let intradayLoadModel = [];
   try {
-    intradayLoadModel = await fetchJSON('/api/solar_model?type=load', 5000);
+    intradayLoadModel = await fetchCached('/api/solar_model?type=load', 3600, 5000);
   } catch(e) {
     console.warn('[intraday] load model unavailable:', e.message);
   }
@@ -3162,7 +3182,7 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
 
   // 3b. Apply learned per-slot corrections to future forecast slots (where we have ≥5 days data)
   try {
-    const modelRows = await fetchJSON('/api/solar_model');
+    const modelRows = await fetchCached('/api/solar_model', 3600);
     if (Array.isArray(modelRows) && modelRows.length > 0) {
       const MIN_DAYS_MODEL = 5;
       const modelBySlot = {};
