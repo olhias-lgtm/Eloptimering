@@ -74,6 +74,16 @@ STORM_LOW_KWH      = 3.0    # daily estimated harvest below this → "low-solar 
 STORM_DAYS         = 2      # number of consecutive low-solar days that triggers watch
 STORM_SOC_FLOOR    = 0.40   # raise battery floor to 40 % during storm watch
 
+# Adaptive SoC floor (Gap 4) — scale floor based on tomorrow's expected solar harvest
+# Thresholds are estimated kWh for D+1 (12 kWp system, Stockholm).
+# Each tuple: (min_kwh_threshold, floor_fraction)  — first matching threshold wins.
+ADAPTIVE_SOC_THRESHOLDS = [
+    (15.0, 0.10),   # good solar day  → floor 10 % (battery will recharge fully)
+    ( 8.0, 0.15),   # moderate solar  → floor 15 %
+    ( 4.0, 0.25),   # poor solar      → floor 25 %
+    ( 0.0, 0.30),   # very poor / none→ floor 30 % (Storm Watch overrides to 40 % if ≥2 days)
+]
+
 LAT        = 59.28
 LON        = 18.00
 PANEL_TILT = 45
@@ -1214,10 +1224,33 @@ def _build_suggestion(for_date: date) -> dict:
     # Per-hour load profile for tomorrow (seasonal monthly averages)
     load_by_hour = _fetch_load_profile_for_date(for_date)
 
-    # Storm Watch — check multi-day solar forecast before LP so we can raise floor
-    daily_solar_kwh          = _fetch_solar_forecast_days(5)
+    # Multi-day solar forecast — used by both Adaptive SoC floor (Gap 4) and Storm Watch (Gap 3)
+    daily_solar_kwh = _fetch_solar_forecast_days(5)
+
+    # Gap 4 — Adaptive SoC floor: scale floor based on D+1 (= for_date) expected harvest.
+    # If solar tomorrow is poor the battery won't recharge during the day, so we must
+    # not let it drain too low overnight going into that day.
+    d1_kwh = daily_solar_kwh[0] if daily_solar_kwh else None
+    if d1_kwh is not None:
+        adaptive_floor = SOC_FLOOR   # default
+        for kwh_thresh, floor_frac in ADAPTIVE_SOC_THRESHOLDS:
+            if d1_kwh >= kwh_thresh:
+                adaptive_floor = floor_frac
+                break
+    else:
+        adaptive_floor = SOC_FLOOR   # no forecast data — stay conservative
+
+    # Gap 3 — Storm Watch: hard override to 40 % when ≥2 consecutive low-solar days ahead
     storm_triggered, storm_low_days, storm_note = _check_storm_watch(daily_solar_kwh)
-    effective_soc_floor = STORM_SOC_FLOOR if storm_triggered else SOC_FLOOR
+
+    # Final effective floor: adaptive (gap 4) ≥ base, storm watch (gap 3) overrides further
+    effective_soc_floor = adaptive_floor
+    if storm_triggered:
+        effective_soc_floor = max(effective_soc_floor, STORM_SOC_FLOOR)
+
+    print(f"[tou lp] SOC floor: adaptive={adaptive_floor:.0%}"
+          + (f" → storm_watch={STORM_SOC_FLOOR:.0%}" if storm_triggered else "")
+          + (f" | D+1 forecast={d1_kwh:.1f} kWh" if d1_kwh is not None else ""))
 
     # LP-equivalent optimal dispatch
     # Replaces the former percentile-threshold heuristic with a SoC-aware
@@ -1225,7 +1258,7 @@ def _build_suggestion(for_date: date) -> dict:
     #   • Uses per-hour load (seasonal) instead of a flat average
     #   • Validates SoC feasibility before committing each charge/discharge hour
     #   • Only schedules pairs where the spread covers the full import cost
-    #   • Raises SOC_FLOOR when Storm Watch detects ≥2 consecutive low-solar days ahead
+    #   • Raises SOC_FLOOR via adaptive floor (Gap 4) and Storm Watch (Gap 3)
     hour_mode = _lp_dispatch(price_by_hour, solar_by_hour, load_by_hour, soc_start,
                              soc_floor=effective_soc_floor)
 
@@ -1288,15 +1321,21 @@ def _build_suggestion(for_date: date) -> dict:
     # Count Grid First hours (used by both SOC floor and discharge power recommendations)
     grid_first_hours = sum(1 for m in hour_mode.values() if m == 2)
 
-    # Recommend SOC floor — baseline from price spread, but Storm Watch overrides upward
+    # Recommend SOC floor — three-layer calculation:
+    #   1. Base: from price spread / Grid First hours
+    #   2. Gap 4 adaptive: raise if D+1 solar is poor (battery won't recharge during the day)
+    #   3. Gap 3 Storm Watch: hard override to 40% for ≥2 consecutive low-solar days
     price_spread = max(prices_sorted) - min(prices_sorted)
     if grid_first_hours > 0 and price_spread >= 0.30:
-        rec_soc_floor = 10   # worth draining fully
+        rec_soc_floor = 10   # strong arbitrage — worth draining fully
     elif grid_first_hours > 0:
         rec_soc_floor = 15   # mild arbitrage — keep small reserve
     else:
         rec_soc_floor = 20   # no Grid First — keep comfortable reserve
-    # Storm Watch overrides: never let battery drop below 40% if low-solar days ahead
+    # Gap 4: adaptive floor based on tomorrow's solar (never lower than base)
+    adaptive_floor_pct = int(adaptive_floor * 100)
+    rec_soc_floor = max(rec_soc_floor, adaptive_floor_pct)
+    # Gap 3: Storm Watch override
     if storm_triggered:
         rec_soc_floor = max(rec_soc_floor, int(STORM_SOC_FLOOR * 100))
 
@@ -1318,6 +1357,13 @@ def _build_suggestion(for_date: date) -> dict:
     exp_hours    = sorted(h for h, m in hour_mode.items() if m == 2)
     solar_peak   = max(solar_by_hour.items(), key=lambda x: x[1])
     avg_load_kw = sum(load_by_hour.values()) / 24
+    adaptive_note = ""
+    if d1_kwh is not None and not storm_triggered:
+        # Only show adaptive note when Storm Watch isn't already dominating the message
+        if adaptive_floor_pct > int(SOC_FLOOR * 100):
+            adaptive_note = (f"  🌥 Adaptivt SoC-golv: {adaptive_floor_pct}% "
+                             f"(prognos D+1: {d1_kwh:.1f} kWh sol).")
+
     reasoning = (
         f"LP-optimering {for_date}: priser {min(prices_sorted):.2f}–{max(prices_sorted):.2f} SEK/kWh. "
         f"Laddning (Battery First): {cheap_hours}. "
@@ -1326,6 +1372,7 @@ def _build_suggestion(for_date: date) -> dict:
         f"Medelbelastning: {avg_load_kw:.2f} kW (säsongsmodell). "
         f"SoC vid start: {soc_start*100:.0f}%."
         + (f"  {storm_note}" if storm_note else "")
+        + adaptive_note
     )
 
     # Battery simulation — daily KPI totals using per-hour load
@@ -1348,6 +1395,10 @@ def _build_suggestion(for_date: date) -> dict:
             "low_days":     storm_low_days,
             "daily_kwh":    [round(v, 1) for v in daily_solar_kwh],
             "note":         storm_note,
+        },
+        "adaptive_soc": {
+            "d1_kwh":       round(d1_kwh, 1) if d1_kwh is not None else None,
+            "floor_pct":    adaptive_floor_pct,
         },
     }
 
