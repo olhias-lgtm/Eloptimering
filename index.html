@@ -1272,40 +1272,26 @@
     <div id="appliance-rows"></div>
   </div>
 
-  <!-- Price + running cost + tomorrow charts -->
-  <div class="chart-grid-bottom">
-    <div class="card">
-      <div class="card-title">Spotpris idag</div>
-      <div class="legend" style="margin-bottom:8px">
-        <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>Spot inkl. moms</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#22c55e;border:1px dashed #22c55e;box-sizing:border-box"></div>Spot exkl. moms</div>
-      </div>
-      <div class="chart-wrap">
-        <canvas id="price-chart"></canvas>
-      </div>
+  <!-- Spot price charts — full width, stacked -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">Spotpris idag</div>
+    <div class="legend" style="margin-bottom:8px">
+      <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>Spot inkl. moms</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#22c55e;border:1px dashed #22c55e;box-sizing:border-box"></div>Spot exkl. moms</div>
     </div>
-
-    <div class="card">
-      <div class="card-title">Löpande kostnad / intäkt</div>
-      <div class="legend" style="margin-bottom:8px">
-        <div class="legend-item"><div class="legend-dot" style="background:var(--import)"></div>Kum. kostnad kr</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--export)"></div>Kum. intäkt kr</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>Netto kr</div>
-      </div>
-      <div class="chart-wrap">
-        <canvas id="running-chart"></canvas>
-      </div>
+    <div class="chart-wrap-tall">
+      <canvas id="price-chart"></canvas>
     </div>
+  </div>
 
-    <div class="card" id="tomorrow-price-card" style="display:none">
-      <div class="card-title">Spotpris imorgon</div>
-      <div class="legend" style="margin-bottom:8px">
-        <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>Spot inkl. moms</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#22c55e;border:1px dashed #22c55e;box-sizing:border-box"></div>Spot exkl. moms</div>
-      </div>
-      <div class="chart-wrap">
-        <canvas id="tomorrow-price-chart"></canvas>
-      </div>
+  <div class="card" id="tomorrow-price-card" style="display:none;margin-bottom:14px">
+    <div class="card-title">Spotpris imorgon</div>
+    <div class="legend" style="margin-bottom:8px">
+      <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>Spot inkl. moms</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#22c55e;border:1px dashed #22c55e;box-sizing:border-box"></div>Spot exkl. moms</div>
+    </div>
+    <div class="chart-wrap-tall">
+      <canvas id="tomorrow-price-chart"></canvas>
     </div>
   </div>
 
@@ -1385,6 +1371,19 @@
              color:#22c55e;font-size:0.82rem;font-weight:600;cursor:pointer;letter-spacing:.3px">
       Lägg in i schemat ↑
     </button>
+  </div>
+
+  <!-- Running cost / earn chart — moved to bottom as secondary info -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">Löpande kostnad / intäkt</div>
+    <div class="legend" style="margin-bottom:8px">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--import)"></div>Kum. kostnad kr</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--export)"></div>Kum. intäkt kr</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>Netto kr</div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="running-chart"></canvas>
+    </div>
   </div>
 
   <!-- Cost Breakdown — collapsible, for date-specific billing analysis -->
