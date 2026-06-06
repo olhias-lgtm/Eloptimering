@@ -5503,25 +5503,32 @@ function renderTouSuggestion(data) {
       </table>
     </div>`;
 
-  // Headline KPI — total economic benefit, surfaced prominently above the table
+  // Headline KPI — marginal benefit of TOU vs. pure self-consumption (no schedule)
   const headlineEl = document.getElementById('suggest-headline');
   const k = data.sim_kpis;
+  const kb = data.baseline_kpis;   // Load-First baseline (no TOU), may be absent for old cached rows
   if (headlineEl && k) {
     const fmt = (v, d=2) => v != null ? v.toFixed(d) : '—';
-    const total = (k.earn_kr || 0) + (k.saved_kr || 0);
-    // Colour: green when meaningful, amber when low (<2 kr), muted when ~0
+    // Marginal gain = net result WITH TOU minus net result WITHOUT TOU (pure self-consumption).
+    // Falls back to old total (earn + saved) for suggestions cached before baseline_kpis was added.
+    const marginal = kb != null
+      ? (k.net_kr || 0) - (kb.net_kr || 0)
+      : (k.earn_kr || 0) + (k.saved_kr || 0);
+    const hasBaseline = kb != null;
+    // Colour: green when meaningful, amber when low (<2 kr)
     let hlColor = '#34d399', hlBg = 'rgba(52,211,153,0.07)', hlBorder = 'rgba(52,211,153,0.25)';
-    if (total < 2) {
+    if (marginal < 2) {
       hlColor = '#fbbf24'; hlBg = 'rgba(251,191,36,0.07)'; hlBorder = 'rgba(251,191,36,0.25)';
     }
     headlineEl.style.background   = hlBg;
     headlineEl.style.borderColor  = hlBorder;
     headlineEl.style.color        = hlColor;
+    const sublabel = hasBaseline
+      ? `jämfört med självkonsumtion`
+      : `export · besparing (äldre cache)`;
     headlineEl.innerHTML = (
-      `<span style="font-size:1.05rem;font-weight:700">💰 ~${fmt(total, 0)} kr ${dayLabel}</span>`
-      + `<span style="opacity:0.7;margin-left:10px;font-size:0.78rem">`
-      + `${fmt(k.earn_kr, 1)} kr export · ${fmt(k.saved_kr, 1)} kr besparing`
-      + `</span>`
+      `<span style="font-size:1.05rem;font-weight:700">💰 +${fmt(marginal, 0)} kr ${dayLabel}</span>`
+      + `<span style="opacity:0.7;margin-left:10px;font-size:0.78rem">${sublabel}</span>`
       + `<span style="float:right;font-size:0.72rem;opacity:0.5;cursor:pointer;user-select:none" `
       + `onclick="const s=document.getElementById('suggest-sim-kpis');s.style.display=s.style.display==='none'?'block':'none'">`
       + `detaljer ▾</span>`
@@ -5534,9 +5541,35 @@ function renderTouSuggestion(data) {
   if (simEl && k) {
     const fmt  = (v, d=2) => v != null ? v.toFixed(d) : '—';
     const col  = (v, pos, neg) => v == null ? '' : `color:${v >= 0 ? pos : neg}`;
+    const deltaRow = kb != null ? `
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:8px">
+          Marginell vinst vs. självkonsumtion
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+          <div style="text-align:center">
+            <div style="font-size:10px;color:var(--text-muted)">Δ Kostnad</div>
+            <div style="font-size:14px;font-weight:600;${col(kb.cost_kr - k.cost_kr,'#34d399','#f87171')}">
+              ${(kb.cost_kr - k.cost_kr) >= 0 ? '+' : ''}${fmt(kb.cost_kr - k.cost_kr)} kr</div>
+            <div style="font-size:10px;color:var(--dim)">lägre importkostnad</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:10px;color:var(--text-muted)">Δ Exportintäkt</div>
+            <div style="font-size:14px;font-weight:600;${col(k.earn_kr - kb.earn_kr,'#34d399','#f87171')}">
+              ${(k.earn_kr - kb.earn_kr) >= 0 ? '+' : ''}${fmt(k.earn_kr - kb.earn_kr)} kr</div>
+            <div style="font-size:10px;color:var(--dim)">extra exportvinst</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:10px;color:var(--text-muted)">Δ Netto</div>
+            <div style="font-size:14px;font-weight:600;${col(k.net_kr - kb.net_kr,'#34d399','#f87171')}">
+              ${(k.net_kr - kb.net_kr) >= 0 ? '+' : ''}${fmt(k.net_kr - kb.net_kr)} kr</div>
+            <div style="font-size:10px;color:var(--dim)">= bannervärdet</div>
+          </div>
+        </div>
+      </div>` : '';
     simEl.innerHTML = `
       <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:8px">
-        Simulerad dagsprognos
+        TOU-plan (simulerad dagsprognos)
         <span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:.6">(SoC start ${fmt(k.soc_start*100,0)} %)</span>
       </div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
@@ -5560,7 +5593,8 @@ function renderTouSuggestion(data) {
           <div style="font-size:15px;font-weight:600;${col(k.net_kr,'#34d399','#f87171')}">${k.net_kr >= 0 ? '+' : ''}${fmt(k.net_kr)} kr</div>
           <div style="font-size:10px;color:var(--dim)">intäkt − kostnad</div>
         </div>
-      </div>`;
+      </div>
+      ${deltaRow}`;
     simEl.style.display = 'none';   // collapsed by default — headline shows the summary
   }
 

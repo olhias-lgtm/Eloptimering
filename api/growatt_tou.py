@@ -1426,6 +1426,12 @@ def _build_suggestion(for_date: date) -> dict:
     sim_kpis = _simulate_battery(solar_by_hour, load_by_hour, hour_mode,
                                  price_by_hour, soc_start)
 
+    # Baseline simulation — pure Load First (self-consumption only, no TOU schedule).
+    # Used in the frontend to show the *marginal* benefit of the TOU plan vs. doing nothing.
+    baseline_mode = {h: 0 for h in range(24)}
+    baseline_kpis = _simulate_battery(solar_by_hour, load_by_hour, baseline_mode,
+                                      price_by_hour, soc_start)
+
     return {
         "ok":               True,
         "for_date":         for_date.isoformat(),
@@ -1437,6 +1443,7 @@ def _build_suggestion(for_date: date) -> dict:
                         "max": round(max(prices_sorted), 4)},
         "solar_peak_kw": round(solar_peak[1], 2),
         "sim_kpis":      sim_kpis,
+        "baseline_kpis": baseline_kpis,
         "storm_watch": {
             "triggered":    storm_triggered,
             "low_days":     storm_low_days,
@@ -1485,8 +1492,9 @@ def _save_suggestion(result: dict):
         return
     # Merge discharge_pct + soc_floor_pct into sim_kpis (no schema change needed)
     sim_kpis = dict(result.get("sim_kpis") or {})
-    if result.get("discharge_pct")  is not None: sim_kpis["discharge_pct"]  = result["discharge_pct"]
-    if result.get("soc_floor_pct")  is not None: sim_kpis["soc_floor_pct"]  = result["soc_floor_pct"]
+    if result.get("discharge_pct")   is not None: sim_kpis["discharge_pct"]   = result["discharge_pct"]
+    if result.get("soc_floor_pct")   is not None: sim_kpis["soc_floor_pct"]   = result["soc_floor_pct"]
+    if result.get("baseline_kpis")   is not None: sim_kpis["baseline_kpis"]   = result["baseline_kpis"]
     row = {
         "for_date":  result["for_date"],
         "segments":  result["segments"],
@@ -1515,11 +1523,12 @@ def _load_suggestion(for_date: date) -> dict:
         if rows:
             row = rows[0]
             result = {"ok": True, **row}
-            # Hoist discharge_pct + soc_floor_pct out of sim_kpis for easy frontend access
+            # Hoist discharge_pct + soc_floor_pct + baseline_kpis out of sim_kpis
             sk = row.get("sim_kpis") or {}
             if isinstance(sk, dict):
-                if "discharge_pct" in sk: result["discharge_pct"] = sk["discharge_pct"]
-                if "soc_floor_pct" in sk: result["soc_floor_pct"] = sk["soc_floor_pct"]
+                if "discharge_pct"  in sk: result["discharge_pct"]  = sk["discharge_pct"]
+                if "soc_floor_pct"  in sk: result["soc_floor_pct"]  = sk["soc_floor_pct"]
+                if "baseline_kpis"  in sk: result["baseline_kpis"]  = sk["baseline_kpis"]
             return result
         return {"ok": False, "error": "no suggestion saved yet for this date"}
     except Exception as e:
