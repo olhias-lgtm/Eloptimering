@@ -1134,34 +1134,6 @@
     <span class="tlm-chip"><span class="tlm-chip-icon">⚡</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-grid">—</b></span><span class="tlm-chip-lbl">Elnät</span></span></span>
   </div>
 
-  <!-- Power flow chart -->
-  <div class="card" style="margin-bottom:14px">
-    <div class="card-title">
-      Effektflöde
-      <span class="badge" id="interval-badge" style="display:none">— intervals</span>
-    </div>
-    <div class="chart-wrap-tall">
-      <canvas id="power-chart"></canvas>
-    </div>
-    <div class="legend" id="power-legend">
-      <div class="legend-item" data-ds="solar"><div class="legend-dot" style="background:var(--solar)"></div>Sol</div>
-      <div class="legend-item" data-ds="load"><div class="legend-dot" style="background:var(--load)"></div>Last</div>
-      <div class="legend-item" data-ds="import"><div class="legend-dot" style="background:var(--import)"></div>Import</div>
-      <div class="legend-item" data-ds="export"><div class="legend-dot" style="background:var(--export)"></div>Export</div>
-      <div class="legend-item" data-ds="battery"><div class="legend-dot" style="background:var(--battery)"></div>Batteri</div>
-      <div class="legend-item" data-ds="soc"><div class="legend-dot" style="background:rgba(167,139,250,0.7);border:1px dashed rgba(167,139,250,0.7);box-sizing:border-box"></div>SoC %</div>
-      <button class="legend-show-all" id="power-legend-show-all" style="display:none">Visa alla</button>
-    </div>
-  </div>
-
-  <!-- Power + Spot Price chart -->
-  <div class="card" style="margin-bottom:14px">
-    <div class="card-title">Effektflöde &amp; Spotpris</div>
-    <div class="chart-wrap-tall">
-      <canvas id="power-price-chart"></canvas>
-    </div>
-  </div>
-
   <!-- KPI row 1: energy -->
   <div class="kpi-row">
     <div class="kpi solar">
@@ -1212,6 +1184,35 @@
       </div>
     </div>
   </div>
+
+  <!-- Power flow chart -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">
+      Effektflöde
+      <span class="badge" id="interval-badge" style="display:none">— intervals</span>
+    </div>
+    <div class="chart-wrap-tall">
+      <canvas id="power-chart"></canvas>
+    </div>
+    <div class="legend" id="power-legend">
+      <div class="legend-item" data-ds="solar"><div class="legend-dot" style="background:var(--solar)"></div>Sol</div>
+      <div class="legend-item" data-ds="load"><div class="legend-dot" style="background:var(--load)"></div>Last</div>
+      <div class="legend-item" data-ds="import"><div class="legend-dot" style="background:var(--import)"></div>Import</div>
+      <div class="legend-item" data-ds="export"><div class="legend-dot" style="background:var(--export)"></div>Export</div>
+      <div class="legend-item" data-ds="battery"><div class="legend-dot" style="background:var(--battery)"></div>Batteri</div>
+      <div class="legend-item" data-ds="soc"><div class="legend-dot" style="background:rgba(167,139,250,0.7);border:1px dashed rgba(167,139,250,0.7);box-sizing:border-box"></div>SoC %</div>
+      <button class="legend-show-all" id="power-legend-show-all" style="display:none">Visa alla</button>
+    </div>
+  </div>
+
+  <!-- Power + Spot Price chart -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">Effektflöde &amp; Spotpris</div>
+    <div class="chart-wrap-tall">
+      <canvas id="power-price-chart"></canvas>
+    </div>
+  </div>
+
   <!-- Solar forecast deviation notice — shown today only, after production starts -->
   <div id="solar-deviation-notice" style="display:none;margin-bottom:10px;padding:8px 12px;border-radius:4px;border:1px solid;font-size:0.78rem;line-height:1.5"></div>
   <!-- KPI row 2: cost -->
