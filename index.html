@@ -5803,6 +5803,13 @@ function applyTouSuggestion() {
 async function loadTouSuggestion() {
   try {
     const data = await fetchJSON('/api/growatt_tou?action=suggest');
+    // If the returned suggestion is for yesterday (Lambda returned stale UTC-date
+    // result), show a notice instead of rendering misleading data.
+    if (data.ok && data.for_date && data.for_date < todayStr()) {
+      document.getElementById('suggest-wrap').innerHTML =
+        `<p style="font-size:12px;color:var(--text-muted)">⏳ Förslag för ${data.for_date} — nytt förslag genereras 00:10. <button onclick="loadTouSuggestion()" style="font-size:11px;background:none;border:1px solid var(--border);border-radius:3px;color:var(--text-muted);cursor:pointer;padding:2px 8px;margin-left:6px">↻ Ladda om</button></p>`;
+      return;
+    }
     renderTouSuggestion(data);
   } catch (e) {
     document.getElementById('suggest-wrap').innerHTML =

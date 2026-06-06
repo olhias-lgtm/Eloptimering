@@ -1656,8 +1656,13 @@ class handler(BaseHTTPRequestHandler):
         action = params.get("action", "")
 
         if action == "suggest":
-            # Return today's saved suggestion
-            self._send(_load_suggestion(date.today()))
+            # Return today's saved suggestion.
+            # Use CEST date (UTC+2), not UTC — between 00:00–02:00 CEST the UTC
+            # date is still yesterday, which would return the wrong suggestion.
+            from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+            _tz_cest = _tz(timedelta(hours=2))
+            today_cest = _dt.now(timezone.utc).astimezone(_tz_cest).date()
+            self._send(_load_suggestion(today_cest))
             return
 
         if action == "build_suggest":
