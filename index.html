@@ -2651,13 +2651,17 @@ function extractHourlyGTI(weatherData, dateStr) {
   const hourly = weatherData?.hourly;
   if (!hourly?.time || !hourly?.global_tilted_irradiance) return null;
   const result = new Array(24).fill(0);
+  let matched = 0;
   hourly.time.forEach((t, i) => {
     if (t.startsWith(dateStr)) {
       const h = parseInt(t.slice(11, 13));
-      if (h >= 0 && h < 24) result[h] = hourly.global_tilted_irradiance[i] ?? 0;
+      if (h >= 0 && h < 24) { result[h] = hourly.global_tilted_irradiance[i] ?? 0; matched++; }
     }
   });
-  return result;
+  // Return null if no timestamps matched dateStr — indicates stale cache (wrong date) or
+  // empty response. The caller's `if (!gtiHourly) throw` guard then fires correctly,
+  // surfacing the forecast-unavailable notice instead of silently showing a zero-solar forecast.
+  return matched > 0 ? result : null;
 }
 
 // Degree ↔ radian helpers
