@@ -2,7 +2,7 @@ import json
 import os
 import urllib.request
 from http.server import BaseHTTPRequestHandler
-from _growatt import get_session
+from _growatt import get_session, _load_stored_session
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
@@ -28,6 +28,12 @@ def _fetch_cron_health() -> dict:
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         s = get_session()
+        # On a cold Lambda, logged_in starts False. Restore from Supabase so
+        # the status endpoint reflects the real session state without a Growatt call.
+        if not s.logged_in:
+            stored = _load_stored_session()
+            if stored:
+                s._restore(stored)
         cron_health = _fetch_cron_health()
         body = json.dumps({
             "logged_in":   s.logged_in,
