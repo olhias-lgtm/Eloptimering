@@ -1924,7 +1924,7 @@ function _updateSolarDeviation(actualKwh, forecastKwh) {
   el.style.display      = '';
   el.innerHTML = (
     `☀️ <b>Producerat ${actualKwh.toFixed(1)} kWh</b>`
-    + ` · prognos ${forecastKwh.toFixed(1)} kWh`
+    + ` · dagsprognos ${forecastKwh.toFixed(1)} kWh`
     + ` · <b>${sign}${diffKwh.toFixed(1)} kWh (${sign}${diffPct}%)</b>`
   );
 }
@@ -3529,8 +3529,12 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
     }
   }
 
-  // Return only forecast slots (nulls replaced with actual from caller)
-  return forecastRows;
+  // Full-day model total — pure GTI model for all 288 slots, unaffected by actuals.
+  // Used as the stable start-of-day baseline for the deviation KPI.
+  const fullDayModelKwh = solarProfile.reduce((s, v) => s + (v || 0), 0) * (5 / 60);
+
+  // Return overlay rows + the stable day forecast for deviation tracking
+  return { rows: forecastRows, fullDayModelKwh };
 }
 
 // ---------------------------------------------------------------------------
@@ -3746,16 +3750,13 @@ async function refresh() {
     const isToday = dateStr === today;
     if (isToday) {
       try {
-        intradayOverlay = await buildIntradayForecast(dateStr, c, energyRaw);
-        // Store full-day forecast solar total for deviation display
-        // forecastKwh = actual already produced + modelled remainder for rest of day
-        // intradayOverlay past slots have _actual:true but no solar_kw — sum only future slots
-        const remainderSolarKwh = intradayOverlay.reduce(
-          (s, r) => s + (r._actual ? 0 : (r.solar_kw || 0)), 0) * (5 / 60);
-        // Actual solar from raw rows (same calc as renderKPIs uses)
+        const _fc = await buildIntradayForecast(dateStr, c, energyRaw);
+        intradayOverlay = _fc.rows;
+        // Stable start-of-day baseline: pure GTI model for all 288 slots, never
+        // adjusted with actuals, so the diff always means "ahead/behind today's dawn forecast".
         const dt = energyRaw.daily_totals;
         const actualSolarKwh = dt?.solar_kwh ?? kwhFromRows(energyRaw, 'solar_kw');
-        state.intradayForecastSolarKwh = actualSolarKwh + remainderSolarKwh;
+        state.intradayForecastSolarKwh = _fc.fullDayModelKwh;
         _updateSolarDeviation(actualSolarKwh, state.intradayForecastSolarKwh);
       } catch(e) {
         forecastErr = e.message;
