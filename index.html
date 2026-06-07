@@ -6217,48 +6217,84 @@ function lhpToggle() {
 
   function _buildHourPopupHTML(slice) {
     if (!slice || slice.length < 2) {
-      return '<div class="lhp-header"><span>Senaste timmen</span></div><div style="opacity:.6;font-size:0.75rem">Ingen data ännu</div>';
+      return '<div style="opacity:.6;font-size:0.75rem;padding:4px 0">Ingen data ännu</div>';
     }
-    const W = 5 / 60; // kWh per 5-min slot
+    const W = 5 / 60;
     const sum = (key) => slice.reduce((a, r) => a + (parseFloat(r[key]) || 0), 0);
-    const solarKwh   = (sum('solar_kw')   * W).toFixed(2);
-    const loadKwh    = (sum('load_kw')    * W).toFixed(2);
-    const importKwh  = (sum('import_kw')  * W).toFixed(2);
-    const exportKwh  = (sum('export_kw')  * W).toFixed(2);
-    const chargeKwh  =  sum('charge_kw')  * W;
-    const dischargeKwh = sum('discharge_kw') * W;
-    const socFirst   = slice[0].soc_pct;
-    const socLast    = slice[slice.length - 1].soc_pct;
-    const spotVals   = slice.map(r => parseFloat(r.spot_sek)).filter(v => !isNaN(v));
-    const avgSpot    = spotVals.length
-      ? (spotVals.reduce((a, b) => a + b, 0) / spotVals.length * 100).toFixed(0)
-      : null;
     const t0 = _fmt(slice[0]);
     const t1 = _fmt(slice[slice.length - 1]);
 
-    let battRow = '';
-    if (chargeKwh > 0.001 || dischargeKwh > 0.001) {
-      if (chargeKwh >= dischargeKwh) {
-        battRow = `<div class="lhp-row"><span>🔋 Laddning</span><span class="lhp-val">${chargeKwh.toFixed(2)} kWh</span></div>`;
-      } else {
-        battRow = `<div class="lhp-row"><span>🔋 Urladdning</span><span class="lhp-val">${dischargeKwh.toFixed(2)} kWh</span></div>`;
-      }
-    }
-    const socRow = (socFirst != null && socLast != null)
-      ? `<div class="lhp-row"><span>📊 Batteri</span><span class="lhp-val">${Math.round(socFirst)} % → ${Math.round(socLast)} %</span></div>`
-      : '';
-    const spotRow = avgSpot != null
-      ? `<div class="lhp-row"><span>⚡ Spotpris</span><span class="lhp-val">${avgSpot} öre/kWh</span></div>`
-      : '';
+    // 5-min detail rows
+    const detailRows = slice.map(r => {
+      const t     = _fmt(r);
+      const sol   = (r.solar_kw  || 0).toFixed(2);
+      const load  = (r.load_kw   || 0).toFixed(2);
+      const imp   = (r.import_kw || 0).toFixed(2);
+      const exp   = (r.export_kw || 0).toFixed(2);
+      const soc   = r.soc_pct != null ? Math.round(r.soc_pct) + '%' : '—';
+      const grid  = (r.import_kw || 0) > (r.export_kw || 0)
+                    ? `<span style="color:#f87171">↓${imp}</span>`
+                    : `<span style="color:#34d399">↑${exp}</span>`;
+      return `<tr>
+        <td style="color:var(--text-muted)">${t}</td>
+        <td style="color:#f59e0b">${sol}</td>
+        <td style="color:#60a5fa">${load}</td>
+        <td>${grid}</td>
+        <td style="color:#a78bfa">${soc}</td>
+      </tr>`;
+    }).join('');
+
+    // Summary totals
+    const solarKwh     = (sum('solar_kw')   * W).toFixed(2);
+    const loadKwh      = (sum('load_kw')    * W).toFixed(2);
+    const importKwh    = (sum('import_kw')  * W).toFixed(2);
+    const exportKwh    = (sum('export_kw')  * W).toFixed(2);
+    const chargeKwh    =  sum('charge_kw')  * W;
+    const dischargeKwh =  sum('discharge_kw') * W;
+    const socFirst = slice[0].soc_pct;
+    const socLast  = slice[slice.length - 1].soc_pct;
+    const spotVals = slice.map(r => parseFloat(r.spot_sek)).filter(v => !isNaN(v));
+    const avgSpot  = spotVals.length
+      ? (spotVals.reduce((a,b) => a+b,0) / spotVals.length * 100).toFixed(0) + ' öre/kWh'
+      : '—';
+
+    const battStr = chargeKwh > 0.001 || dischargeKwh > 0.001
+      ? (chargeKwh >= dischargeKwh ? `+${chargeKwh.toFixed(2)} kWh` : `-${dischargeKwh.toFixed(2)} kWh`)
+      : '—';
+    const socStr = socFirst != null && socLast != null
+      ? `${Math.round(socFirst)}% → ${Math.round(socLast)}%` : '—';
 
     return `
-      <div class="lhp-header"><span>Senaste timmen</span><span>${t0}–${t1}</span></div>
-      <div class="lhp-row"><span>☀️ Solar</span><span class="lhp-val">${solarKwh} kWh</span></div>
-      <div class="lhp-row"><span>🏠 Last</span><span class="lhp-val">${loadKwh} kWh</span></div>
-      <div class="lhp-row"><span>⬆️ Export</span><span class="lhp-val">${exportKwh} kWh</span></div>
-      <div class="lhp-row"><span>⬇️ Import</span><span class="lhp-val">${importKwh} kWh</span></div>
-      ${battRow}${spotRow}${socRow}
-    `.trim();
+      <div style="font-weight:600;margin-bottom:6px;font-size:0.75rem;opacity:0.6">Senaste timmen &nbsp;${t0}–${t1}</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:0.74rem">
+          <thead>
+            <tr style="opacity:0.5;font-size:0.68rem">
+              <th style="text-align:left;padding:2px 4px 4px 0">Tid</th>
+              <th style="text-align:right;padding:2px 4px 4px">☀️ Sol</th>
+              <th style="text-align:right;padding:2px 4px 4px">🏠 Last</th>
+              <th style="text-align:right;padding:2px 4px 4px">⚡ Nät</th>
+              <th style="text-align:right;padding:2px 0 4px 4px">🔋 SoC</th>
+            </tr>
+          </thead>
+          <tbody style="line-height:1.6">
+            ${detailRows}
+          </tbody>
+          <tfoot>
+            <tr style="border-top:1px solid var(--border);font-weight:600;font-size:0.74rem">
+              <td style="padding:4px 4px 0 0;opacity:0.5">Σ timme</td>
+              <td style="text-align:right;padding:4px 4px 0;color:#f59e0b">${solarKwh} kWh</td>
+              <td style="text-align:right;padding:4px 4px 0;color:#60a5fa">${loadKwh} kWh</td>
+              <td style="text-align:right;padding:4px 4px 0">${parseFloat(importKwh) > parseFloat(exportKwh) ? `<span style="color:#f87171">↓${importKwh}</span>` : `<span style="color:#34d399">↑${exportKwh}</span>`} kWh</td>
+              <td style="text-align:right;padding:4px 0 0 4px;color:#a78bfa">${socStr}</td>
+            </tr>
+            <tr style="font-size:0.72rem;opacity:0.6">
+              <td colspan="2" style="padding:2px 0 0">🔋 Batteri: ${battStr}</td>
+              <td colspan="3" style="text-align:right;padding:2px 0 0">⚡ Spot: ${avgSpot}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`.trim();
   }
 
   function _showPopupAt(anchor) {
