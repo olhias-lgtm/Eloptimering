@@ -6237,34 +6237,37 @@ setInterval(() => {
     `.trim();
   }
 
-  function _showPopup(e) {
-    const trigger = e.target.closest('.tlm-chip, .lm-tile, .lhp-trigger');
-    if (!trigger) return;
-    // For .tlm-chip, only fire when inside #mini-live-nu (mini strip on Nu tab)
-    if (trigger.classList.contains('tlm-chip') && !trigger.closest('#mini-live-nu')) return;
+  // Safari requires mouseenter/mouseleave attached directly to elements —
+  // event delegation via document.mouseover is unreliable on non-interactive divs.
+  function _attachHover(el) {
+    if (!el) return;
+    el.style.cursor = 'help';
+    el.addEventListener('mouseenter', () => {
+      const rows  = Array.isArray(state.energyData) ? state.energyData : [];
+      const slice = rows.slice(-12);
+      popup.innerHTML = _buildHourPopupHTML(slice);
+      popup.style.display = 'block';
 
-    const rows  = Array.isArray(state.energyData) ? state.energyData : [];
-    const slice = rows.slice(-12);
-    popup.innerHTML = _buildHourPopupHTML(slice);
-    popup.style.display = 'block';
-
-    const r   = trigger.getBoundingClientRect();
-    const vw  = window.innerWidth;
-    const popH = popup.offsetHeight || 160;
-
-    let left = r.left + r.width / 2 - POP_W / 2;
-    left = Math.max(POP_PAD, Math.min(left, vw - POP_W - POP_PAD));
-    const top = (r.top - popH - 8 > 0) ? r.top - popH - 8 : r.bottom + 8;
-
-    popup.style.left  = left + 'px';
-    popup.style.top   = top  + 'px';
-    popup.style.width = POP_W + 'px';
+      const r   = el.getBoundingClientRect();
+      const vw  = window.innerWidth;
+      const popH = popup.offsetHeight || 160;
+      let left = r.left + r.width / 2 - POP_W / 2;
+      left = Math.max(POP_PAD, Math.min(left, vw - POP_W - POP_PAD));
+      const top = (r.top - popH - 8 > 0) ? r.top - popH - 8 : r.bottom + 8;
+      popup.style.left  = left + 'px';
+      popup.style.top   = top  + 'px';
+      popup.style.width = POP_W + 'px';
+    });
+    el.addEventListener('mouseleave', () => { popup.style.display = 'none'; });
   }
 
-  document.addEventListener('mouseover', _showPopup);
-  document.addEventListener('mouseout', e => {
-    if (e.target.closest('.tlm-chip, .lm-tile, .lhp-trigger')) popup.style.display = 'none';
-  });
+  // Attach to all trigger elements once DOM is ready
+  // — live badge row (desktop Nu tab, main SVG strip)
+  _attachHover(document.querySelector('.live-badge-row.lhp-trigger'));
+  // — mobile tile grid (Nu tab, small screens)
+  document.querySelectorAll('.lm-tile').forEach(_attachHover);
+  // — mini strip chips (Nu tab historical dates)
+  document.querySelectorAll('#mini-live-nu .tlm-chip').forEach(_attachHover);
 })();
 </script>
 
