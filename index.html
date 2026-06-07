@@ -6193,12 +6193,12 @@ function lhpToggle() {
   const btn = document.getElementById('lhp-btn');
   if (!btn) return;
   const r = btn.getBoundingClientRect();
-  const POP_W = 220, POP_PAD = 8;
-  let left = r.left + r.width / 2 - POP_W / 2;
-  left = Math.max(POP_PAD, Math.min(left, window.innerWidth - POP_W - POP_PAD));
-  popup.style.left  = left + 'px';
+  const POP_PAD = 8;
+  // Anchor right edge of popup to right edge of button, clamped within viewport
+  popup.style.left  = '';
+  popup.style.right = (window.innerWidth - r.right) + 'px';
   popup.style.top   = (r.bottom + 6) + 'px';
-  popup.style.width = POP_W + 'px';
+  popup.style.width = '220px';
 }
 
 (function() {
