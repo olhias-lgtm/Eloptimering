@@ -303,6 +303,22 @@
     border-radius:6px; padding:7px 10px; font-size:11px; line-height:1.5;
     width:240px; white-space:normal; box-shadow:0 4px 12px rgba(0,0,0,0.4);
   }
+  /* Last-hour KPI popover on live strip chips */
+  #live-hour-popup {
+    display:none; position:fixed; z-index:9999; pointer-events:none;
+    background:var(--card-bg); color:var(--text); border:1px solid var(--border);
+    border-radius:8px; padding:0.6rem 0.9rem; font-size:0.78rem; line-height:1.6;
+    min-width:210px; box-shadow:0 4px 16px rgba(0,0,0,0.35);
+  }
+  #live-hour-popup .lhp-header {
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-size:0.7rem; font-weight:600; opacity:0.6;
+    border-bottom:1px solid var(--border); margin-bottom:0.4rem; padding-bottom:0.35rem;
+  }
+  #live-hour-popup .lhp-row {
+    display:flex; justify-content:space-between; gap:1rem; padding:1px 0;
+  }
+  #live-hour-popup .lhp-val { font-weight:600; white-space:nowrap; }
   .tou-save-btn { font-size:11px; padding:3px 8px; border-radius:3px; border:1px solid var(--border); background:var(--muted); color:var(--text-muted); cursor:pointer; transition:background .15s; }
   .tou-save-btn.dirty { background:#22c55e; color:#000; border-color:#22c55e; }
   .tou-save-btn.saving { opacity:.5; cursor:default; }
@@ -6151,6 +6167,100 @@ setInterval(() => {
 
   document.addEventListener('mouseout', e => {
     if (e.target.closest('.tou-mode-tip')) popup.style.display = 'none';
+  });
+})();
+
+// ── Last-hour KPI popover on live strip chips ──────────────────────────────
+(function() {
+  const POP_W = 220, POP_PAD = 8;
+
+  const popup = document.createElement('div');
+  popup.id = 'live-hour-popup';
+  document.body.appendChild(popup);
+
+  function _fmt(ts) {
+    // ts is ISO string e.g. "2026-06-07T14:35:00+00:00"; show CEST HH:MM
+    try {
+      const d = new Date(ts);
+      return d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Stockholm' });
+    } catch { return ''; }
+  }
+
+  function _buildHourPopupHTML(slice) {
+    if (!slice || slice.length < 2) {
+      return '<div class="lhp-header"><span>Senaste timmen</span></div><div style="opacity:.6;font-size:0.75rem">Ingen data ännu</div>';
+    }
+    const W = 5 / 60; // kWh per 5-min slot
+    const sum = (key) => slice.reduce((a, r) => a + (parseFloat(r[key]) || 0), 0);
+    const solarKwh   = (sum('solar_kw')   * W).toFixed(2);
+    const loadKwh    = (sum('load_kw')    * W).toFixed(2);
+    const importKwh  = (sum('import_kw')  * W).toFixed(2);
+    const exportKwh  = (sum('export_kw')  * W).toFixed(2);
+    const chargeKwh  =  sum('charge_kw')  * W;
+    const dischargeKwh = sum('discharge_kw') * W;
+    const socFirst   = slice[0].soc_pct;
+    const socLast    = slice[slice.length - 1].soc_pct;
+    const spotVals   = slice.map(r => parseFloat(r.spot_sek)).filter(v => !isNaN(v));
+    const avgSpot    = spotVals.length
+      ? (spotVals.reduce((a, b) => a + b, 0) / spotVals.length * 100).toFixed(0)
+      : null;
+    const t0 = _fmt(slice[0].ts);
+    const t1 = _fmt(slice[slice.length - 1].ts);
+
+    let battRow = '';
+    if (chargeKwh > 0.001 || dischargeKwh > 0.001) {
+      if (chargeKwh >= dischargeKwh) {
+        battRow = `<div class="lhp-row"><span>🔋 Laddning</span><span class="lhp-val">${chargeKwh.toFixed(2)} kWh</span></div>`;
+      } else {
+        battRow = `<div class="lhp-row"><span>🔋 Urladdning</span><span class="lhp-val">${dischargeKwh.toFixed(2)} kWh</span></div>`;
+      }
+    }
+    const socRow = (socFirst != null && socLast != null)
+      ? `<div class="lhp-row"><span>📊 Batteri</span><span class="lhp-val">${Math.round(socFirst)} % → ${Math.round(socLast)} %</span></div>`
+      : '';
+    const spotRow = avgSpot != null
+      ? `<div class="lhp-row"><span>⚡ Spotpris</span><span class="lhp-val">${avgSpot} öre/kWh</span></div>`
+      : '';
+
+    return `
+      <div class="lhp-header"><span>Senaste timmen</span><span>${t0}–${t1}</span></div>
+      <div class="lhp-row"><span>☀️ Solar</span><span class="lhp-val">${solarKwh} kWh</span></div>
+      <div class="lhp-row"><span>🏠 Last</span><span class="lhp-val">${loadKwh} kWh</span></div>
+      <div class="lhp-row"><span>⬆️ Export</span><span class="lhp-val">${exportKwh} kWh</span></div>
+      <div class="lhp-row"><span>⬇️ Import</span><span class="lhp-val">${importKwh} kWh</span></div>
+      ${battRow}${spotRow}${socRow}
+    `.trim();
+  }
+
+  function _showPopup(e) {
+    const chip = e.target.closest('.tlm-chip');
+    if (!chip) return;
+    // Only fire on live-strip and mini-live-nu
+    const parent = chip.closest('#live-strip, #mini-live-nu');
+    if (!parent) return;
+
+    const rows  = Array.isArray(state.energyData) ? state.energyData : [];
+    const slice = rows.slice(-12);
+    popup.innerHTML = _buildHourPopupHTML(slice);
+    popup.style.display = 'block';
+
+    const r   = chip.getBoundingClientRect();
+    const vw  = window.innerWidth;
+    const vh  = window.innerHeight;
+    const popH = popup.offsetHeight || 160;
+
+    let left = r.left + r.width / 2 - POP_W / 2;
+    left = Math.max(POP_PAD, Math.min(left, vw - POP_W - POP_PAD));
+    const top = (r.top - popH - 8 > 0) ? r.top - popH - 8 : r.bottom + 8;
+
+    popup.style.left  = left + 'px';
+    popup.style.top   = top  + 'px';
+    popup.style.width = POP_W + 'px';
+  }
+
+  document.addEventListener('mouseover', _showPopup);
+  document.addEventListener('mouseout', e => {
+    if (e.target.closest('.tlm-chip')) popup.style.display = 'none';
   });
 })();
 </script>
