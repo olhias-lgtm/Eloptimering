@@ -3748,11 +3748,14 @@ async function refresh() {
       try {
         intradayOverlay = await buildIntradayForecast(dateStr, c, energyRaw);
         // Store full-day forecast solar total for deviation display
-        state.intradayForecastSolarKwh = intradayOverlay.reduce(
-          (s, r) => s + (r.solar_kw || 0), 0) * (5 / 60);
+        // forecastKwh = actual already produced + modelled remainder for rest of day
+        // intradayOverlay past slots have _actual:true but no solar_kw — sum only future slots
+        const remainderSolarKwh = intradayOverlay.reduce(
+          (s, r) => s + (r._actual ? 0 : (r.solar_kw || 0)), 0) * (5 / 60);
         // Actual solar from raw rows (same calc as renderKPIs uses)
         const dt = energyRaw.daily_totals;
         const actualSolarKwh = dt?.solar_kwh ?? kwhFromRows(energyRaw, 'solar_kw');
+        state.intradayForecastSolarKwh = actualSolarKwh + remainderSolarKwh;
         _updateSolarDeviation(actualSolarKwh, state.intradayForecastSolarKwh);
       } catch(e) {
         forecastErr = e.message;
