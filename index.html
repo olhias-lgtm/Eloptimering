@@ -6188,7 +6188,9 @@ function lhpToggle() {
   if (!panel) return;
   if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
   const rows  = Array.isArray(state.energyData) ? state.energyData : [];
-  const slice = rows.slice(-12);
+  // Filter to slots with real data (load > 0 means the inverter was reporting)
+  const real  = rows.filter(r => (r.load_kw || 0) > 0 || (r.solar_kw || 0) > 0 || (r.import_kw || 0) > 0);
+  const slice = real.slice(-12);
   panel.innerHTML = window._buildLhpHTML ? window._buildLhpHTML(slice) : 'Ingen data';
   panel.style.display = 'block';
 }
