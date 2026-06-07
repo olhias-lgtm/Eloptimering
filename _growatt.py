@@ -532,6 +532,14 @@ class GrowattSession:
                 timeout=10,
             )
             print(f"[live] sysStatus={status_resp.status_code} body={status_resp.text[:200]!r}")
+            if self._looks_like_html(status_resp):
+                if attempt == 0:
+                    print("[live] sysStatus returned HTML — session expired, re-logging in")
+                    self._handle_expiry()
+                    continue
+                raise RuntimeError(
+                    f"sysStatus returned HTML after re-login: {status_resp.text[:300]!r}"
+                )
             try:
                 status = status_resp.json().get("obj", {}) or {}
             except Exception as e:
@@ -547,6 +555,14 @@ class GrowattSession:
                 timeout=10,
             )
             print(f"[live] overview={overview_resp.status_code} body={overview_resp.text[:200]!r}")
+            if self._looks_like_html(overview_resp):
+                if attempt == 0:
+                    print("[live] overview returned HTML — session expired, re-logging in")
+                    self._handle_expiry()
+                    continue
+                raise RuntimeError(
+                    f"overview returned HTML after re-login: {overview_resp.text[:300]!r}"
+                )
             try:
                 overview = overview_resp.json().get("obj", {}) or {}
             except Exception as e:
