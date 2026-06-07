@@ -1893,23 +1893,22 @@ function exportKpiCsv() {
   URL.revokeObjectURL(a.href);
 }
 
-function _updateSolarDeviation(actualKwh, forecastKwh) {
+function _updateSolarDeviation(actualKwh, modelSoFarKwh, fullDayModelKwh) {
   const el = document.getElementById('solar-deviation-notice');
   if (!el) return;
 
-  // Hide if no meaningful production yet or no forecast
-  if (actualKwh < 0.5 || forecastKwh == null || forecastKwh < 0.5) {
+  // Hide if no meaningful production yet or no model data
+  if (actualKwh < 0.5 || modelSoFarKwh == null || modelSoFarKwh < 0.5) {
     el.style.display = 'none';
     return;
   }
 
-  const diffKwh = actualKwh - forecastKwh;
-  const diffPct = Math.round((diffKwh / forecastKwh) * 100);
+  // Diff vs what model expected by now — the real tracking signal
+  const diffKwh = actualKwh - modelSoFarKwh;
+  const diffPct = Math.round((diffKwh / modelSoFarKwh) * 100);
   const sign    = diffKwh >= 0 ? '+' : '';
 
-  // Colour: green if within 10% above, or any overproduction
-  //         amber if 10–25% below forecast
-  //         red   if >25% below forecast
+  // Colour: green ≥ -10%, amber -10–-25%, red < -25%
   let bg, border, color;
   if (diffPct >= -10) {
     bg = 'rgba(52,211,153,0.08)'; border = 'rgba(52,211,153,0.35)'; color = '#34d399';
@@ -1919,14 +1918,17 @@ function _updateSolarDeviation(actualKwh, forecastKwh) {
     bg = 'rgba(248,113,113,0.08)'; border = 'rgba(248,113,113,0.4)'; color = '#f87171';
   }
 
+  const dayFcStr = fullDayModelKwh != null ? ` · dagsprognos ${fullDayModelKwh.toFixed(1)} kWh` : '';
+
   el.style.background   = bg;
   el.style.borderColor  = border;
   el.style.color        = color;
   el.style.display      = '';
   el.innerHTML = (
     `☀️ <b>Producerat ${actualKwh.toFixed(1)} kWh</b>`
-    + ` · dagsprognos ${forecastKwh.toFixed(1)} kWh`
+    + ` · modell hittills ${modelSoFarKwh.toFixed(1)} kWh`
     + ` · <b>${sign}${diffKwh.toFixed(1)} kWh (${sign}${diffPct}%)</b>`
+    + dayFcStr
   );
 }
 
@@ -3531,11 +3533,14 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
   }
 
   // Full-day model total — pure GTI model for all 288 slots, unaffected by actuals.
-  // Used as the stable start-of-day baseline for the deviation KPI.
   const fullDayModelKwh = solarProfile.reduce((s, v) => s + (v || 0), 0) * (5 / 60);
 
-  // Return overlay rows + the stable day forecast for deviation tracking
-  return { rows: forecastRows, fullDayModelKwh };
+  // Model-so-far — what the GTI model predicted we'd have produced by cutoffSlot.
+  // Comparing actual vs this gives a meaningful mid-day tracking signal.
+  const modelSoFarKwh = solarProfile.slice(0, cutoffSlot)
+    .reduce((s, v) => s + (v || 0), 0) * (5 / 60);
+
+  return { rows: forecastRows, fullDayModelKwh, modelSoFarKwh };
 }
 
 // ---------------------------------------------------------------------------
@@ -3753,12 +3758,10 @@ async function refresh() {
       try {
         const _fc = await buildIntradayForecast(dateStr, c, energyRaw);
         intradayOverlay = _fc.rows;
-        // Stable start-of-day baseline: pure GTI model for all 288 slots, never
-        // adjusted with actuals, so the diff always means "ahead/behind today's dawn forecast".
         const dt = energyRaw.daily_totals;
         const actualSolarKwh = dt?.solar_kwh ?? kwhFromRows(energyRaw, 'solar_kw');
         state.intradayForecastSolarKwh = _fc.fullDayModelKwh;
-        _updateSolarDeviation(actualSolarKwh, state.intradayForecastSolarKwh);
+        _updateSolarDeviation(actualSolarKwh, _fc.modelSoFarKwh, _fc.fullDayModelKwh);
       } catch(e) {
         forecastErr = e.message;
         console.warn('[intraday forecast]', e.message);
