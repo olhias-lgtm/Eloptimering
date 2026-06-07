@@ -6224,23 +6224,25 @@ function lhpToggle() {
     const t0 = _fmt(slice[0]);
     const t1 = _fmt(slice[slice.length - 1]);
 
+    const TD  = 'style="text-align:right;padding:1px 4px;font-variant-numeric:tabular-nums"';
+    const TD0 = 'style="padding:1px 4px 1px 0;color:var(--text-muted)"';
+
     // 5-min detail rows
     const detailRows = slice.map(r => {
-      const t     = _fmt(r);
-      const sol   = (r.solar_kw  || 0).toFixed(2);
-      const load  = (r.load_kw   || 0).toFixed(2);
-      const imp   = (r.import_kw || 0).toFixed(2);
-      const exp   = (r.export_kw || 0).toFixed(2);
-      const soc   = r.soc_pct != null ? Math.round(r.soc_pct) + '%' : '—';
-      const grid  = (r.import_kw || 0) > (r.export_kw || 0)
-                    ? `<span style="color:#f87171">↓${imp}</span>`
-                    : `<span style="color:#34d399">↑${exp}</span>`;
+      const sol  = (r.solar_kw  || 0).toFixed(2);
+      const load = (r.load_kw   || 0).toFixed(2);
+      const imp  = (r.import_kw || 0).toFixed(2);
+      const exp  = (r.export_kw || 0).toFixed(2);
+      const soc  = r.soc_pct != null ? Math.round(r.soc_pct) + '%' : '—';
+      const grid = (r.import_kw || 0) > (r.export_kw || 0)
+                   ? `<span style="color:#f87171">↓${imp}</span>`
+                   : `<span style="color:#34d399">↑${exp}</span>`;
       return `<tr>
-        <td style="color:var(--text-muted)">${t}</td>
-        <td style="color:#f59e0b">${sol}</td>
-        <td style="color:#60a5fa">${load}</td>
-        <td>${grid}</td>
-        <td style="color:#a78bfa">${soc}</td>
+        <td ${TD0}>${_fmt(r)}</td>
+        <td ${TD} style="text-align:right;padding:1px 4px;color:#f59e0b">${sol}</td>
+        <td ${TD} style="text-align:right;padding:1px 4px;color:#60a5fa">${load}</td>
+        <td ${TD}>${grid}</td>
+        <td ${TD} style="text-align:right;padding:1px 0 1px 4px;color:#a78bfa">${soc}</td>
       </tr>`;
     }).join('');
 
@@ -6271,9 +6273,9 @@ function lhpToggle() {
           <thead>
             <tr style="opacity:0.5;font-size:0.68rem">
               <th style="text-align:left;padding:2px 4px 4px 0">Tid</th>
-              <th style="text-align:right;padding:2px 4px 4px">☀️ Sol</th>
-              <th style="text-align:right;padding:2px 4px 4px">🏠 Last</th>
-              <th style="text-align:right;padding:2px 4px 4px">⚡ Nät</th>
+              <th style="text-align:right;padding:2px 4px 4px">☀️ kW</th>
+              <th style="text-align:right;padding:2px 4px 4px">🏠 kW</th>
+              <th style="text-align:right;padding:2px 4px 4px">⚡ kW</th>
               <th style="text-align:right;padding:2px 0 4px 4px">🔋 SoC</th>
             </tr>
           </thead>
@@ -6282,15 +6284,15 @@ function lhpToggle() {
           </tbody>
           <tfoot>
             <tr style="border-top:1px solid var(--border);font-weight:600;font-size:0.74rem">
-              <td style="padding:4px 4px 0 0;opacity:0.5">Σ timme</td>
-              <td style="text-align:right;padding:4px 4px 0;color:#f59e0b">${solarKwh} kWh</td>
-              <td style="text-align:right;padding:4px 4px 0;color:#60a5fa">${loadKwh} kWh</td>
-              <td style="text-align:right;padding:4px 4px 0">${parseFloat(importKwh) > parseFloat(exportKwh) ? `<span style="color:#f87171">↓${importKwh}</span>` : `<span style="color:#34d399">↑${exportKwh}</span>`} kWh</td>
+              <td style="padding:4px 4px 0 0;opacity:0.5">Σ kWh</td>
+              <td style="text-align:right;padding:4px 4px 0;color:#f59e0b;font-variant-numeric:tabular-nums">${solarKwh}</td>
+              <td style="text-align:right;padding:4px 4px 0;color:#60a5fa;font-variant-numeric:tabular-nums">${loadKwh}</td>
+              <td style="text-align:right;padding:4px 4px 0;font-variant-numeric:tabular-nums">${parseFloat(importKwh) > parseFloat(exportKwh) ? `<span style="color:#f87171">↓${importKwh}</span>` : `<span style="color:#34d399">↑${exportKwh}</span>`}</td>
               <td style="text-align:right;padding:4px 0 0 4px;color:#a78bfa">${socStr}</td>
             </tr>
             <tr style="font-size:0.72rem;opacity:0.6">
-              <td colspan="2" style="padding:2px 0 0">🔋 Batteri: ${battStr}</td>
-              <td colspan="3" style="text-align:right;padding:2px 0 0">⚡ Spot: ${avgSpot}</td>
+              <td colspan="2" style="padding:3px 0 0">🔋 ${battStr}</td>
+              <td colspan="3" style="text-align:right;padding:3px 0 0">⚡ ${avgSpot}</td>
             </tr>
           </tfoot>
         </table>
