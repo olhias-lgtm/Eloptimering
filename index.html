@@ -6203,10 +6203,12 @@ function lhpToggle() {
   // Expose builder so the inline onclick on #lhp-btn can reach it
   window._buildLhpHTML = function(slice) { return _buildHourPopupHTML(slice); };
 
-  function _fmt(ts) {
-    // ts is ISO string e.g. "2026-06-07T14:35:00+00:00"; show CEST HH:MM
+  function _fmt(row) {
+    // Rows from Growatt chart data have a 'time' field ("HH:MM") — use directly.
+    // Rows from Supabase have a 'ts' ISO string — convert to CEST HH:MM.
+    if (row.time) return row.time;
     try {
-      const d = new Date(ts);
+      const d = new Date(row.ts);
       return d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Stockholm' });
     } catch { return ''; }
   }
@@ -6229,8 +6231,8 @@ function lhpToggle() {
     const avgSpot    = spotVals.length
       ? (spotVals.reduce((a, b) => a + b, 0) / spotVals.length * 100).toFixed(0)
       : null;
-    const t0 = _fmt(slice[0].ts);
-    const t1 = _fmt(slice[slice.length - 1].ts);
+    const t0 = _fmt(slice[0]);
+    const t1 = _fmt(slice[slice.length - 1]);
 
     let battRow = '';
     if (chargeKwh > 0.001 || dischargeKwh > 0.001) {
