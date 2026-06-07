@@ -1161,7 +1161,10 @@
     <span class="tlm-chip"><span class="tlm-chip-icon">⚡</span><span class="tlm-chip-text"><span class="tlm-chip-val"><b id="tlm-nu-grid">—</b></span><span class="tlm-chip-lbl">Elnät</span></span></span>
   </div>
 
-  <div class="section-header">⚡ Energibalans</div>
+  <div class="section-header" style="display:flex;align-items:center;justify-content:space-between">
+    <span>⚡ Energibalans</span>
+    <button id="lhp-btn" onclick="(function(){var p=document.getElementById('live-hour-popup');if(!p)return;if(p.style.display==='block'){p.style.display='none';return;}var rows=Array.isArray(state.energyData)?state.energyData:[];var slice=rows.slice(-12);p.innerHTML=window._buildLhpHTML(slice);p.style.display='block';var btn=document.getElementById('lhp-btn');var r=btn.getBoundingClientRect();var vw=window.innerWidth;var POP_W=220,POP_PAD=8;var popH=p.offsetHeight||160;var left=r.left+r.width/2-POP_W/2;left=Math.max(POP_PAD,Math.min(left,vw-POP_W-POP_PAD));var top=r.bottom+6;p.style.left=left+'px';p.style.top=top+'px';p.style.width=POP_W+'px';})()" style="font-size:0.7rem;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--muted);color:var(--text-muted);cursor:pointer;line-height:1.6" title="Senaste timmens KPIer">Senaste timme ⓘ</button>
+  </div>
 
   <!-- KPI row 1: energy -->
   <div class="kpi-row">
@@ -6185,6 +6188,9 @@ setInterval(() => {
   const popup = document.createElement('div');
   popup.id = 'live-hour-popup';
   document.body.appendChild(popup);
+
+  // Expose builder so the inline onclick on #lhp-btn can reach it
+  window._buildLhpHTML = function(slice) { return _buildHourPopupHTML(slice); };
 
   function _fmt(ts) {
     // ts is ISO string e.g. "2026-06-07T14:35:00+00:00"; show CEST HH:MM
