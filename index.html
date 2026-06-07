@@ -1093,11 +1093,12 @@
     </div>
   </div>
 
-  <!-- Live badge + timestamp -->
-  <div class="live-badge-row">
+  <!-- Live badge + timestamp — also acts as hover trigger for last-hour KPI popover -->
+  <div class="live-badge-row lhp-trigger" style="cursor:help" title="Håll muspekaren för senaste timmens KPIer">
     <div class="live-pulse"></div>
     <span class="live-badge-text">Live</span>
     <span id="live-fetched-badge" style="font-size:9px;color:var(--dim);margin-left:8px">—</span>
+    <span style="font-size:9px;color:var(--dim);margin-left:6px;opacity:0.5">ⓘ</span>
   </div>
 </div>
 
@@ -6237,20 +6238,18 @@ setInterval(() => {
   }
 
   function _showPopup(e) {
-    const chip = e.target.closest('.tlm-chip');
-    if (!chip) return;
-    // Only fire on live-strip and mini-live-nu
-    const parent = chip.closest('#live-strip, #mini-live-nu');
-    if (!parent) return;
+    const trigger = e.target.closest('.tlm-chip, .lm-tile, .lhp-trigger');
+    if (!trigger) return;
+    // For .tlm-chip, only fire when inside #mini-live-nu (mini strip on Nu tab)
+    if (trigger.classList.contains('tlm-chip') && !trigger.closest('#mini-live-nu')) return;
 
     const rows  = Array.isArray(state.energyData) ? state.energyData : [];
     const slice = rows.slice(-12);
     popup.innerHTML = _buildHourPopupHTML(slice);
     popup.style.display = 'block';
 
-    const r   = chip.getBoundingClientRect();
+    const r   = trigger.getBoundingClientRect();
     const vw  = window.innerWidth;
-    const vh  = window.innerHeight;
     const popH = popup.offsetHeight || 160;
 
     let left = r.left + r.width / 2 - POP_W / 2;
@@ -6264,7 +6263,7 @@ setInterval(() => {
 
   document.addEventListener('mouseover', _showPopup);
   document.addEventListener('mouseout', e => {
-    if (e.target.closest('.tlm-chip')) popup.style.display = 'none';
+    if (e.target.closest('.tlm-chip, .lm-tile, .lhp-trigger')) popup.style.display = 'none';
   });
 })();
 </script>
