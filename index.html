@@ -1163,7 +1163,7 @@
 
   <div class="section-header" style="display:flex;align-items:center;justify-content:space-between">
     <span>⚡ Energibalans</span>
-    <button id="lhp-btn" onclick="(function(){var p=document.getElementById('live-hour-popup');if(!p)return;if(p.style.display==='block'){p.style.display='none';return;}var rows=Array.isArray(state.energyData)?state.energyData:[];var slice=rows.slice(-12);p.innerHTML=window._buildLhpHTML(slice);p.style.display='block';var btn=document.getElementById('lhp-btn');var r=btn.getBoundingClientRect();var vw=window.innerWidth;var POP_W=220,POP_PAD=8;var popH=p.offsetHeight||160;var left=r.left+r.width/2-POP_W/2;left=Math.max(POP_PAD,Math.min(left,vw-POP_W-POP_PAD));var top=r.bottom+6;p.style.left=left+'px';p.style.top=top+'px';p.style.width=POP_W+'px';})()" style="font-size:0.7rem;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--muted);color:var(--text-muted);cursor:pointer;line-height:1.6" title="Senaste timmens KPIer">Senaste timme ⓘ</button>
+    <button id="lhp-btn" onclick="lhpToggle()" style="font-size:0.7rem;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--muted);color:var(--text-muted);cursor:pointer;line-height:1.6" title="Senaste timmens KPIer">Senaste timme ⓘ</button>
   </div>
 
   <!-- KPI row 1: energy -->
@@ -6181,7 +6181,26 @@ setInterval(() => {
   });
 })();
 
-// ── Last-hour KPI popover on live strip chips ──────────────────────────────
+// ── Last-hour KPI popover ──────────────────────────────────────────────────
+function lhpToggle() {
+  const popup = document.getElementById('live-hour-popup');
+  if (!popup) return;
+  if (popup.style.display === 'block') { popup.style.display = 'none'; return; }
+  const rows  = Array.isArray(state.energyData) ? state.energyData : [];
+  const slice = rows.slice(-12);
+  popup.innerHTML = window._buildLhpHTML ? window._buildLhpHTML(slice) : 'Laddar…';
+  popup.style.display = 'block';
+  const btn = document.getElementById('lhp-btn');
+  if (!btn) return;
+  const r = btn.getBoundingClientRect();
+  const POP_W = 220, POP_PAD = 8;
+  let left = r.left + r.width / 2 - POP_W / 2;
+  left = Math.max(POP_PAD, Math.min(left, window.innerWidth - POP_W - POP_PAD));
+  popup.style.left  = left + 'px';
+  popup.style.top   = (r.bottom + 6) + 'px';
+  popup.style.width = POP_W + 'px';
+}
+
 (function() {
   const POP_W = 220, POP_PAD = 8;
 
