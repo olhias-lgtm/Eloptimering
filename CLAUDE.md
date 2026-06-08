@@ -32,6 +32,8 @@ GROWATT_USERNAME=...
 GROWATT_PASSWORD=...
 SUPABASE_URL=...
 SUPABASE_ANON_KEY=...
+SOLCAST_API_KEY=...       # Solcast hobbyist API key
+SOLCAST_SITE_UUID=...     # Solcast rooftop site UUID (b918-5941-528d-ea66)
 ```
 
 ## Deployment
@@ -62,7 +64,9 @@ cron-job.org (every 5 min)
 Vercel crons (vercel.json)
   → /api/weather       @ 03:00 UTC  → Supabase weather_forecast
   → /api/solar_model   @ 04:00 UTC  → Supabase solar_model
+  → /api/solar_model?action=solcast_fetch @ 05:00, 10:00, 14:00 UTC → Supabase solcast_forecast
   → /api/save_prices   @ 06:00+13:00 UTC → Supabase spot_prices
+  → /api/grid          @ 08:00 UTC  → Supabase grid_production
   → /api/growatt_tou   @ 22:10 UTC  → build TOU suggestion, push to Growatt
 
 Browser
@@ -71,6 +75,7 @@ Browser
   → /api/prices  (spot prices from Supabase or elprisetjustnu.se)
   → /api/weather (cached Open-Meteo forecast)
   → /api/monthly (daily_summary aggregates)
+  → /api/solar_model?action=solcast_read (Solcast forecast for today, on page load)
 ```
 
 ### Key shared modules
@@ -98,7 +103,7 @@ Browser
 Single ~4000-line file. Key sections:
 - `state` object holds `energyData`, `charts`, `hiddenPowerDs` (legend toggle state), etc.
 - `renderPowerChart()` — Chart.js power flow chart with intraday forecast overlay
-- `buildIntradayForecast()` — today's remaining SoC/power simulation from current slot to 23:55
+- `buildIntradayForecast()` — today's remaining SoC/power simulation from current slot to 23:55. Three-layer solar forecast: (1) Open-Meteo GTI physics, (2) learned per-slot correction ratios from `solar_model` table, (3) Solcast rooftop PV forecast blended as `solcast_kw × (learned_kw / physics_kw)` to preserve shading geometry while using Solcast's weather accuracy. Solcast data stored in `state.solcastForecast` (288-slot array), loaded once on page init via `loadSolcastForecast()`.
 - `buildTomorrowForecast()` — tomorrow's full-day simulation; starting SoC computed by running today's solar simulation to midnight (not a flat drain estimate)
 - `renderKPIs()` — cost/earn calculation using `calcInterval()` per 5-min slot
 - `_applyPowerDsVisibility()` — applies `state.hiddenPowerDs` Set to Chart.js after re-renders

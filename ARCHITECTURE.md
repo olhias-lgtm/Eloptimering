@@ -60,7 +60,7 @@ GET /            →  index.html
 | `prices.py` | GET `?date=&area=` | Spot prices for a date from Supabase spot_prices table |
 | `save_prices.py` | GET `?date=&area=` | Fetch prices from elprisetjustnu.se → upsert spot_prices |
 | `weather.py` | GET | Combined Open-Meteo GTI + met.no cloud correction forecast |
-| `solar_model.py` | GET / GET `?action=build` | Per-slot GTI→kW correction model; rebuild from 90 days history |
+| `solar_model.py` | GET / GET `?action=build` / GET `?action=solcast_fetch` / GET `?action=solcast_read` / GET `?action=horizon_analysis` | Per-slot GTI→kW correction model; Solcast rooftop forecast fetch/serve; horizon profile estimator |
 | `growatt_tou.py` | GET / POST | Read/write Growatt inverter TOU schedule; build smart daily suggestion |
 | `grid.py` | GET `?action=fetch` / GET `?days=N` | Fetch Swedish grid production from eSett → Supabase; serve to frontend |
 | `status.py` | GET | Growatt session health check (login status, plant/serial IDs) |
@@ -81,6 +81,7 @@ GET /            →  index.html
 | **Open-Meteo** | None (public) | GTI solar irradiance forecast + historical data |
 | **met.no** | None (public) | Cloud cover correction for solar forecast |
 | **eSett Open Data** | None (public) | Swedish national electricity production mix (nuclear/hydro/wind/solar/thermal), 15-min resolution, ~1–2 day lag |
+| **Solcast** | API key (env var `SOLCAST_API_KEY`) | Rooftop PV forecast for registered site (Site UUID in `SOLCAST_SITE_UUID`); hobbyist tier, 10 calls/day |
 | **cron-job.org** | Shared secret in URL | External 5-min cron trigger for `collect.py` (Vercel Hobby only supports daily crons natively) |
 
 ---
@@ -96,7 +97,10 @@ Two layers of scheduled tasks:
 | `0 3 * * *` | `/api/weather` | Pre-cache tomorrow's weather forecast |
 | `0 4 * * *` | `/api/solar_model?action=build` | Rebuild solar production model from last 90 days |
 | `0 6 * * *` | `/api/save_prices?area=SE3` | Save today's spot prices to Supabase |
+| `0 5 * * *` | `/api/solar_model?action=solcast_fetch` | Morning Solcast forecast fetch (07:00 CEST) |
 | `0 8 * * *` | `/api/grid?action=fetch` | Fetch Swedish grid production for last 9 days from eSett |
+| `0 10 * * *` | `/api/solar_model?action=solcast_fetch` | Midday Solcast forecast refresh (12:00 CEST) |
+| `0 14 * * *` | `/api/solar_model?action=solcast_fetch` | Afternoon Solcast forecast refresh (16:00 CEST) |
 | `0 13 * * *` | `/api/save_prices?area=SE3&date=tomorrow` | Save tomorrow's prices as soon as Nord Pool publishes (~12:00 CET) |
 | `10 22 * * *` | `/api/growatt_tou?action=build_suggest` | Build tomorrow's smart TOU suggestion (00:10 CEST) |
 | `0 20 * * *` | `/api/growatt_tou?action=notify_reset` | Daily TOU notification/reset hook |
@@ -182,6 +186,17 @@ Smart TOU plan generated nightly for the next day.
 | `reasoning` | `TEXT` | Human-readable explanation |
 | `sim_kpis` | `JSONB` | Simulated cost/savings KPIs |
 
+#### `solcast_forecast`
+Rooftop PV forecast from Solcast API, upserted 3×/day.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `period_end` | `TIMESTAMPTZ PK` | UTC end of 30-min forecast period |
+| `pv_estimate` | `NUMERIC(8,4)` | P50 forecast kW |
+| `pv_estimate10` | `NUMERIC(8,4)` | P10 forecast kW (pessimistic) |
+| `pv_estimate90` | `NUMERIC(8,4)` | P90 forecast kW (optimistic) |
+| `fetched_at` | `TIMESTAMPTZ` | When this row was last upserted |
+
 #### `grid_production`
 Hourly Swedish national electricity production mix from eSett.
 
@@ -214,12 +229,26 @@ Hourly Swedish national electricity production mix from eSett.
 
 ## Solar Forecast Model
 
-Two-stage pipeline:
+Three-layer pipeline (applied in order inside `buildIntradayForecast()`):
 
-1. **Physics layer** — Open-Meteo GTI forecast (W/m²) for configured panel tilt/azimuth, corrected by met.no cloud cover
-2. **Learned correction layer** — `solar_model` table stores per-slot ratios from 90 days of actual vs. forecast data; rebuilt every night at 04:00 UTC
+1. **Physics layer** — Open-Meteo GTI forecast (W/m²) for configured panel tilt/azimuth, converted to kW using system capacity and a physics model. Corrected by met.no cloud cover.
+2. **Learned correction layer** — `solar_model` table stores per-slot GTI→kW correction ratios from 90 days of Growatt actuals vs. GTI. Rebuilt nightly at 04:00 UTC. Implicitly captures site-specific shading and orientation effects.
+3. **Solcast layer** — Rooftop PV forecast from the Solcast API (`solcast_forecast` table), fetched 3×/day at 05:00, 10:00, 14:00 UTC. Provides accurate cloud/irradiance signal for the site. Blended as: `solcast_kw × (learned_kw / physics_kw)` so Solcast's weather accuracy is used while the learned shading geometry is preserved.
+
+For past slots (before the current 5-min cutoff), Growatt actuals are always used — the forecast only applies to future slots in the remaining day.
 
 Used by `growatt_tou.py` suggestion algorithm with a −15% safety haircut.
+
+### Solcast setup
+- Site: Sparreholmsvägen 6A, Stockholm (59.28°N, 18.04°E)
+- Capacity: 11.7 kWdc, tilt 45°, azimuth −135°, loss factor 0.89
+- API key: `SOLCAST_SITE_UUID` and `SOLCAST_API_KEY` env vars in Vercel
+- Hobbyist tier: 10 API calls/day (3 used by crons, leaves 7 for manual/debug use)
+
+### Horizon profile (shading)
+Solcast does not model site-specific shading from buildings/trees. Two mitigations:
+- The learned correction layer absorbs systematic shading automatically over time.
+- `GET /api/solar_model?action=horizon_analysis` estimates the horizon profile from historical data: slots where GTI > 300 W/m² (clear sun) but `ppv_kw` < 15% of expected indicate blocked sun. Groups by azimuth bin and returns max blocked elevation per 5° bin, ready to paste into Solcast toolkit → Site → Advanced Settings → Horizon Profile. Requires 30+ days of clear-day data for meaningful confidence; re-run after summer accumulation.
 
 ---
 
@@ -248,4 +277,5 @@ Runs nightly at 22:10 UTC (00:10 CEST) for the following day:
 | `live.py` reads Supabase instead of Growatt | Eliminates ~4 000 redundant Growatt API calls/day from 60-second frontend polling; reduces account lockout risk |
 | eSett over ENTSO-E for Swedish grid data | eSett requires no API token and has a clean JSON REST API; ENTSO-E requires registration and returns XML |
 | Hard-coded Swedish nuclear nominal capacity | 6 804 MW (Forsmark 1+2+3 + Ringhals 3+4 + Oskarshamn 3); changes only if reactors open or close permanently |
-| 12-function Vercel limit | Drove deletion of `backfill.py` to make room for `grid.py`; helper modules use `_` prefix to avoid counting |
+| 12-function Vercel limit | Drove deletion of `backfill.py` to make room for `grid.py`; Solcast actions added to `solar_model.py` (no new file needed); helper modules use `_` prefix to avoid counting |
+| Solcast blending formula | `solcast_kw × (learned_kw / physics_kw)` preserves site-specific shading from the learned model while using Solcast's superior cloud/irradiance signal |
