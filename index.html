@@ -3450,6 +3450,8 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
   const cutoffSlot = (lastMeaningfulSlot >= 0 ? lastMeaningfulSlot : nowSlot) + 1;
 
   // 3b. Apply learned per-slot corrections to future forecast slots (where we have ≥5 days data)
+  // Also snapshot the physics-only profile so 3c can compute the shading ratio.
+  const physicsProfile = solarProfile.slice(); // copy before corrections
   try {
     const modelRows = await fetchCached('/api/solar_model', 3600);
     if (Array.isArray(modelRows) && modelRows.length > 0) {
@@ -3471,16 +3473,30 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
     console.debug('[solar model] not available, using physics model:', e.message);
   }
 
-  // 3c. Blend Solcast forecast into future slots if available for today
+  // 3c. Blend Solcast forecast into future slots if available for today.
+  // Solcast has better weather accuracy but no site shading knowledge.
+  // The learned model encodes shading implicitly via the ratio correction.
+  // Strategy: scale Solcast by (learnedProfile / physicsProfile) so Solcast
+  // provides the cloud/irradiance signal while the learned ratio preserves
+  // shading corrections. Falls back to raw Solcast when physics model is near zero.
   let solcastUsed = false;
   if (state.solcastForecast && todayStr === dateStr) {
     for (let i = cutoffSlot; i < 288; i++) {
-      if (state.solcastForecast[i] !== null) {
-        solarProfile[i] = state.solcastForecast[i];
-        solcastUsed = true;
+      if (state.solcastForecast[i] === null) continue;
+      const solcastKw   = state.solcastForecast[i];
+      const physicsKw   = physicsProfile[i];
+      const learnedKw   = solarProfile[i];   // after 3b corrections
+      // If the physics model has meaningful output, apply the site correction ratio
+      // (learned / physics) as a multiplier on top of Solcast.
+      // This preserves shading geometry while using Solcast's irradiance level.
+      if (physicsKw > 0.05) {
+        solarProfile[i] = Math.max(0, solcastKw * (learnedKw / physicsKw));
+      } else {
+        solarProfile[i] = solcastKw;  // night / near-zero — use Solcast directly
       }
+      solcastUsed = true;
     }
-    if (solcastUsed) console.debug('[solcast] blended into forecast from slot', cutoffSlot);
+    if (solcastUsed) console.debug('[solcast] blended with shading corrections from slot', cutoffSlot);
   }
 
   // 6. Simulate full day but only care about slots from cutoff onwards.
