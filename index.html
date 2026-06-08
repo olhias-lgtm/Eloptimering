@@ -1595,6 +1595,7 @@ let state = {
   weatherData:       null,   // full Open-Meteo response, kept fresh by loadWeather()
   solarForecastTs:          null,   // timestamp of last successful solar forecast fetch
   intradayForecastSolarKwh: null,   // full-day solar forecast kWh (set after buildIntradayForecast)
+  solcastForecast: null,            // Array[288] of pv_estimate kW per 5-min slot, or null
   currentDate:       todayStr(),
   dayType:           null,   // getDayType() result for currentDate — { type, label, badge, holidayName, isWeekend }
   charts:       {},
@@ -1897,7 +1898,7 @@ function exportKpiCsv() {
   URL.revokeObjectURL(a.href);
 }
 
-function _updateSolarDeviation(actualKwh, modelSoFarKwh, fullDayModelKwh) {
+function _updateSolarDeviation(actualKwh, modelSoFarKwh, fullDayModelKwh, solcastUsed) {
   const el = document.getElementById('solar-deviation-notice');
   if (!el) return;
 
@@ -1922,7 +1923,8 @@ function _updateSolarDeviation(actualKwh, modelSoFarKwh, fullDayModelKwh) {
     bg = 'rgba(248,113,113,0.08)'; border = 'rgba(248,113,113,0.4)'; color = '#f87171';
   }
 
-  const dayFcStr = fullDayModelKwh != null ? ` · dagsprognos ${fullDayModelKwh.toFixed(1)} kWh` : '';
+  const dayFcStr    = fullDayModelKwh != null ? ` · dagsprognos ${fullDayModelKwh.toFixed(1)} kWh` : '';
+  const solcastBadge = solcastUsed ? ' <span style="opacity:0.5;font-size:0.72em;font-weight:normal">· Solcast</span>' : '';
 
   el.style.background   = bg;
   el.style.borderColor  = border;
@@ -1933,6 +1935,7 @@ function _updateSolarDeviation(actualKwh, modelSoFarKwh, fullDayModelKwh) {
     + ` · modell hittills ${modelSoFarKwh.toFixed(1)} kWh`
     + ` · <b>${sign}${diffKwh.toFixed(1)} kWh (${sign}${diffPct}%)</b>`
     + dayFcStr
+    + solcastBadge
   );
 }
 
@@ -3468,6 +3471,18 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
     console.debug('[solar model] not available, using physics model:', e.message);
   }
 
+  // 3c. Blend Solcast forecast into future slots if available for today
+  let solcastUsed = false;
+  if (state.solcastForecast && todayStr === dateStr) {
+    for (let i = cutoffSlot; i < 288; i++) {
+      if (state.solcastForecast[i] !== null) {
+        solarProfile[i] = state.solcastForecast[i];
+        solcastUsed = true;
+      }
+    }
+    if (solcastUsed) console.debug('[solcast] blended into forecast from slot', cutoffSlot);
+  }
+
   // 6. Simulate full day but only care about slots from cutoff onwards.
   //    Run simulation from slot 0 using actual solar/load for slots before cutoff,
   //    then switch to forecast from cutoff. This gives accurate SoC continuity.
@@ -3544,7 +3559,7 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
   const modelSoFarKwh = solarProfile.slice(0, cutoffSlot)
     .reduce((s, v) => s + (v || 0), 0) * (5 / 60);
 
-  return { rows: forecastRows, fullDayModelKwh, modelSoFarKwh };
+  return { rows: forecastRows, fullDayModelKwh, modelSoFarKwh, solcastUsed };
 }
 
 // ---------------------------------------------------------------------------
@@ -3765,7 +3780,7 @@ async function refresh() {
         const dt = energyRaw.daily_totals;
         const actualSolarKwh = dt?.solar_kwh ?? kwhFromRows(energyRaw, 'solar_kw');
         state.intradayForecastSolarKwh = _fc.fullDayModelKwh;
-        _updateSolarDeviation(actualSolarKwh, _fc.modelSoFarKwh, _fc.fullDayModelKwh);
+        _updateSolarDeviation(actualSolarKwh, _fc.modelSoFarKwh, _fc.fullDayModelKwh, _fc.solcastUsed);
       } catch(e) {
         forecastErr = e.message;
         console.warn('[intraday forecast]', e.message);
@@ -4601,6 +4616,45 @@ async function saveDailySummary(payload) {
     });
   } catch (e) {
     console.warn('[save_summary]', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Solcast forecast loader
+// ---------------------------------------------------------------------------
+async function loadSolcastForecast() {
+  try {
+    const rows = await fetchJSON('/api/solar_model?action=solcast_read&days=2');
+    if (!Array.isArray(rows) || rows.length === 0) return;
+
+    // Build a 288-slot array for today (date in Stockholm time)
+    const today = todayStr();
+    const profile = new Array(288).fill(null);
+
+    rows.forEach(row => {
+      // period_end is the END of the 30-min period in UTC ISO format
+      const d = new Date(row.period_end);
+      const localStr = d.toLocaleDateString('sv-SE');   // YYYY-MM-DD in Stockholm
+      if (localStr !== today) return;
+
+      // period_end is end of 30-min window → start is 30 min earlier
+      const startMs  = d.getTime() - 30 * 60 * 1000;
+      const startD   = new Date(startMs);
+      const slotMins = startD.getHours() * 60 + startD.getMinutes();
+      const startSlot = Math.floor(slotMins / 5);
+
+      // Fill 6 consecutive 5-min slots with this 30-min average kW value
+      for (let s = startSlot; s < Math.min(startSlot + 6, 288); s++) {
+        profile[s] = parseFloat(row.pv_estimate) || 0;
+      }
+    });
+
+    const hasSolcast = profile.some(v => v !== null);
+    state.solcastForecast = hasSolcast ? profile : null;
+    console.debug('[solcast] loaded', rows.length, 'slots for today, hasSolcast:', hasSolcast);
+  } catch (e) {
+    console.warn('[solcast] load failed:', e.message);
+    state.solcastForecast = null;
   }
 }
 
@@ -6124,6 +6178,7 @@ detectMode().then(() => {
   loadDate(state.currentDate);
   loadWeather();
   loadMonthly();
+  loadSolcastForecast();
   loadGridData();
   loadTou();
   loadTouSuggestion();
