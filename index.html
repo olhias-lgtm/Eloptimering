@@ -3473,6 +3473,11 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
     console.debug('[solar model] not available, using physics model:', e.message);
   }
 
+  // Snapshot solarProfile after physics+learned corrections, before Solcast.
+  // Used for fullDayModelKwh so the "start-of-day forecast" stays stable
+  // across the day regardless of intraday Solcast refreshes.
+  const startOfDayProfile = solarProfile.slice();
+
   // 3c. Blend Solcast forecast into future slots if available for today.
   // Solcast has better weather accuracy but no site shading knowledge.
   // The learned model encodes shading implicitly via the ratio correction.
@@ -3567,8 +3572,10 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
     }
   }
 
-  // Full-day model total — pure GTI model for all 288 slots, unaffected by actuals.
-  const fullDayModelKwh = solarProfile.reduce((s, v) => s + (v || 0), 0) * (5 / 60);
+  // Full-day model total — physics+learned profile (start-of-day forecast).
+  // Uses startOfDayProfile (before Solcast) so this value stays stable across
+  // the day and acts as a fixed reference for the deviation KPI comparison.
+  const fullDayModelKwh = startOfDayProfile.reduce((s, v) => s + (v || 0), 0) * (5 / 60);
 
   // Model-so-far — what the GTI model predicted we'd have produced by cutoffSlot.
   // Comparing actual vs this gives a meaningful mid-day tracking signal.
