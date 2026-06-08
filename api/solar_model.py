@@ -13,6 +13,7 @@ Only slots with avg_gti > GTI_MIN W/m² and day_count >= MIN_DAYS get a ratio;
 the rest get ratio=NULL so the frontend falls back to the physics model.
 """
 import json
+import math
 import os
 import time
 import urllib.parse
@@ -174,6 +175,177 @@ def _fetch_load_profile(lookback: int = 90) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Horizon / shade profile analysis
+# ---------------------------------------------------------------------------
+
+def _sun_position(dt_utc: datetime, lat_deg: float, lon_deg: float) -> tuple:
+    """Return (azimuth_deg, elevation_deg) for a UTC datetime and location.
+
+    Azimuth is measured clockwise from north (0=N, 90=E, 180=S, 270=W).
+    Uses a compact NOAA low-precision model accurate to ~0.5° for our purposes.
+    """
+    jd  = 2440587.5 + dt_utc.timestamp() / 86400.0
+    n   = jd - 2451545.0
+
+    L   = (280.460 + 0.9856474 * n) % 360
+    g   = math.radians((357.528 + 0.9856003 * n) % 360)
+    lam = math.radians(L + 1.915 * math.sin(g) + 0.020 * math.sin(2 * g))
+    eps = math.radians(23.439 - 0.0000004 * n)
+
+    sin_dec = math.sin(eps) * math.sin(lam)
+    dec     = math.asin(max(-1.0, min(1.0, sin_dec)))
+    ra      = math.atan2(math.cos(eps) * math.sin(lam), math.cos(lam))
+
+    gmst_h  = (18.697374558 + 24.06570982441908 * n) % 24
+    lha     = math.radians((gmst_h * 15 - math.degrees(ra) + lon_deg) % 360)
+
+    lat     = math.radians(lat_deg)
+    sin_el  = (math.sin(lat) * math.sin(dec)
+               + math.cos(lat) * math.cos(dec) * math.cos(lha))
+    el      = math.degrees(math.asin(max(-1.0, min(1.0, sin_el))))
+
+    denom   = math.cos(math.radians(el)) * math.cos(lat) + 1e-9
+    cos_az  = (math.sin(dec) - math.sin(math.radians(el)) * math.sin(lat)) / denom
+    az      = math.degrees(math.acos(max(-1.0, min(1.0, cos_az))))
+    if math.sin(lha) > 0:
+        az = 360.0 - az
+
+    return az, el
+
+
+def _horizon_analysis() -> dict:
+    """Estimate site horizon profile from historical shading patterns.
+
+    Method
+    ------
+    1. Fetch 90 days of hourly GTI from Open-Meteo (clear-sky reference).
+    2. Fetch all energy_readings rows with ppv_kw > 0 from Supabase.
+    3. For each reading: if GTI > 300 W/m² (strong sun) but ppv_kw < 15% of
+       expected → the sun was blocked at that azimuth/elevation → shade event.
+    4. For each 5° azimuth bin: horizon elevation = max blocked elevation seen.
+
+    Confidence
+    ----------
+    Requires data from many different days to separate shading from clouds.
+    Returns a 'confidence' field: 'low' < 14 days, 'medium' 14–60, 'high' > 60.
+    The horizon profile is still returned at low confidence — useful as a starting
+    point, but treat it as indicative until more data is collected.
+
+    Output format
+    -------------
+    Returns {horizon, blocked_observations, data_days, confidence, readings_analyzed}
+    horizon: [{azimuth, elevation}] for azimuths 0–355 in 5° steps — paste into
+    Solcast toolkit → Site → Advanced Settings → Horizon Profile.
+    """
+    CAPACITY_KWP  = 11.7
+    LOSS_FACTOR   = 0.89
+    GTI_MIN_CLEAR = 300    # W/m² — decent direct sun, not just diffuse
+    SHADE_RATIO   = 0.15   # actual < 15% of expected → shaded
+    EL_MIN        = 4.0    # ignore sun below 4° (atmospheric effects, not obstacles)
+    LOOKBACK      = 90
+
+    # 1. Historical GTI from Open-Meteo
+    gti_url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={LAT}&longitude={LON}"
+        f"&hourly=global_tilted_irradiance"
+        f"&tilt={PANEL_TILT}&azimuth={PANEL_AZ}"
+        f"&timezone=UTC&past_days={LOOKBACK}&forecast_days=0"
+    )
+    req = urllib.request.Request(gti_url, headers={"User-Agent": "electricity-dashboard/horizon"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        gti_data = json.loads(r.read())
+
+    # "YYYY-MM-DDTHH" → gti W/m²
+    gti_by_hour: dict = {}
+    for t, v in zip(gti_data["hourly"]["time"], gti_data["hourly"]["global_tilted_irradiance"]):
+        gti_by_hour[t[:13]] = float(v or 0)
+
+    # 2. Fetch actual solar readings (ppv_kw) from Supabase — all available rows
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=LOOKBACK)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    sb_url = (
+        f"{SUPABASE_URL}/rest/v1/energy_readings"
+        f"?ts=gte.{cutoff}"
+        f"&ppv_kw=gt.0"
+        f"&select=ts,ppv_kw"
+        f"&order=ts.asc"
+        f"&limit=50000"
+    )
+    req = urllib.request.Request(sb_url, headers={
+        **_sb_headers(), "Prefer": "count=none",
+    })
+    with urllib.request.urlopen(req, timeout=30) as r:
+        readings = json.loads(r.read())
+
+    print(f"[horizon] {len(readings)} solar readings fetched")
+
+    # Count distinct data days
+    data_days = len({row["ts"][:10] for row in readings})
+
+    # 3. Identify shading events
+    az_blocked: dict = defaultdict(list)  # azimuth_bin → [elevation]
+    blocked_count = 0
+
+    for row in readings:
+        hour_key  = row["ts"][:13]   # "YYYY-MM-DDTHH"
+        gti       = gti_by_hour.get(hour_key, 0.0)
+        if gti < GTI_MIN_CLEAR:
+            continue  # not a clear-sky slot — can't distinguish shade from clouds
+
+        expected_kw = (gti / 1000.0) * CAPACITY_KWP * LOSS_FACTOR
+        actual_kw   = float(row["ppv_kw"])
+        if actual_kw >= expected_kw * SHADE_RATIO:
+            continue  # producing enough — not shaded
+
+        try:
+            dt = datetime.fromisoformat(row["ts"].replace("Z", "+00:00"))
+        except Exception:
+            continue
+
+        az, el = _sun_position(dt, LAT, LON)
+        if el < EL_MIN:
+            continue  # sun too low — atmospheric effects, not a real obstacle
+
+        az_bin = round(az / 5) * 5 % 360
+        az_blocked[az_bin].append(el)
+        blocked_count += 1
+
+    print(f"[horizon] {blocked_count} shade events across {len(az_blocked)} azimuth bins")
+
+    # 4. Build horizon profile — for each 5° azimuth, max blocked elevation
+    horizon = []
+    for az_bin in range(0, 360, 5):
+        if az_bin in az_blocked:
+            max_el = round(max(az_blocked[az_bin]), 1)
+        else:
+            max_el = 0.0
+        horizon.append({"azimuth": az_bin, "elevation": max_el})
+
+    if data_days >= 60:
+        confidence = "high"
+    elif data_days >= 14:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    return {
+        "ok":                    True,
+        "horizon":               horizon,
+        "blocked_observations":  blocked_count,
+        "azimuth_bins_with_shading": len(az_blocked),
+        "data_days":             data_days,
+        "confidence":            confidence,
+        "readings_analyzed":     len(readings),
+        "note": (
+            f"Based on {data_days} days of data. "
+            + ("Confidence is LOW — results are indicative only. Re-run after 30+ clear-day observations."
+               if confidence == "low" else
+               "Paste the 'horizon' array into Solcast toolkit → Site → Advanced Settings → Horizon Profile.")
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Solcast
 # ---------------------------------------------------------------------------
 
@@ -255,6 +427,15 @@ class handler(BaseHTTPRequestHandler):
             except Exception as e:
                 print(f"[load_model] {e}")
                 self._send([], 200)
+        elif params.get("action") == "horizon_analysis":
+            if not SUPABASE_URL or not SUPABASE_KEY:
+                self._send({"error": "missing Supabase env vars"}, 500)
+                return
+            try:
+                self._send(_horizon_analysis())
+            except Exception as e:
+                print(f"[horizon_analysis] {e}")
+                self._send({"ok": False, "error": str(e)}, 500)
         elif params.get("action") == "solcast_fetch":
             try:
                 self._send(_solcast_fetch())
