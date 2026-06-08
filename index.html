@@ -3480,7 +3480,7 @@ async function buildIntradayForecast(todayStr, c, actualRows) {
   // provides the cloud/irradiance signal while the learned ratio preserves
   // shading corrections. Falls back to raw Solcast when physics model is near zero.
   let solcastUsed = false;
-  if (state.solcastForecast && todayStr === dateStr) {
+  if (state.solcastForecast) {
     for (let i = cutoffSlot; i < 288; i++) {
       if (state.solcastForecast[i] === null) continue;
       const solcastKw   = state.solcastForecast[i];
