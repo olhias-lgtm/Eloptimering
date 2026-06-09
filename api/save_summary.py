@@ -1,6 +1,6 @@
 """
 save_summary — called by the frontend after computing daily cost/earn.
-POST JSON {date, solar_kwh, export_kwh, import_kwh, cost_kr, earn_kr, fixed_kr, net_kr}
+POST JSON {date, solar_kwh, load_kwh, export_kwh, import_kwh, cost_kr, earn_kr, fixed_kr, net_kr}
 Upserts to daily_summary via Supabase REST.
 Always returns 200.
 
@@ -42,6 +42,7 @@ def _upsert(payload: dict):
         "day":            payload.get("date"),
         "area":           payload.get("area", "SE3"),
         "solar_kwh":      payload.get("solar_kwh"),
+        "load_kwh":       payload.get("load_kwh"),
         "export_kwh":     payload.get("export_kwh"),
         "import_kwh":     payload.get("import_kwh"),
         "import_cost_kr": payload.get("cost_kr"),

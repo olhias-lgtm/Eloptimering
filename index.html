@@ -2084,6 +2084,7 @@ function renderKPIs(rows, priceMap, c, dateStr) {
       date:       dateStr,
       area:       c.area,
       solar_kwh:  Math.round(solar * 100) / 100,
+      load_kwh:   Math.round(load  * 100) / 100,
       export_kwh: Math.round(exp   * 100) / 100,
       import_kwh: Math.round(imp   * 100) / 100,
       cost_kr:    Math.round(varCost      * 100) / 100,
