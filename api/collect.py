@@ -454,6 +454,7 @@ def _recompute_daily_summary(date_str: str, area: str = "SE3") -> dict:
         "day":            date_str,
         "area":           area,
         "solar_kwh":      round(solar_kwh, 3),
+        "load_kwh":       round(load_kwh, 3),
         "export_kwh":     round(export_kwh, 3),
         "import_kwh":     round(import_kwh, 3),
         "import_cost_kr": round(total_cost_kr - fixed_kr, 2),
@@ -704,6 +705,39 @@ def _do_autofill(days: int, dry_run: bool) -> tuple[int, dict]:
             print(f"[autofill] {date_str}: {live}/{expected} live rows — OK")
 
         results.append(entry)
+
+    # Ensure daily_summary exists for every past day in the window, even if
+    # energy_readings had no gaps (so _recompute wasn't triggered above).
+    # This catches days that were never viewed in the frontend dashboard.
+    if not dry_run:
+        try:
+            # Fetch which days in our window already have a summary row
+            cutoff = (today_local - timedelta(days=min(days, 7))).isoformat()
+            url_ds = (
+                f"{SUPABASE_URL}/rest/v1/daily_summary"
+                f"?day=gte.{cutoff}&day=lt.{today_local.isoformat()}"
+                f"&area=eq.SE3&select=day"
+            )
+            with urllib.request.urlopen(
+                urllib.request.Request(url_ds, headers={
+                    "apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
+                }), timeout=8
+            ) as r:
+                existing_days = {row["day"] for row in json.loads(r.read())}
+
+            for i in range(1, min(days, 7) + 1):
+                target   = today_local - timedelta(days=i)
+                date_str = target.isoformat()
+                if date_str not in existing_days:
+                    print(f"[autofill] {date_str}: no daily_summary row — recomputing")
+                    try:
+                        res = _recompute_daily_summary(date_str)
+                        if res.get("ok"):
+                            filled_dates.append(date_str)
+                    except Exception as e:
+                        print(f"[autofill] summary recompute failed for {date_str}: {e}")
+        except Exception as e:
+            print(f"[autofill] missing-summary sweep failed (non-fatal): {e}")
 
     # Clean up fake-zero chart rows for today: future slots stored by a previous
     # mid-day backfill. A chart row with ts > now cannot have real data, so it is
