@@ -6,6 +6,16 @@
     { "src": "setup.html",        "use": "@vercel/static" },
     { "src": "api/*.py",          "use": "@vercel/python" }
   ],
+  "headers": [
+    {
+      "source": "/",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
+    },
+    {
+      "source": "/index.html",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
+    }
+  ],
   "routes": [
     { "src": "/api/(.*)",      "dest": "/api/$1.py" },
     { "src": "/architecture",  "dest": "/architecture.html" },
