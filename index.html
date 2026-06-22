@@ -22,6 +22,45 @@
 <link rel="apple-touch-startup-image" href="/splashscreens/splash-ipad-pro-12.9.png" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)">
 <!-- Service worker -->
 <script>if('serviceWorker'in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js').then(r=>console.log('SW:',r.scope)).catch(e=>console.warn('SW fail:',e));})}</script>
+<!-- Pull-to-refresh (PWA standalone only) -->
+<script>
+(function(){
+  var isStandalone=window.matchMedia('(display-mode: standalone)').matches||(navigator.standalone===true);
+  if(!isStandalone)return;
+  var THRESHOLD=80,MAX_PULL=120,startY=0,pulling=false,ind=null;
+  function getInd(){
+    if(ind)return ind;
+    ind=document.createElement('div');
+    ind.style.cssText='position:fixed;top:0;left:0;right:0;display:flex;align-items:center;justify-content:center;height:0;overflow:hidden;z-index:9999;background:rgba(10,12,15,0.97);transition:height 0.05s ease;pointer-events:none;';
+    ind.innerHTML='<svg id="ptr-icon" width="28" height="28" viewBox="0 0 28 28" fill="none" style="opacity:0;transition:opacity 0.15s,transform 0.15s"><circle cx="14" cy="14" r="11" stroke="#f59e0b" stroke-width="2.5" stroke-dasharray="50" stroke-dashoffset="15" stroke-linecap="round"/></svg>';
+    document.body.appendChild(ind);
+    return ind;
+  }
+  document.addEventListener('touchstart',function(e){if(window.scrollY>0)return;startY=e.touches[0].clientY;pulling=true;},{passive:true});
+  document.addEventListener('touchmove',function(e){
+    if(!pulling)return;
+    if(window.scrollY>0){pulling=false;return;}
+    var dist=Math.min(e.touches[0].clientY-startY,MAX_PULL);
+    if(dist<=0)return;
+    e.preventDefault();
+    var el=getInd();el.style.height=Math.round(dist*0.6)+'px';
+    var icon=el.querySelector('#ptr-icon');
+    if(icon){
+      var p=dist/THRESHOLD;
+      icon.style.opacity=Math.min(p,1);
+      icon.style.transform='rotate('+Math.round(p*180)+'deg)';
+      if(dist>=THRESHOLD){icon.style.animation='ptr-spin 0.6s linear infinite';if(!document.getElementById('ptr-style')){var s=document.createElement('style');s.id='ptr-style';s.textContent='@keyframes ptr-spin{to{transform:rotate(360deg)}}';document.head.appendChild(s);}}
+      else icon.style.animation='none';
+    }
+  },{passive:false});
+  document.addEventListener('touchend',function(e){
+    if(!pulling)return;pulling=false;
+    var dist=e.changedTouches[0].clientY-startY,el=getInd();
+    if(dist>=THRESHOLD){el.style.transition='height 0.15s ease';el.style.height='56px';setTimeout(function(){window.location.reload();},300);}
+    else{el.style.transition='height 0.2s ease';el.style.height='0';}
+  },{passive:true});
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;600;800&family=Space+Grotesk:wght@700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
