@@ -1,10 +1,13 @@
-# EnergySaver — Architecture & Project Model
+# Elström — Architecture & Project Model
 
 ## Overview
 
 A personal solar/battery home energy dashboard tracking real-time production,
 consumption, costs and grid trends. Deployed as a static frontend + serverless
 Python API on Vercel Hobby, with Supabase as the persistence layer.
+
+**Live:** [elstrom.sparrenlab.se](https://elstrom.sparrenlab.se)
+**Part of:** [sparrenlab.se](https://sparrenlab.se) ecosystem
 
 ---
 
@@ -15,7 +18,8 @@ Python API on Vercel Hobby, with Supabase as the persistence layer.
 | Repo | `github.com/olhias-lgtm/Eloptimering` |
 | Branch model | Single `main` branch; every push triggers a Vercel production deployment |
 | Versioning | No semantic versioning — Git commit history is the changelog |
-| CI/CD | Vercel GitHub integration; build status visible in `vercel.com` dashboard |
+| CI/CD | GitHub Actions → `vercel deploy --prod` (Vercel native GitHub integration intentionally bypassed — silently stalls) |
+| Build command | `node scripts/inject-sw-version.mjs` (injects SW cache version before deploy) |
 
 ---
 
@@ -264,6 +268,26 @@ Runs nightly at 22:10 UTC (00:10 CEST) for the following day:
    - **Load First** — solar hours or neutral (let solar self-consume)
 4. Merge consecutive same-mode runs into TOU segments (max 9, Growatt limit)
 5. Upsert result to `tou_suggestions`; user can review and push to inverter in one click
+
+---
+
+## PWA
+
+Elström is installable as a Progressive Web App on iOS and Android.
+
+| Asset | Location | Notes |
+|-------|---------|-------|
+| Manifest | `manifest.json` | Amber theme `#f59e0b`, standalone display, short name "Elström" |
+| Service worker | `sw.js` | Network-first for page shell; **never caches `/api/*`** (live data must always be fresh); offline fallback page with amber lightning bolt |
+| Icons | `icon-192.png`, `icon-512.png` | Amber bg, white lightning bolt — generated from SVG |
+| iOS splash screens | `splashscreens/` | 8 sizes covering iPhone 8 → iPad Pro 12.9 |
+| Pull-to-refresh | Inline script in `index.html` | Restores native PTR lost in standalone mode; amber spinner |
+
+### SW cache versioning
+
+`scripts/inject-sw-version.mjs` replaces `CACHE_NAME` in `sw.js` with `elstrom-<sha7>` before every deploy. Triggered by `"buildCommand"` in `vercel.json`. Uses `VERCEL_GIT_COMMIT_SHA` in CI, local git hash locally, timestamp as fallback. No manual version bumping needed.
+
+`sw.js` is served with `Cache-Control: no-cache` so browsers always fetch the latest SW on each visit.
 
 ---
 
