@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "alias": ["elstrom.sparrenlab.se"],
   "builds": [
     { "src": "index.html",        "use": "@vercel/static" },
     { "src": "architecture.html", "use": "@vercel/static" },
