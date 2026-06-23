@@ -43,8 +43,6 @@
     { "path": "/api/collect?action=autofill&days=3",      "schedule": "0 1 * * *"  },
     { "path": "/api/collect?action=retention",           "schedule": "0 2 * * 0"  },
     { "path": "/api/grid?action=fetch",                   "schedule": "0 8 * * *"  },
-    { "path": "/api/solar_model?action=solcast_fetch",    "schedule": "0 5 * * *"  },
-    { "path": "/api/solar_model?action=solcast_fetch",    "schedule": "0 10 * * *" },
     { "path": "/api/solar_model?action=solcast_fetch",    "schedule": "0 14 * * *" }
   ]
 }
