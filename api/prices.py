@@ -7,12 +7,14 @@ the elprisetjustnu.se format {time_start, SEK_per_kWh}.
 Primary source: elprisetjustnu.se (live, ~0 latency).
 Fallback:       Supabase spot_prices table (populated by save_prices cron).
 
-If the external API is down or returns no data for a date, we serve whatever
-is already stored in Supabase — so the dashboard keeps working as long as the
-last successful cron ran (typically within the last 24 h).
+In-process cache keyed on (date_str, area):
+  - Past dates: cached indefinitely (prices never change after settlement)
+  - Today: 30-minute TTL (prices published the day before, but be safe)
+  - Tomorrow: 30-minute TTL (published around 13:00 CET; re-check periodically)
 """
 import json
 import os
+import time
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timezone, timedelta
@@ -21,6 +23,9 @@ from http.server import BaseHTTPRequestHandler
 ELPRISET_BASE = "https://www.elprisetjustnu.se/api/v1/prices"
 SUPABASE_URL  = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY  = os.environ.get("SUPABASE_ANON_KEY", "")
+
+_PRICE_CACHE: dict = {}   # key: (date_str, area) → {"data": list, "ts": float}
+_PRICE_TTL   = 30 * 60   # 30 minutes for today/tomorrow; past dates cached forever
 
 
 def _sb_headers():
@@ -73,15 +78,31 @@ def _fetch_stored(date_str: str, area: str) -> list:
 
 
 def _get_prices(date_str: str, area: str) -> tuple[list, str]:
-    """Return (prices, source) — tries live first, falls back to stored."""
+    """Return (prices, source) — checks in-process cache first, then live, then Supabase."""
+    cache_key  = (date_str, area)
+    today_str  = date.today().isoformat()
+    is_past    = date_str < today_str
+    now        = time.monotonic()
+
+    cached = _PRICE_CACHE.get(cache_key)
+    if cached:
+        age = now - cached["ts"]
+        # Past dates: keep forever. Today/tomorrow: honour TTL.
+        if is_past or age < _PRICE_TTL:
+            return cached["data"], "cache"
+
     prices = _fetch_live(date_str, area)
+    source = "live"
+    if not prices:
+        prices = _fetch_stored(date_str, area)
+        source = "supabase" if prices else "none"
+        if prices:
+            print(f"[prices] serving {date_str} from Supabase fallback ({len(prices)} slots)")
+
     if prices:
-        return prices, "live"
-    prices = _fetch_stored(date_str, area)
-    if prices:
-        print(f"[prices] serving {date_str} from Supabase fallback ({len(prices)} slots)")
-        return prices, "supabase"
-    return [], "none"
+        _PRICE_CACHE[cache_key] = {"data": prices, "ts": now}
+
+    return prices, source
 
 
 class handler(BaseHTTPRequestHandler):
