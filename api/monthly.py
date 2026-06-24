@@ -48,30 +48,29 @@ def _fetch_roi_total() -> dict:
     headers = _sb_headers()
     result: dict = {}
 
-    # Single aggregate query with explicit aliases so each column has a unique key.
-    # Without aliases, two .sum() calls both become "sum" and json.loads drops the first.
+    # Fetch all rows and sum in Python — daily_summary is small (grows by 1 row/day)
+    # and this approach is reliable across all PostgREST versions.
     url = (
         f"{SUPABASE_URL}/rest/v1/daily_summary"
-        f"?select=earn_kr:export_earn_kr.sum(),saved_kr:saved_kr.sum(),"
-        f"first_day:day.min(),last_day:day.max(),day_count:day.count()"
+        f"?select=export_earn_kr,saved_kr,day"
+        f"&order=day.asc"
     )
-    req = urllib.request.Request(url, headers={**headers, "Accept": "application/json"})
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             rows = json.loads(r.read())
-        row = rows[0] if rows else {}
-        earn  = float(row.get("earn_kr")  or 0)
-        saved = float(row.get("saved_kr") or 0)
+        earn  = sum(float(r.get("export_earn_kr") or 0) for r in rows)
+        saved = sum(float(r.get("saved_kr")       or 0) for r in rows)
         result = {
             "total_roi_kr": round(earn + saved, 2),
             "earn_kr":      round(earn,  2),
             "saved_kr":     round(saved, 2),
-            "day_count":    int(row.get("day_count") or 0),
-            "first_day":    row.get("first_day"),
-            "last_day":     row.get("last_day"),
+            "day_count":    len(rows),
+            "first_day":    rows[0]["day"]  if rows else None,
+            "last_day":     rows[-1]["day"] if rows else None,
         }
     except Exception as e:
-        print(f"[monthly roi] aggregate query failed: {e}")
+        print(f"[monthly roi] {e}")
         return {}
 
     # Lifetime battery throughput — separate RPC (non-fatal)
