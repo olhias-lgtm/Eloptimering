@@ -918,9 +918,113 @@
     #monthly-table-wrap table { font-size: 0.78rem; }
     .month-week-details summary { font-size: 0.78rem; }
   }
+
+  /* ── Splash screen ──────────────────────────────────────────────────── */
+  #splash {
+    position: fixed; inset: 0; z-index: 9999;
+    background: #0d0d0d;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 0;
+    font-family: 'Space Grotesk', sans-serif;
+    transition: opacity 0.7s ease;
+    user-select: none;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  #splash.fade-out { opacity: 0; pointer-events: none; }
+
+  #splash .splash-house {
+    width: min(260px, 70vw);
+    margin-bottom: 36px;
+    filter: drop-shadow(0 0 32px rgba(232,164,39,0.18));
+  }
+
+  #splash .splash-label {
+    font-size: 0.7rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #e8a427;
+    font-weight: 600;
+    margin-bottom: 10px;
+    opacity: 0.85;
+  }
+  #splash .splash-title {
+    font-size: clamp(1.5rem, 5vw, 2rem);
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+    text-align: center;
+    margin-bottom: 6px;
+  }
+  #splash .splash-addr {
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.45);
+    letter-spacing: 0.01em;
+    margin-bottom: 48px;
+  }
+  #splash .splash-powered {
+    position: absolute;
+    bottom: calc(28px + env(safe-area-inset-bottom));
+    font-size: 0.7rem;
+    color: rgba(255,255,255,0.25);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  #splash .splash-powered span { color: #e8a427; opacity: 0.7; }
 </style>
 </head>
 <body>
+
+<!-- ── Splash screen ─────────────────────────────────────────────────────── -->
+<div id="splash">
+  <!-- House with solar panels SVG -->
+  <svg class="splash-house" viewBox="0 0 280 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!-- Sky glow -->
+    <ellipse cx="140" cy="60" rx="90" ry="30" fill="#e8a427" opacity="0.06"/>
+    <!-- House walls -->
+    <rect x="52" y="118" width="176" height="90" rx="3" fill="#1a1a1a" stroke="#2e2e2e" stroke-width="1.5"/>
+    <!-- Roof -->
+    <polygon points="38,120 140,42 242,120" fill="#1e1e1e" stroke="#2e2e2e" stroke-width="1.5"/>
+    <!-- Roof ridge line -->
+    <line x1="140" y1="42" x2="140" y2="120" stroke="#2a2a2a" stroke-width="1"/>
+    <!-- Solar panels on left roof face -->
+    <g opacity="0.95">
+      <!-- Panel group left -->
+      <rect x="68" y="80" width="32" height="20" rx="2" fill="#e8a427" opacity="0.85" transform="rotate(-38 84 90)"/>
+      <rect x="95" y="65" width="32" height="20" rx="2" fill="#e8a427" opacity="0.85" transform="rotate(-38 111 75)"/>
+      <rect x="68" y="97" width="32" height="20" rx="2" fill="#e8a427" opacity="0.70" transform="rotate(-38 84 107)"/>
+      <rect x="95" y="82" width="32" height="20" rx="2" fill="#e8a427" opacity="0.70" transform="rotate(-38 111 92)"/>
+      <!-- Panel grid lines -->
+      <line x1="80" y1="73" x2="68" y2="88" stroke="#0d0d0d" stroke-width="0.8" opacity="0.6"/>
+      <line x1="107" y1="58" x2="95" y2="73" stroke="#0d0d0d" stroke-width="0.8" opacity="0.6"/>
+    </g>
+    <!-- Window -->
+    <rect x="112" y="148" width="56" height="40" rx="2" fill="#0d0d0d" stroke="#2e2e2e" stroke-width="1.2"/>
+    <line x1="140" y1="148" x2="140" y2="188" stroke="#2e2e2e" stroke-width="1"/>
+    <line x1="112" y1="168" x2="168" y2="168" stroke="#2e2e2e" stroke-width="1"/>
+    <!-- Door -->
+    <rect x="62" y="156" width="36" height="52" rx="2" fill="#0d0d0d" stroke="#2e2e2e" stroke-width="1.2"/>
+    <circle cx="92" cy="183" r="2.5" fill="#e8a427" opacity="0.6"/>
+    <!-- Sun rays top right -->
+    <circle cx="228" cy="38" r="10" fill="#e8a427" opacity="0.55"/>
+    <line x1="228" y1="20" x2="228" y2="14" stroke="#e8a427" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+    <line x1="228" y1="56" x2="228" y2="62" stroke="#e8a427" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+    <line x1="210" y1="38" x2="204" y2="38" stroke="#e8a427" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+    <line x1="246" y1="38" x2="252" y2="38" stroke="#e8a427" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+    <line x1="215" y1="25" x2="211" y2="21" stroke="#e8a427" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+    <line x1="241" y1="51" x2="245" y2="55" stroke="#e8a427" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+    <line x1="215" y1="51" x2="211" y2="55" stroke="#e8a427" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+    <line x1="241" y1="25" x2="245" y2="21" stroke="#e8a427" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+    <!-- Ground line -->
+    <line x1="30" y1="208" x2="250" y2="208" stroke="#1e1e1e" stroke-width="1.5"/>
+  </svg>
+
+  <p class="splash-label">Solceller</p>
+  <h1 class="splash-title">Sparreholmsvägen 6A</h1>
+  <p class="splash-addr">Energiövervakning i realtid</p>
+  <p class="splash-powered">powered by <span>Sparrenlab</span></p>
+</div>
 
 <div id="sticky-top">
 <header>
@@ -6270,6 +6374,15 @@ detectMode().then(() => {
   setInterval(() => loadWeather(true), 60 * 60 * 1000);
   // Restore last active tab (default: Nu)
   switchTab(localStorage.getItem('activeTab') || 'nu');
+
+  // Dismiss splash — minimum 2.2s so the illustration registers, then fade out
+  const _splashEl = document.getElementById('splash');
+  if (_splashEl) {
+    setTimeout(() => {
+      _splashEl.classList.add('fade-out');
+      _splashEl.addEventListener('transitionend', () => _splashEl.remove(), { once: true });
+    }, 2200);
+  }
 });
 
 // Auto-refresh every 5 minutes
