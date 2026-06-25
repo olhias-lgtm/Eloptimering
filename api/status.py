@@ -38,8 +38,11 @@ class handler(BaseHTTPRequestHandler):
             "logged_in":   s.logged_in,
             "plant_id":    s.plant_id,
             "mix_serial":  s.mix_serial,
-            "username":    os.environ.get("GROWATT_USER", ""),
-            "env_ok":      bool(os.environ.get("GROWATT_USER") and os.environ.get("GROWATT_PASS")),
+            "username":    os.environ.get("GROWATT_USER") or os.environ.get("GROWATT_USERNAME", ""),
+            "env_ok":      bool(
+                (os.environ.get("GROWATT_USER") or os.environ.get("GROWATT_USERNAME")) and
+                (os.environ.get("GROWATT_PASS") or os.environ.get("GROWATT_PASSWORD"))
+            ),
             "cron_health": cron_health,
         }).encode()
         self.send_response(200)
