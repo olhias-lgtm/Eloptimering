@@ -1025,6 +1025,13 @@
   <p class="splash-addr">Energiövervakning i realtid</p>
   <p class="splash-powered">powered by <span>Sparrenlab</span></p>
 </div>
+<script>
+  // Remove splash instantly on in-app reloads (sessionStorage survives refresh within same tab).
+  if (sessionStorage.getItem('_app_loaded')) {
+    var _s = document.getElementById('splash');
+    if (_s) _s.remove();
+  }
+</script>
 
 <div id="sticky-top">
 <header>
