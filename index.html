@@ -6386,13 +6386,21 @@ detectMode().then(() => {
   // sees demo mode. Fast starts → splash shows for at least 1.8 s.
   const _splashEl = document.getElementById('splash');
   if (_splashEl) {
-    const _elapsed  = Date.now() - _appLoadStart;
-    const _minMs    = 1800;
-    const _delay    = Math.max(0, _minMs - _elapsed);
-    setTimeout(() => {
+    const _dismissSplash = () => {
+      sessionStorage.setItem('_app_loaded', '1');
       _splashEl.classList.add('fade-out');
       _splashEl.addEventListener('transitionend', () => _splashEl.remove(), { once: true });
-    }, _delay);
+    };
+    if (sessionStorage.getItem('_app_loaded')) {
+      // In-app reload — skip the splash immediately
+      _splashEl.remove();
+    } else {
+      // Cold load — enforce minimum display time so user never sees demo mode flash
+      const _elapsed = Date.now() - _appLoadStart;
+      const _minMs   = 1800;
+      const _delay   = Math.max(0, _minMs - _elapsed);
+      setTimeout(_dismissSplash, _delay);
+    }
   }
 });
 
