@@ -1,0 +1,24 @@
+{
+  "name": "elstrom",
+  "version": "1.0.0",
+  "description": "Real-time electricity cost & earnings tracker for Sparreholmsvagen 6a. Growatt solar/battery data + Ellevio tariff + Fortum/Nordpool spot prices.",
+  "main": "sw.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/olhias-lgtm/Eloptimering.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/olhias-lgtm/Eloptimering/issues"
+  },
+  "homepage": "https://github.com/olhias-lgtm/Eloptimering#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
+  }
+}

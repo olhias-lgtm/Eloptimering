@@ -31,6 +31,11 @@
     { "src": "/api/(.*)",      "dest": "/api/$1.py" },
     { "src": "/architecture",  "dest": "/architecture.html" },
     { "src": "/setup",         "dest": "/setup.html" },
+    { "src": "/manifest.json", "dest": "/manifest.json" },
+    { "src": "/sw.js",         "dest": "/sw.js" },
+    { "src": "/icon-192.png",  "dest": "/icon-192.png" },
+    { "src": "/icon-512.png",  "dest": "/icon-512.png" },
+    { "src": "/splashscreens/(.*)", "dest": "/splashscreens/$1" },
     { "src": "/(.*)",          "dest": "/index.html" }
   ],
   "crons": [
