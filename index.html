@@ -1884,7 +1884,7 @@ async function loadStatus() {
     const s = await fetchJSON('/api/status');
     if (s.env_ok) {
       dot.className = 'status-dot ok';
-      txt.textContent = s.logged_in ? `Connected · ${s.username}` : `Klar`;
+      txt.textContent = s.logged_in ? `Connected · ${s.username}` : `Ansluten`;
       plant.textContent = `plant: ${s.plant_id || '…'} · mix: ${s.mix_serial || '…'}`;
     } else {
       dot.className = 'status-dot err';
