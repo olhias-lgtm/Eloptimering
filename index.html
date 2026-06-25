@@ -1026,11 +1026,19 @@
   <p class="splash-powered">powered by <span>Sparrenlab</span></p>
 </div>
 <script>
-  // Remove splash instantly on in-app reloads (sessionStorage survives refresh within same tab).
-  if (sessionStorage.getItem('_app_loaded')) {
-    var _s = document.getElementById('splash');
-    if (_s) _s.remove();
-  }
+  // Remove splash on in-app reloads. We use localStorage (not sessionStorage) so the flag
+  // survives PWA home-screen launches on iOS. TTL = 5 minutes — just long enough to skip
+  // the splash on a quick reload/refresh, but it replays after a proper cold open.
+  (function () {
+    var TTL = 5 * 60 * 1000;
+    try {
+      var ts = localStorage.getItem('_app_loaded_ts');
+      if (ts && Date.now() - Number(ts) < TTL) {
+        var _s = document.getElementById('splash');
+        if (_s) _s.remove();
+      }
+    } catch(e) {}
+  })();
 </script>
 
 <div id="sticky-top">
@@ -1876,7 +1884,7 @@ async function loadStatus() {
     const s = await fetchJSON('/api/status');
     if (s.env_ok) {
       dot.className = 'status-dot ok';
-      txt.textContent = s.logged_in ? `Connected · ${s.username}` : `Authenticating…`;
+      txt.textContent = s.logged_in ? `Connected · ${s.username}` : `Klar`;
       plant.textContent = `plant: ${s.plant_id || '…'} · mix: ${s.mix_serial || '…'}`;
     } else {
       dot.className = 'status-dot err';
@@ -6394,13 +6402,14 @@ detectMode().then(() => {
   const _splashEl = document.getElementById('splash');
   if (_splashEl) {
     const _dismissSplash = () => {
-      sessionStorage.setItem('_app_loaded', '1');
+      try { localStorage.setItem('_app_loaded_ts', String(Date.now())); } catch(e) {}
       _splashEl.classList.add('fade-out');
       _splashEl.addEventListener('transitionend', () => _splashEl.remove(), { once: true });
     };
-    if (sessionStorage.getItem('_app_loaded')) {
-      // In-app reload — skip the splash immediately
-      _splashEl.remove();
+    // Inline script already removed the element if TTL not expired — nothing to do here.
+    if (!document.getElementById('splash')) {
+      // Already removed by inline script — just stamp the timestamp
+      try { localStorage.setItem('_app_loaded_ts', String(Date.now())); } catch(e) {}
     } else {
       // Cold load — enforce minimum display time so user never sees demo mode flash
       const _elapsed = Date.now() - _appLoadStart;
