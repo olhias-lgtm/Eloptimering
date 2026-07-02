@@ -28,17 +28,13 @@ def _fetch_cron_health() -> dict:
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         s = get_session()
-        # On a cold Lambda, logged_in starts False.
-        # Try Supabase first (fast); fall back to a fresh Growatt login if no stored session.
+        # On a cold Lambda, logged_in starts False — restore from Supabase (fast, ~200ms).
+        # No fresh Growatt login here: that takes 2-5s and would push the cold-start
+        # total past the frontend's detectMode timeout, triggering demo mode.
         if not s.logged_in:
             stored = _load_stored_session()
             if stored:
                 s._restore(stored)
-            else:
-                try:
-                    s.login()
-                except Exception as e:
-                    print(f"[status] fresh login failed: {e}")
         cron_health = _fetch_cron_health()
         body = json.dumps({
             "logged_in":   s.logged_in,
