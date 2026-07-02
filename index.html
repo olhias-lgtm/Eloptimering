@@ -1790,6 +1790,8 @@ const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 
 let STATIC_MODE = false;
 
+const _APP_VERSION = 'v80d170f';   // updated each deploy — visible in status bar
+
 async function detectMode() {
   // Only flip to demo mode if the server explicitly returns an error status.
   // A timeout or network hiccup should NOT trigger demo mode — individual
@@ -1877,7 +1879,7 @@ async function loadStatus() {
 
   if (STATIC_MODE) {
     dot.className = 'status-dot ok';
-    txt.textContent = 'Demo mode — mock data';
+    txt.textContent = `Demo mode — mock data [${_APP_VERSION}]`;
     plant.textContent = 'Sparreholmsvagen 6a';
     return;
   }
