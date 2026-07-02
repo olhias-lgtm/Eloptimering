@@ -2,9 +2,9 @@
 // CACHE_NAME is injected automatically by scripts/inject-sw-version.mjs before each deploy
 const CACHE_NAME = 'elstrom-c51c337';
 
+// Only cache static assets — never HTML. index.html is always fetched
+// fresh from the network so stale JS is never served from SW cache.
 const PRECACHE = [
-  '/',
-  '/index.html',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
@@ -62,16 +62,9 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Page navigations — network-first, offline fallback to cached shell
+  // Page navigations — always network, no HTML caching.
+  // Serving stale HTML is worse than a brief load — the app needs live data anyway.
   if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request).catch(() =>
-        caches.match('/index.html') ||
-        new Response(
-          '<html><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0a0c0f;color:#e2e8f0"><div style="text-align:center"><div style="font-size:48px;margin-bottom:16px">⚡</div><h2 style="margin:0 0 8px;color:#f59e0b">Offline</h2><p style="opacity:0.6;margin:0">Kontrollera din anslutning</p></div></body></html>',
-          { headers: { 'Content-Type': 'text/html' } }
-        )
-      )
-    );
+    event.respondWith(fetch(request));
   }
 });
