@@ -1791,13 +1791,15 @@ const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 let STATIC_MODE = false;
 
 async function detectMode() {
+  // Only flip to demo mode if the server explicitly returns an error status.
+  // A timeout or network hiccup should NOT trigger demo mode — individual
+  // API calls have their own error handling and will surface failures gracefully.
   try {
-    // 4 s covers Python cold-start on Vercel (typically 1–3 s).
-    // The splash screen holds until this resolves, so the user never sees demo mode.
-    const r = await fetch('/api/status', { signal: AbortSignal.timeout(6000) });
-    STATIC_MODE = !r.ok;
+    const r = await fetch('/api/status', { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) STATIC_MODE = true;
   } catch {
-    STATIC_MODE = true;
+    // Timeout or offline — keep STATIC_MODE=false so real API calls are attempted.
+    console.warn('[detectMode] status timeout or network error — assuming live mode');
   }
 }
 
