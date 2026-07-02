@@ -164,20 +164,43 @@ def _daily_totals(rows: list) -> dict | None:
     Uses DAILY_TOTALS_FIELDS from _schema — only reliable counters are included.
     Unreliable counters (e.g. import_today with 0.10 kWh granularity) are
     excluded at the schema level, not here.
+
+    The Growatt inverter does NOT reset epv_today at midnight — it carries
+    yesterday's final counter until first light when production starts.
+    We detect the reset (epv_today drops by >1 kWh between consecutive rows)
+    and discard pre-reset rows so they don't shadow today's real values.
     """
-    # Find the live row with the highest epv_today (proxy for latest in the day)
     anchor_col = DAILY_TOTALS_FIELDS.get("solar_kwh", "epv_today")
     best = None
+    prev_val = None
+    reset_detected = False
     for row in rows:
         if row_type(row) != "live":
             continue
         val = row.get(anchor_col)
         if val is None:
             continue
-        if best is None or float(val) > float(best.get(anchor_col) or -1):
+        fval = float(val)
+        # Counter reset: epv_today drops >1 kWh = inverter started a new day.
+        # Discard all rows accumulated before the reset.
+        if prev_val is not None and fval < prev_val - 1.0:
+            best = None
+            reset_detected = True
+        prev_val = fval
+        if best is None or fval > float(best.get(anchor_col) or -1):
             best = row
+
     if best is None:
         return None
+
+    # Pre-dawn guard: if no reset was ever detected and every live row has
+    # ppv_kw=0, we're looking at yesterday's carryover (inverter not yet reset).
+    # Return None so the frontend falls back to kwhFromRows (which gives 0 solar).
+    if not reset_detected:
+        live_rows = [r for r in rows if row_type(r) == "live"]
+        if live_rows and all(float(r.get("ppv_kw") or 0) == 0 for r in live_rows):
+            return None
+
     def _f(col):
         v = best.get(col)
         return round(float(v), 2) if v is not None else None
