@@ -158,18 +158,30 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
     return buckets
 
 
-def _daily_totals(rows: list) -> dict | None:
+def _row_cest_date(row: dict, tz_cest) -> str:
+    ts_str = row.get("ts", "").replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(ts_str).astimezone(tz_cest).date().isoformat()
+    except Exception:
+        return ""
+
+
+def _daily_totals(rows: list, date_str: str) -> dict | None:
     """Return counter-based daily totals from the best live row, or None.
 
     Uses DAILY_TOTALS_FIELDS from _schema — only reliable counters are included.
     Unreliable counters (e.g. import_today with 0.10 kWh granularity) are
     excluded at the schema level, not here.
 
-    The Growatt inverter does NOT reset epv_today at midnight — it carries
-    yesterday's final counter until first light when production starts.
-    We detect the reset (epv_today drops by >1 kWh between consecutive rows)
-    and discard pre-reset rows so they don't shadow today's real values.
+    The _fetch_readings window extends 5 minutes past midnight to catch late
+    cron rows. We filter to the target CEST date so that the next-day midnight
+    reset (epv_today drops back to 0) does not wipe the correct end-of-day value.
+
+    The inverter resets epv_today at midnight CEST (within the first 5-10 min).
+    The single pre-reset row (00:00–00:05, still carrying yesterday's counter)
+    is detected via the >1 kWh drop and discarded.
     """
+    tz_cest = timezone(timedelta(hours=2))
     anchor_col = DAILY_TOTALS_FIELDS.get("solar_kwh", "epv_today")
     best = None
     prev_val = None
@@ -177,12 +189,20 @@ def _daily_totals(rows: list) -> dict | None:
     for row in rows:
         if row_type(row) != "live":
             continue
+        # Restrict to the target CEST date — the query window extends 5 min
+        # into the next day; those rows belong to tomorrow, not today.
+        ts_str = row.get("ts", "").replace("Z", "+00:00")
+        try:
+            if datetime.fromisoformat(ts_str).astimezone(tz_cest).date().isoformat() != date_str:
+                continue
+        except Exception:
+            continue
         val = row.get(anchor_col)
         if val is None:
             continue
         fval = float(val)
         # Counter reset: epv_today drops >1 kWh = inverter started a new day.
-        # Discard all rows accumulated before the reset.
+        # Discard the single carry-over row from the previous day's counter.
         if prev_val is not None and fval < prev_val - 1.0:
             best = None
             reset_detected = True
@@ -193,12 +213,15 @@ def _daily_totals(rows: list) -> dict | None:
     if best is None:
         return None
 
-    # Pre-dawn guard: if no reset was ever detected and every live row has
-    # ppv_kw=0, we're looking at yesterday's carryover (inverter not yet reset).
-    # Return None so the frontend falls back to kwhFromRows (which gives 0 solar).
+    # Pre-dawn guard: if no reset was detected and every live row on this date
+    # has ppv_kw=0, the inverter hasn't reset yet (carry-over from yesterday).
+    # Return None so the frontend falls back to kwhFromRows (0 solar).
     if not reset_detected:
-        live_rows = [r for r in rows if row_type(r) == "live"]
-        if live_rows and all(float(r.get("ppv_kw") or 0) == 0 for r in live_rows):
+        live_today = [
+            r for r in rows if row_type(r) == "live"
+            and _row_cest_date(r, tz_cest) == date_str
+        ]
+        if live_today and all(float(r.get("ppv_kw") or 0) == 0 for r in live_today):
             return None
 
     def _f(col):
@@ -239,7 +262,7 @@ class handler(BaseHTTPRequestHandler):
 
         chart_data = _bucket_readings(rows, date_str)
         result     = {"obj": {"chartData": chart_data}, "source": "supabase"}
-        totals = _daily_totals(rows)
+        totals = _daily_totals(rows, date_str)
         if totals:
             result["daily_totals"] = totals
         _CACHE[date_str] = {"ts": time.monotonic(), "data": result}
