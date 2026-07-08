@@ -579,17 +579,29 @@ class GrowattSession:
                 try: return round(float(d.get(k, 0) or 0), 2)
                 except: return 0.0
 
+            ppv_kw      = _w(detail, "ppv")
+            export_kw   = _w(detail, "pacToGridTotal")
+            import_kw   = _w(detail, "pacToUserTotal")
+            discharge_kw = _kwh(status, "pdisCharge")
+            charge_kw   = _kwh(status, "chargePower")
+
+            # Growatt's pacToLocalLoad (getTlxDetailData) caches with ~5-min lag
+            # after solar production ends. Compute load from energy balance instead:
+            # load = ppv + discharge + import - export - charge
+            # discharge/charge come from getSystemStatus_KW which is always real-time.
+            load_kw = round(max(0.0, ppv_kw + discharge_kw + import_kw - export_kw - charge_kw), 3)
+
             return {
-                "ppv_kw":           _w(detail, "ppv"),
+                "ppv_kw":           ppv_kw,
                 "ppv1_kw":          _w(detail, "ppv1"),
                 "ppv2_kw":          _w(detail, "ppv2"),
                 "pac_kw":           _w(detail, "pac"),
-                "load_kw":          _w(detail, "pacToLocalLoad"),
-                "export_kw":        _w(detail, "pacToGridTotal"),
-                "import_kw":        _w(detail, "pacToUserTotal"),
+                "load_kw":          load_kw,
+                "export_kw":        export_kw,
+                "import_kw":        import_kw,
                 "self_kw":          _w(detail, "pself"),
-                "discharge_kw":     _kwh(status, "pdisCharge"),
-                "charge_kw":        _kwh(status, "chargePower"),
+                "discharge_kw":     discharge_kw,
+                "charge_kw":        charge_kw,
                 "epv_today":        _kwh(overview, "epvToday"),
                 "eac_today":        _kwh(detail, "eacToday"),
                 "echarge_today":    _kwh(detail, "echargeToday"),
