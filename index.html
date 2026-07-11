@@ -1303,8 +1303,8 @@
     <div style="display:none">
       <input type="number" id="cfg-fast"           value="390">
       <input type="number" id="cfg-natavg-in"      value="26.0">
-      <input type="number" id="cfg-natnytta-high"  value="5.50">
-      <input type="number" id="cfg-natnytta-low"   value="4.12">
+      <input type="number" id="cfg-natnytta-high"  value="4.40">
+      <input type="number" id="cfg-natnytta-low"   value="3.30">
       <input type="number" id="cfg-energiskatt"    value="54.875">
       <input type="number" id="cfg-fortum"         value="6.96">
       <input type="number" id="cfg-fortum-fast"    value="55.20">
@@ -1714,8 +1714,8 @@ function applyTariffDefaults(dateStr) {
 const cfg = () => ({
   fastAvgift:    parseFloat(document.getElementById('cfg-fast').value) || 545,
   natavgIn:      parseFloat(document.getElementById('cfg-natavg-in').value) || 7.5,
-  natnyttaHigh:  parseFloat(document.getElementById('cfg-natnytta-high').value) || 5.50,
-  natnyttaLow:   parseFloat(document.getElementById('cfg-natnytta-low').value)  || 4.12,
+  natnyttaHigh:  parseFloat(document.getElementById('cfg-natnytta-high').value) || 4.40,
+  natnyttaLow:   parseFloat(document.getElementById('cfg-natnytta-low').value)  || 3.30,
   energiskatt:   parseFloat(document.getElementById('cfg-energiskatt').value) || 54.875,
   fortumPaslag:  parseFloat(document.getElementById('cfg-fortum').value)      || 6.96,
   fortumFast:    parseFloat(document.getElementById('cfg-fortum-fast').value) || 55.20,
@@ -1735,8 +1735,8 @@ const cfg = () => ({
 
 /**
  * Nätnytta rate is time-of-use:
- * Höglast (high load): Mon–Fri, 06:00–22:00, November–March → natnyttaHigh (5.50 öre)
- * Låglast (low load):  all other times                      → natnyttaLow  (4.12 öre)
+ * Höglast (high load): Mon–Fri, 06:00–22:00, November–March → natnyttaHigh (4.40 öre)
+ * Låglast (low load):  all other times                      → natnyttaLow  (3.30 öre)
  */
 function natnyttaAt(timeStr, dateStr, c) {
   const date = dateStr ? new Date(dateStr + 'T12:00:00') : new Date();
