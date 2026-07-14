@@ -908,6 +908,23 @@ def _do_historical(date_str: str, confirm: bool) -> tuple[int, dict]:
 
 
 class handler(BaseHTTPRequestHandler):
+    def _cron_authorized(self) -> bool:
+        """True only for Vercel's own Cron Job invocations. Vercel attaches
+        `Authorization: Bearer <CRON_SECRET>` automatically to native cron
+        requests once CRON_SECRET is set on the project."""
+        auth = self.headers.get("Authorization", "")
+        return bool(CRON_SECRET) and auth == f"Bearer {CRON_SECRET}"
+
+    def _manual_authorized(self, params: dict) -> bool:
+        """True for manually-triggered admin calls (e.g. historical backfill
+        run by hand via URL). Accepts the same CRON_SECRET as either a
+        header or a ?token= query param, since a browser URL bar can't set
+        custom headers."""
+        if self._cron_authorized():
+            return True
+        token = (params.get("token") or [None])[0]
+        return bool(CRON_SECRET) and token == CRON_SECRET
+
     def do_GET(self):
         parsed  = urlparse(self.path)
         params  = parse_qs(parsed.query)
@@ -917,10 +934,8 @@ class handler(BaseHTTPRequestHandler):
 
         if action == "retention":
             # Destructive (deletes rows across 6+ tables) — only Vercel's own
-            # Cron Jobs may trigger it. Vercel attaches this header automatically
-            # to native cron invocations when CRON_SECRET is set on the project.
-            auth = self.headers.get("Authorization", "")
-            if not CRON_SECRET or auth != f"Bearer {CRON_SECRET}":
+            # Cron Jobs may trigger it.
+            if not self._cron_authorized():
                 self._send({"ok": False, "error": "unauthorized"}, status=401)
                 return
             dry_run = (params.get("dry_run") or ["0"])[0] in ("1", "true", "yes")
@@ -936,6 +951,10 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if action == "autofill":
+            # Forces Growatt logins + Supabase writes — only Vercel's own Cron Job.
+            if not self._cron_authorized():
+                self._send({"ok": False, "error": "unauthorized"}, status=401)
+                return
             # Automatic gap detection + chart backfill
             dry_run = (params.get("dry_run") or ["0"])[0] in ("1", "true", "yes")
             try:
@@ -955,8 +974,14 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if date_str is not None:
-            # Historical import branch
+            # Historical import branch. Preview (no confirm) is read-only and
+            # left open; confirm=1 forces a Growatt fetch + Supabase write and
+            # requires the admin token (?token=... or Authorization header),
+            # since this is triggered manually by hand via URL, not by a cron.
             confirm = (params.get("confirm") or ["0"])[0] in ("1", "true", "yes")
+            if confirm and not self._manual_authorized(params):
+                self._send({"ok": False, "error": "unauthorized"}, status=401)
+                return
             try:
                 status, resp = _do_historical(date_str, confirm)
             except Exception as e:

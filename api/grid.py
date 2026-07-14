@@ -24,6 +24,7 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 # Writes use the service-role key — RLS only grants public SELECT.
 SUPABASE_SVC = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or SUPABASE_KEY
+CRON_SECRET  = os.environ.get("CRON_SECRET", "")
 
 ESETT_BASE    = "https://api.opendata.esett.com"
 SE_MBAS       = ["10Y1001A1001A44P", "10Y1001A1001A45N",
@@ -227,6 +228,11 @@ class handler(BaseHTTPRequestHandler):
         action = params.get("action", "")
 
         if action == "fetch":
+            # Only Vercel's own Cron Job may trigger this (writes to grid_production).
+            auth = self.headers.get("Authorization", "")
+            if not CRON_SECRET or auth != f"Bearer {CRON_SECRET}":
+                self._send({"ok": False, "error": "unauthorized"}, 401)
+                return
             try:
                 result = _do_fetch()
                 self._send(result, 200 if result.get("ok") else 502)

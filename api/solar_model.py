@@ -26,6 +26,7 @@ SUPABASE_URL      = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY      = os.environ.get("SUPABASE_ANON_KEY", "")
 # Writes use the service-role key — RLS only grants public SELECT.
 SUPABASE_SVC      = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or SUPABASE_KEY
+CRON_SECRET       = os.environ.get("CRON_SECRET", "")
 SOLCAST_API_KEY   = os.environ.get("SOLCAST_API_KEY", "")
 SOLCAST_SITE_UUID = os.environ.get("SOLCAST_SITE_UUID", "")
 
@@ -420,6 +421,10 @@ def _solcast_read(days: int = 2) -> list:
 # ---------------------------------------------------------------------------
 
 class handler(BaseHTTPRequestHandler):
+    def _cron_authorized(self) -> bool:
+        auth = self.headers.get("Authorization", "")
+        return bool(CRON_SECRET) and auth == f"Bearer {CRON_SECRET}"
+
     def do_GET(self):
         params = dict(urllib.parse.parse_qsl(
             urllib.parse.urlparse(self.path).query))
@@ -440,6 +445,10 @@ class handler(BaseHTTPRequestHandler):
                 print(f"[horizon_analysis] {e}")
                 self._send({"ok": False, "error": str(e)}, 500)
         elif params.get("action") == "solcast_fetch":
+            # Burns paid Solcast API quota — only Vercel's own Cron Job.
+            if not self._cron_authorized():
+                self._send({"ok": False, "error": "unauthorized"}, 401)
+                return
             try:
                 self._send(_solcast_fetch())
             except Exception as e:
@@ -453,6 +462,10 @@ class handler(BaseHTTPRequestHandler):
                 print(f"[solcast read] {e}")
                 self._send([], 200)
         elif params.get("action") == "build":
+            # Rebuilds from 90 days of history — only Vercel's own Cron Job.
+            if not self._cron_authorized():
+                self._send({"ok": False, "error": "unauthorized"}, 401)
+                return
             if not SUPABASE_URL or not SUPABASE_KEY:
                 self._send({"error": "missing Supabase env vars"}, 500)
                 return

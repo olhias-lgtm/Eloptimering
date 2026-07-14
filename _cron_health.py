@@ -11,10 +11,12 @@ from datetime import datetime, timezone
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+# Writes use the service-role key — RLS only grants public SELECT.
+SUPABASE_SVC = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or SUPABASE_KEY
 
 
 def record_run(cron_name: str, ok: bool, error: str | None = None) -> None:
-    if not SUPABASE_URL or not SUPABASE_KEY:
+    if not SUPABASE_URL or not SUPABASE_SVC:
         return
     now = datetime.now(timezone.utc).isoformat()
     row = {
@@ -31,8 +33,8 @@ def record_run(cron_name: str, ok: bool, error: str | None = None) -> None:
             f"{SUPABASE_URL}/rest/v1/cron_health?on_conflict=cron_name",
             data=body, method="POST",
             headers={
-                "apikey":        SUPABASE_KEY,
-                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "apikey":        SUPABASE_SVC,
+                "Authorization": f"Bearer {SUPABASE_SVC}",
                 "Content-Type":  "application/json",
                 "Prefer":        "resolution=merge-duplicates,return=minimal",
             },

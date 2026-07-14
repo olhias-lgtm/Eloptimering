@@ -56,6 +56,7 @@ SUPABASE_KEY     = os.environ.get("SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", SUPABASE_KEY)
 
 TOU_PASSWORD  = os.environ.get("TOU_PASSWORD", "")
+CRON_SECRET   = os.environ.get("CRON_SECRET", "")
 MAX_FAILURES  = 3
 LOCKOUT_HOURS = 24
 
@@ -1642,6 +1643,10 @@ def _notify_if_active() -> dict:
 # ---------------------------------------------------------------------------
 
 class handler(BaseHTTPRequestHandler):
+    def _cron_authorized(self) -> bool:
+        auth = self.headers.get("Authorization", "")
+        return bool(CRON_SECRET) and auth == f"Bearer {CRON_SECRET}"
+
     def do_GET(self):
         params = dict(urllib.parse.parse_qsl(
             urllib.parse.urlparse(self.path).query))
@@ -1655,8 +1660,11 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if action == "build_suggest":
-            # cron-job.org sends GET — build TOU suggestion for tomorrow.
+            # Vercel's own Cron Job (vercel.json) — build TOU suggestion for tomorrow.
             # Optional ?date=YYYY-MM-DD overrides the default (tomorrow, local date).
+            if not self._cron_authorized():
+                self._send({"ok": False, "error": "unauthorized"}, 401)
+                return
             try:
                 date_param = params.get("date", "")
                 if date_param:
@@ -1696,7 +1704,10 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if action == "notify_reset":
-            # Vercel crons send GET — send reminder email if TOU segments are active
+            # Vercel's own Cron Job — send reminder email if TOU segments are active
+            if not self._cron_authorized():
+                self._send({"ok": False, "error": "unauthorized"}, 401)
+                return
             try:
                 self._send(_notify_if_active())
             except Exception as e:
