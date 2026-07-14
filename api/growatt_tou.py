@@ -35,6 +35,7 @@ POST body (JSON) — single segment:
 POST body (JSON) — multiple segments at once:
   { "segments": [ { ...same fields... }, ... ] }
 """
+import hmac
 import json
 import os
 import urllib.parse
@@ -54,7 +55,7 @@ SUPABASE_URL     = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY     = os.environ.get("SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", SUPABASE_KEY)
 
-TOU_PASSWORD  = "79"
+TOU_PASSWORD  = os.environ.get("TOU_PASSWORD", "")
 MAX_FAILURES  = 3
 LOCKOUT_HOURS = 24
 
@@ -1769,7 +1770,7 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             provided_pwd = body.get("pwd", "")
-            if provided_pwd != TOU_PASSWORD:
+            if not TOU_PASSWORD or not hmac.compare_digest(provided_pwd, TOU_PASSWORD):
                 fails = _record_failure(ip)
                 remaining = max(0, MAX_FAILURES - fails)
                 self._send({
