@@ -24,6 +24,8 @@ from http.server import BaseHTTPRequestHandler
 
 SUPABASE_URL      = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY      = os.environ.get("SUPABASE_ANON_KEY", "")
+# Writes use the service-role key — RLS only grants public SELECT.
+SUPABASE_SVC      = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or SUPABASE_KEY
 SOLCAST_API_KEY   = os.environ.get("SOLCAST_API_KEY", "")
 SOLCAST_SITE_UUID = os.environ.get("SOLCAST_SITE_UUID", "")
 
@@ -49,8 +51,9 @@ _SOLCAST_CACHE_TTL = 30 * 60  # 30 minutes
 # Read
 # ---------------------------------------------------------------------------
 
-def _sb_headers():
-    return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+def _sb_headers(service: bool = False):
+    key = SUPABASE_SVC if service else SUPABASE_KEY
+    return {"apikey": key, "Authorization": f"Bearer {key}"}
 
 
 def _fetch_model() -> list:
@@ -104,7 +107,7 @@ def _upsert_model(rows: list):
         f"{SUPABASE_URL}/rest/v1/solar_model?on_conflict=slot",
         data=body, method="POST",
         headers={
-            **_sb_headers(),
+            **_sb_headers(service=True),
             "Content-Type": "application/json",
             "Prefer":       "resolution=merge-duplicates,return=minimal",
         },
@@ -378,7 +381,7 @@ def _solcast_fetch() -> dict:
         f"{SUPABASE_URL}/rest/v1/solcast_forecast?on_conflict=period_end",
         data=body, method="POST",
         headers={
-            **_sb_headers(),
+            **_sb_headers(service=True),
             "Content-Type": "application/json",
             "Prefer":       "resolution=merge-duplicates,return=minimal",
         },

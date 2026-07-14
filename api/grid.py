@@ -22,6 +22,8 @@ from http.server import BaseHTTPRequestHandler
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+# Writes use the service-role key — RLS only grants public SELECT.
+SUPABASE_SVC = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or SUPABASE_KEY
 
 ESETT_BASE    = "https://api.opendata.esett.com"
 SE_MBAS       = ["10Y1001A1001A44P", "10Y1001A1001A45N",
@@ -36,7 +38,7 @@ _CACHE_TTL   = 3600   # 60 minutes
 
 
 def _sb_headers(service: bool = False) -> dict:
-    key = SUPABASE_KEY
+    key = SUPABASE_SVC if service else SUPABASE_KEY
     return {
         "apikey":        key,
         "Authorization": f"Bearer {key}",
@@ -123,7 +125,7 @@ def _aggregate_to_hourly(raw_rows: list) -> list:
 
 def _upsert_grid(rows: list[dict]) -> int:
     """Upsert hourly rows into grid_production. Returns number of rows sent."""
-    if not SUPABASE_URL or not SUPABASE_KEY or not rows:
+    if not SUPABASE_URL or not SUPABASE_SVC or not rows:
         return 0
     for i in range(0, len(rows), 100):
         batch = rows[i:i + 100]
@@ -132,7 +134,7 @@ def _upsert_grid(rows: list[dict]) -> int:
             f"{SUPABASE_URL}/rest/v1/grid_production?on_conflict=ts",
             data=body, method="POST",
             headers={
-                **_sb_headers(),
+                **_sb_headers(service=True),
                 "Prefer": "resolution=merge-duplicates,return=minimal",
             },
         )

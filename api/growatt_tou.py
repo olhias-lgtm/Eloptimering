@@ -1538,7 +1538,7 @@ def _save_suggestion(result: dict):
     req = urllib.request.Request(
         f"{SUPABASE_URL}/rest/v1/tou_suggestions?on_conflict=for_date",
         data=body, method="POST",
-        headers={**_sb_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"},
+        headers={**_sb_headers(service=True), "Prefer": "resolution=merge-duplicates,return=minimal"},
     )
     urllib.request.urlopen(req, timeout=10).read()
 

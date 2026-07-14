@@ -40,6 +40,10 @@ from _tz import STHLM, local_today, local_day_bounds_utc
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+# Writes use the service-role key — RLS only grants public SELECT, not
+# INSERT/UPDATE/DELETE, so the anon key can no longer mutate these tables.
+SUPABASE_SVC = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or SUPABASE_KEY
+CRON_SECRET  = os.environ.get("CRON_SECRET", "")
 
 
 def _display_offset_h(d: date) -> int:
@@ -111,8 +115,8 @@ def _sb_upsert_rows(rows: list):
             data=body,
             method="POST",
             headers={
-                "apikey":        SUPABASE_KEY,
-                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "apikey":        SUPABASE_SVC,
+                "Authorization": f"Bearer {SUPABASE_SVC}",
                 "Content-Type":  "application/json",
                 "Prefer":        "resolution=merge-duplicates,return=minimal",
             },
@@ -254,8 +258,8 @@ def _delete_future_chart_zeros(today: "date") -> int:
             f"&soc_pct=is.null"
         )
         req = urllib.request.Request(url, method="DELETE", headers={
-            "apikey":        SUPABASE_KEY,
-            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "apikey":        SUPABASE_SVC,
+            "Authorization": f"Bearer {SUPABASE_SVC}",
             "Prefer":        "return=representation",
             "Content-Type":  "application/json",
         })
@@ -448,8 +452,8 @@ def _recompute_daily_summary(date_str: str, area: str = "SE3") -> dict:
             f"{SUPABASE_URL}/rest/v1/daily_summary?on_conflict=day,area",
             data=body, method="POST",
             headers={
-                "apikey":        SUPABASE_KEY,
-                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "apikey":        SUPABASE_SVC,
+                "Authorization": f"Bearer {SUPABASE_SVC}",
                 "Content-Type":  "application/json",
                 "Prefer":        "resolution=merge-duplicates,return=minimal",
             },
@@ -487,8 +491,8 @@ def _sb_delete(table: str, filter_qs: str) -> int:
         return 0
     url = f"{SUPABASE_URL}/rest/v1/{table}?{filter_qs}"
     req = urllib.request.Request(url, method="DELETE", headers={
-        "apikey":        SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "apikey":        SUPABASE_SVC,
+        "Authorization": f"Bearer {SUPABASE_SVC}",
         "Prefer":        "return=minimal",
     })
     try:
@@ -520,8 +524,8 @@ def _sb_upsert(table: str, rows: list, on_conflict: str) -> None:
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     body = json.dumps(rows).encode()
     req = urllib.request.Request(url, data=body, method="POST", headers={
-        "apikey":        SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "apikey":        SUPABASE_SVC,
+        "Authorization": f"Bearer {SUPABASE_SVC}",
         "Content-Type":  "application/json",
         "Prefer":        f"resolution=merge-duplicates,return=minimal",
     })
@@ -731,8 +735,8 @@ def _do_autofill(days: int, dry_run: bool) -> tuple[int, dict]:
             req = urllib.request.Request(
                 url, data=b"{}", method="POST",
                 headers={
-                    "apikey":        SUPABASE_KEY,
-                    "Authorization": f"Bearer {SUPABASE_KEY}",
+                    "apikey":        SUPABASE_SVC,
+                    "Authorization": f"Bearer {SUPABASE_SVC}",
                     "Content-Type":  "application/json",
                 },
             )
@@ -784,8 +788,8 @@ def _sb_insert(data: dict):
         data=body,
         method="POST",
         headers={
-            "apikey":        SUPABASE_KEY,
-            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "apikey":        SUPABASE_SVC,
+            "Authorization": f"Bearer {SUPABASE_SVC}",
             "Content-Type":  "application/json",
             "Prefer":        "return=minimal",
         },
@@ -912,6 +916,13 @@ class handler(BaseHTTPRequestHandler):
         action = (params.get("action") or [None])[0]
 
         if action == "retention":
+            # Destructive (deletes rows across 6+ tables) — only Vercel's own
+            # Cron Jobs may trigger it. Vercel attaches this header automatically
+            # to native cron invocations when CRON_SECRET is set on the project.
+            auth = self.headers.get("Authorization", "")
+            if not CRON_SECRET or auth != f"Bearer {CRON_SECRET}":
+                self._send({"ok": False, "error": "unauthorized"}, status=401)
+                return
             dry_run = (params.get("dry_run") or ["0"])[0] in ("1", "true", "yes")
             try:
                 status, resp = _do_retention(dry_run)

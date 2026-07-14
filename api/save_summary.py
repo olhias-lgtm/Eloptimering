@@ -19,6 +19,8 @@ from _tz import is_past_local_day
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+# Writes use the service-role key — RLS only grants public SELECT.
+SUPABASE_SVC = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or SUPABASE_KEY
 
 
 def _is_past_day(date_str: str) -> bool:
@@ -50,8 +52,8 @@ def _upsert(payload: dict):
         data=body,
         method="POST",
         headers={
-            "apikey":        SUPABASE_KEY,
-            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "apikey":        SUPABASE_SVC,
+            "Authorization": f"Bearer {SUPABASE_SVC}",
             "Content-Type":  "application/json",
             "Prefer":        "resolution=merge-duplicates,return=minimal",
         },

@@ -16,11 +16,13 @@ from _tz import local_today
 
 SUPABASE_URL  = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY  = os.environ.get("SUPABASE_ANON_KEY", "")
+# Writes use the service-role key — RLS only grants public SELECT.
+SUPABASE_SVC  = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or SUPABASE_KEY
 ELPRISET_BASE = "https://www.elprisetjustnu.se/api/v1/prices"
 
 
 def _sb_headers():
-    return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
+    return {"apikey": SUPABASE_SVC, "Authorization": f"Bearer {SUPABASE_SVC}"}
 
 
 def _fetch_prices(date_str: str, area: str) -> list:
