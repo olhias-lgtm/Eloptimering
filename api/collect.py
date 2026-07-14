@@ -34,7 +34,7 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 from _growatt import get_session
-from _schema import CHART_FIELD_MAP, CHART_NULL_FIELDS
+from _schema import CHART_FIELD_MAP, CHART_NULL_FIELDS, daily_counter_totals
 from _cron_health import record_run
 from _tz import STHLM, local_today, local_day_bounds_utc
 
@@ -353,20 +353,19 @@ def _recompute_daily_summary(date_str: str, area: str = "SE3") -> dict:
     # ── 2. Energy totals — counter fields preferred, integrate as fallback ────
     kwh5 = 5 / 60
 
-    # Best live row: highest epv_today among rows where soc_pct IS NOT NULL
-    best_live = None
-    for row in energy_rows:
-        if row.get("soc_pct") is not None and row.get("epv_today") is not None:
-            if best_live is None or float(row["epv_today"]) > float(best_live.get("epv_today") or -1):
-                best_live = row
+    # Shared with api/energy.py — handles the inverter's epv_today carry-over
+    # at local midnight (see daily_counter_totals docstring). Returns None if
+    # the counters aren't usable yet, in which case every field below falls
+    # back to integrating the kW columns.
+    totals = daily_counter_totals(energy_rows, date_str) or {}
 
-    def _counter(row, col):
-        v = row.get(col) if row else None
+    def _counter(col):
+        v = totals.get(col)
         return round(float(v), 3) if v is not None else None
 
-    solar_kwh  = _counter(best_live, "epv_today")    or round(sum(float(r.get("ppv_kw")    or 0) for r in energy_rows) * kwh5, 3)
-    load_kwh   = _counter(best_live, "eload_today")  or round(sum(float(r.get("load_kw")   or 0) for r in energy_rows) * kwh5, 3)
-    export_kwh = _counter(best_live, "export_today") or round(sum(float(r.get("export_kw") or 0) for r in energy_rows) * kwh5, 3)
+    solar_kwh  = _counter("solar_kwh")  or round(sum(float(r.get("ppv_kw")    or 0) for r in energy_rows) * kwh5, 3)
+    load_kwh   = _counter("load_kwh")   or round(sum(float(r.get("load_kw")   or 0) for r in energy_rows) * kwh5, 3)
+    export_kwh = _counter("export_kwh") or round(sum(float(r.get("export_kw") or 0) for r in energy_rows) * kwh5, 3)
     import_kwh = round(sum(float(r.get("import_kw") or 0) for r in energy_rows) * kwh5, 3)  # always integrate (counter granularity too coarse)
 
     # ── 3. Spot prices ────────────────────────────────────────────────────────

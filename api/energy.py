@@ -6,7 +6,7 @@ import urllib.request
 from datetime import date, datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler
 
-from _schema import DAILY_TOTALS_FIELDS, ROW_TYPE_PRIORITY, row_type
+from _schema import DAILY_TOTALS_FIELDS, ROW_TYPE_PRIORITY, row_type, daily_counter_totals
 from _tz import STHLM, local_today, local_day_bounds_utc
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -167,71 +167,10 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
     return buckets
 
 
-def _row_local_date(row: dict) -> str:
-    ts_str = row.get("ts", "").replace("Z", "+00:00")
-    try:
-        return datetime.fromisoformat(ts_str).astimezone(STHLM).date().isoformat()
-    except Exception:
-        return ""
-
-
-def _daily_totals(rows: list, date_str: str) -> dict | None:
-    """Return counter-based daily totals from the best live row, or None.
-
-    Uses DAILY_TOTALS_FIELDS from _schema — only reliable counters are included.
-    Unreliable counters (e.g. import_today with 0.10 kWh granularity) are
-    excluded at the schema level, not here.
-
-    The _fetch_readings window extends 5 minutes past midnight to catch late
-    cron rows. We filter to the target local date so that the next-day midnight
-    reset (epv_today drops back to 0) does not wipe the correct end-of-day value.
-
-    The inverter resets epv_today at local midnight (within the first 5-10 min).
-    The single pre-reset row (00:00–00:05, still carrying yesterday's counter)
-    is detected via the >1 kWh drop and discarded.
-    """
-    anchor_col = DAILY_TOTALS_FIELDS.get("solar_kwh", "epv_today")
-    best = None
-    prev_val = None
-    reset_detected = False
-    for row in rows:
-        if row_type(row) != "live":
-            continue
-        # Restrict to the target local date — the query window extends 5 min
-        # into the next day; those rows belong to tomorrow, not today.
-        if _row_local_date(row) != date_str:
-            continue
-        val = row.get(anchor_col)
-        if val is None:
-            continue
-        fval = float(val)
-        # Counter reset: epv_today drops >1 kWh = inverter started a new day.
-        # Discard the single carry-over row from the previous day's counter.
-        if prev_val is not None and fval < prev_val - 1.0:
-            best = None
-            reset_detected = True
-        prev_val = fval
-        if best is None or fval > float(best.get(anchor_col) or -1):
-            best = row
-
-    if best is None:
-        return None
-
-    # Pre-dawn guard: if no reset was detected and every live row on this date
-    # has ppv_kw=0, the inverter hasn't reset yet (carry-over from yesterday).
-    # Return None so the frontend falls back to kwhFromRows (0 solar).
-    if not reset_detected:
-        live_today = [
-            r for r in rows if row_type(r) == "live"
-            and _row_local_date(r) == date_str
-        ]
-        if live_today and all(float(r.get("ppv_kw") or 0) == 0 for r in live_today):
-            return None
-
-    def _f(col):
-        v = best.get(col)
-        return round(float(v), 2) if v is not None else None
-    return {kpi: _f(col) for kpi, col in DAILY_TOTALS_FIELDS.items()}
+# daily_counter_totals() lives in _schema.py — shared with collect.py's
+# _recompute_daily_summary() so the reset-handling logic can't drift
+# between the two call sites.
+_daily_totals = daily_counter_totals
 
 
 class handler(BaseHTTPRequestHandler):
