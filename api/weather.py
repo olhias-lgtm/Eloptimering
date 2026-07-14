@@ -31,6 +31,8 @@ import urllib.request
 from datetime import datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler
 
+from _tz import STHLM, local_day_bounds_utc
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -192,11 +194,10 @@ def _build_combined(om: dict, metno: dict) -> dict:
     sb_rows       = []
 
     for i, t_local in enumerate(times):
-        # Convert local "YYYY-MM-DDTHH:MM" → UTC ISO for met.no lookup
-        # Stockholm is UTC+2 in summer; just try both offsets
+        # Convert local "YYYY-MM-DDTHH:MM" (Open-Meteo, tz=Europe/Stockholm) → UTC ISO for met.no lookup
         try:
-            dt_local = datetime.fromisoformat(t_local)
-            dt_utc   = dt_local - timedelta(hours=2)   # CEST offset
+            dt_local = datetime.fromisoformat(t_local).replace(tzinfo=STHLM)
+            dt_utc   = dt_local.astimezone(timezone.utc)
             utc_key  = dt_utc.strftime("%Y-%m-%dT%H:00:00Z")
         except Exception:
             utc_key  = ""
@@ -318,8 +319,8 @@ def _load_stale_from_supabase(from_date: str) -> dict | None:
     try:
         from datetime import date as _date
         d = _date.fromisoformat(from_date)
-        from_utc = (datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
-                    - timedelta(hours=2)).strftime("%Y-%m-%dT%H:00:00Z")
+        local_midnight_utc, _ = local_day_bounds_utc(d)
+        from_utc = (local_midnight_utc - timedelta(hours=2)).strftime("%Y-%m-%dT%H:00:00Z")
         url = (f"{SUPABASE_URL}/rest/v1/weather_forecast"
                f"?valid_time=gte.{from_utc}"
                f"&order=valid_time.asc"
@@ -352,8 +353,8 @@ def _load_gti_fallback(from_date: str) -> dict | None:
         # Fetch from the day before from_date (UTC) to cover midnight-CEST wrap
         from datetime import date as _date
         d = _date.fromisoformat(from_date)
-        from_utc = (datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
-                    - timedelta(hours=2)).strftime("%Y-%m-%dT%H:00:00Z")
+        local_midnight_utc, _ = local_day_bounds_utc(d)
+        from_utc = (local_midnight_utc - timedelta(hours=2)).strftime("%Y-%m-%dT%H:00:00Z")
         url = (f"{SUPABASE_URL}/rest/v1/weather_forecast"
                f"?valid_time=gte.{from_utc}"
                f"&order=valid_time.asc"
@@ -364,11 +365,10 @@ def _load_gti_fallback(from_date: str) -> dict | None:
             rows = json.loads(r.read())
         if not rows:
             return None
-        tz_sthlm = timezone(timedelta(hours=2))
         times, gti = [], []
         for row in rows:
             dt_utc   = datetime.fromisoformat(row["valid_time"].replace("Z", "+00:00"))
-            dt_local = dt_utc.astimezone(tz_sthlm)
+            dt_local = dt_utc.astimezone(STHLM)
             times.append(dt_local.strftime("%Y-%m-%dT%H:%M"))
             # Prefer met.no-corrected GTI; fall back to raw OM
             val = row.get("gti_adj") if row.get("gti_adj") is not None else row.get("gti_om")
@@ -403,8 +403,6 @@ def _save_to_supabase(rows: list) -> None:
 
 def _rows_to_combined(rows: list) -> dict:
     """Reconstruct combined-format response from Supabase rows."""
-    tz_stockholm = timezone(timedelta(hours=2))
-
     times       = []
     temp        = []
     cloud       = []
@@ -419,7 +417,7 @@ def _rows_to_combined(rows: list) -> dict:
     for r in rows:
         # Convert UTC valid_time → Stockholm local (YYYY-MM-DDTHH:MM)
         dt_utc   = datetime.fromisoformat(r["valid_time"].replace("Z", "+00:00"))
-        dt_local = dt_utc.astimezone(tz_stockholm)
+        dt_local = dt_utc.astimezone(STHLM)
         times.append(dt_local.strftime("%Y-%m-%dT%H:%M"))
         temp.append(r.get("temp_c"))
         cloud.append(r.get("cloud_pct"))

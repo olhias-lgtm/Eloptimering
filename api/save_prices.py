@@ -12,6 +12,7 @@ from datetime import date, datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler
 import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from _cron_health import record_run
+from _tz import local_today
 
 SUPABASE_URL  = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY  = os.environ.get("SUPABASE_ANON_KEY", "")
@@ -55,8 +56,7 @@ class handler(BaseHTTPRequestHandler):
         params = dict(urllib.parse.parse_qsl(
             urllib.parse.urlparse(self.path).query))
 
-        tz_cest  = timezone(timedelta(hours=2))
-        today    = datetime.now(timezone.utc).astimezone(tz_cest).date()
+        today    = local_today()
         tomorrow = (today + timedelta(days=1)).isoformat()
 
         raw_date = params.get("date", today.isoformat())

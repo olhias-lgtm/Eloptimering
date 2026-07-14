@@ -36,39 +36,28 @@ from urllib.parse import urlparse, parse_qs
 from _growatt import get_session
 from _schema import CHART_FIELD_MAP, CHART_NULL_FIELDS
 from _cron_health import record_run
+from _tz import STHLM, local_today, local_day_bounds_utc
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 
-# CEST = UTC+2 (Swedish summer time, end of March → end of October)
-# CET  = UTC+1 (Swedish winter time)
-def _cest_offset(d: date) -> int:
-    """Return UTC offset hours for Stockholm on a given date (2 in summer, 1 in winter)."""
-    year = d.year
-    # DST starts: last Sunday in March at 02:00 local
-    # DST ends:   last Sunday in October at 03:00 local
-    def last_sunday(y, month):
-        # Find last Sunday of given month
-        import calendar
-        last_day = calendar.monthrange(y, month)[1]
-        for day in range(last_day, last_day - 7, -1):
-            if date(y, month, day).weekday() == 6:
-                return date(y, month, day)
-    dst_start = last_sunday(year, 3)   # Last Sunday March
-    dst_end   = last_sunday(year, 10)  # Last Sunday October
-    if dst_start <= d < dst_end:
-        return 2  # CEST
-    return 1  # CET
+
+def _display_offset_h(d: date) -> int:
+    """UTC offset (hours) for Stockholm at local noon on date d — display only.
+    Actual timestamp conversion uses the STHLM zoneinfo object directly
+    (per-instant correct, see _chart_to_rows), not this single-int-per-day value."""
+    noon_local = datetime(d.year, d.month, d.day, 12, 0, 0, tzinfo=STHLM)
+    return int(noon_local.utcoffset().total_seconds() // 3600)
 
 
-def _chart_to_rows(chart_data: dict, target_date: date, utc_offset_h: int) -> list:
+def _chart_to_rows(chart_data: dict, target_date: date) -> list:
     """
     Convert get_energy() chartData dict → list of energy_readings rows.
     chart_data keys are "HH:MM" strings in local time (CEST/CET).
     Returns list of dicts with 'ts' as UTC ISO string + power fields.
     """
     rows = []
-    tz_local = timezone(timedelta(hours=utc_offset_h))
+    tz_local = STHLM
     for label, vals in sorted(chart_data.items()):
         # Parse "HH:MM"
         try:
@@ -149,13 +138,10 @@ def _heal_recent_gaps(today_str: str) -> int:
         return 0
     try:
         now_utc  = datetime.now(timezone.utc)
-        tz_cest  = timezone(timedelta(hours=2))
         d        = date.fromisoformat(today_str)
 
-        # Window: up to 2 hours back, but never before today's CEST midnight
-        today_midnight_utc = datetime(
-            d.year, d.month, d.day, 0, 0, 0, tzinfo=tz_cest
-        ).astimezone(timezone.utc)
+        # Window: up to 2 hours back, but never before today's local midnight
+        today_midnight_utc, _ = local_day_bounds_utc(d)
         window_start = max(now_utc - timedelta(hours=2), today_midnight_utc)
 
         # Expected number of 5-min slots in the window
@@ -191,7 +177,7 @@ def _heal_recent_gaps(today_str: str) -> int:
             print("[heal] chart API returned no data")
             return 0
 
-        rows = _chart_to_rows(chart_data, d, _cest_offset(d))
+        rows = _chart_to_rows(chart_data, d)
         if not rows:
             return 0
 
@@ -224,11 +210,9 @@ def _count_live_rows(date_str: str) -> int:
         return 0
     try:
         d = date.fromisoformat(date_str)
-        utc_offset_h = _cest_offset(d)
-        tz_local = timezone(timedelta(hours=utc_offset_h))
-        start = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=tz_local).isoformat()
-        end   = (datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=tz_local)
-                 + timedelta(minutes=5)).isoformat()
+        start_utc, end_utc = local_day_bounds_utc(d)
+        start = start_utc.isoformat()
+        end   = (end_utc + timedelta(minutes=5)).isoformat()
         url = (
             f"{SUPABASE_URL}/rest/v1/energy_readings"
             f"?ts=gte.{urllib.parse.quote(start)}"
@@ -249,12 +233,10 @@ def _count_live_rows(date_str: str) -> int:
 def _expected_live_slots(date_str: str) -> int:
     """Expected live rows for a CEST date: full day=288, today=slots up to now."""
     d = date.fromisoformat(date_str)
-    utc_offset_h = _cest_offset(d)
-    tz_local = timezone(timedelta(hours=utc_offset_h))
-    today_local = datetime.now(timezone.utc).astimezone(tz_local).date()
+    today_local = local_today()
     if d < today_local:
         return 288
-    now_local = datetime.now(timezone.utc).astimezone(tz_local)
+    now_local = datetime.now(timezone.utc).astimezone(STHLM)
     return max(1, (now_local.hour * 60 + now_local.minute) // 5)
 
 
@@ -339,13 +321,10 @@ def _recompute_daily_summary(date_str: str, area: str = "SE3") -> dict:
     except ValueError as e:
         return {"error": f"invalid date: {e}"}
 
-    today_utc = datetime.now(timezone.utc).date()
-    if d >= today_utc:
+    if d >= local_today():
         return {"skipped": True, "reason": "today or future — day not yet complete"}
 
-    utc_offset_h = _cest_offset(d)
-    tz_local     = timezone(timedelta(hours=utc_offset_h))
-    day_start    = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=tz_local)
+    day_start, _ = local_day_bounds_utc(d)
     day_end      = day_start + timedelta(hours=24, minutes=5)  # include 23:55–00:04 slot
 
     # ── 1. Energy readings ────────────────────────────────────────────────────
@@ -669,9 +648,7 @@ def _do_retention(dry_run: bool = False) -> tuple[int, dict]:
 
 
 def _do_autofill(days: int, dry_run: bool) -> tuple[int, dict]:
-    utc_offset_h = _cest_offset(datetime.now(timezone.utc).date())
-    tz_local = timezone(timedelta(hours=utc_offset_h))
-    today_local = datetime.now(timezone.utc).astimezone(tz_local).date()
+    today_local = local_today()
 
     results = []
     filled_dates = []
@@ -834,17 +811,17 @@ def _do_historical(date_str: str, confirm: bool) -> tuple[int, dict]:
     except ValueError as e:
         return 400, {"ok": False, "error": f"invalid date: {e}"}
 
-    today_utc = datetime.now(timezone.utc).date()
+    today_local = local_today()
 
     # ── 2. Validate range ──────────────────────────────────────────────────────
-    if target > today_utc:
+    if target > today_local:
         return 400, {"ok": False, "error": "date cannot be in the future"}
 
-    if (today_utc - target).days > 365:
+    if (today_local - target).days > 365:
         return 400, {"ok": False, "error": "date too far in the past (max 365 days)"}
 
-    # ── 3. Determine UTC offset for that date ─────────────────────────────────
-    utc_offset_h = _cest_offset(target)
+    # ── 3. Determine UTC offset for that date (display only) ──────────────────
+    utc_offset_h = _display_offset_h(target)
     tz_name = "CEST (UTC+2)" if utc_offset_h == 2 else "CET (UTC+1)"
 
     # ── 4. Fetch from Growatt ──────────────────────────────────────────────────
@@ -856,7 +833,7 @@ def _do_historical(date_str: str, confirm: bool) -> tuple[int, dict]:
         return 502, {"ok": False, "error": "Growatt returned empty chartData"}
 
     # ── 5. Convert to rows ─────────────────────────────────────────────────────
-    rows = _chart_to_rows(chart_data, target, utc_offset_h)
+    rows = _chart_to_rows(chart_data, target)
 
     if not rows:
         return 502, {"ok": False, "error": "No rows produced from chartData"}
@@ -905,9 +882,8 @@ def _do_historical(date_str: str, confirm: bool) -> tuple[int, dict]:
     # If backfilling today, delete future chart zeros that Growatt returns for
     # not-yet-recorded slots (these would otherwise sit in the DB as stale zeros).
     zeros_deleted = 0
-    today_utc = datetime.now(timezone.utc).date()
-    if target == today_utc:
-        zeros_deleted = _delete_future_chart_zeros(today_utc)
+    if target == today_local:
+        zeros_deleted = _delete_future_chart_zeros(today_local)
 
     preview["dry_run"]       = False
     preview["attempted"]     = slot_count
@@ -918,7 +894,7 @@ def _do_historical(date_str: str, confirm: bool) -> tuple[int, dict]:
 
     # Recompute daily_summary for completed past days (not today — partial data).
     # Errors here are non-fatal; backfill already succeeded.
-    if target < today_utc:
+    if target < today_local:
         try:
             preview["daily_summary"] = _recompute_daily_summary(date_str)
         except Exception as e:
@@ -986,11 +962,7 @@ class handler(BaseHTTPRequestHandler):
             print(f"[collect] OK ppv={data.get('ppv_kw')} export={data.get('export_kw')}")
 
             # Self-heal: fill any gaps in the last 2 hours from the chart API
-            today_str = (
-                datetime.now(timezone.utc)
-                .astimezone(timezone(timedelta(hours=2)))
-                .date().isoformat()
-            )
+            today_str = local_today().isoformat()
             _heal_recent_gaps(today_str)
 
             self._send({"ok": True, "ppv_kw": data.get("ppv_kw")})

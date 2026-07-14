@@ -45,6 +45,7 @@ from http.server import BaseHTTPRequestHandler
 
 from _growatt import get_session
 from _cron_health import record_run as _record_health
+from _tz import STHLM, local_day_bounds_utc, local_today
 
 SERIAL = "KJN6EXV00L"
 BASE   = "https://openapi.growatt.com"
@@ -561,9 +562,9 @@ def _fetch_prices_for_date(d: date) -> list:
     if not SUPABASE_URL or not SUPABASE_KEY:
         return []
     try:
-        cest = timezone(timedelta(hours=2 if 3 < d.month < 11 else 1))
-        day_start = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=cest).isoformat()
-        day_end   = datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=cest).isoformat()
+        day_start_utc, day_end_utc = local_day_bounds_utc(d)
+        day_start = day_start_utc.isoformat()
+        day_end   = day_end_utc.isoformat()
         sb_url = (f"{SUPABASE_URL}/rest/v1/spot_prices"
                   f"?ts=gte.{urllib.parse.quote(day_start)}"
                   f"&ts=lte.{urllib.parse.quote(day_end)}"
@@ -603,17 +604,13 @@ def _fetch_gti_forecast(d: date) -> tuple:
     Cloud cover is used by _build_suggestion to scale the solar haircut per hour
     (Gap 7 — probabilistic forecast uncertainty).
     """
-    from datetime import timezone as _tz
-
     # Try Supabase weather_forecast first (gti_adj = met.no-corrected GTI)
     if SUPABASE_URL and SUPABASE_KEY:
         try:
-            cest = _tz(timedelta(hours=2))
-            day_start = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=cest)
-            day_end   = datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=cest)
+            day_start_utc, day_end_utc = local_day_bounds_utc(d)
             url = (f"{SUPABASE_URL}/rest/v1/weather_forecast"
-                   f"?valid_time=gte.{urllib.parse.quote(day_start.astimezone(_tz.utc).isoformat())}"
-                   f"&valid_time=lte.{urllib.parse.quote(day_end.astimezone(_tz.utc).isoformat())}"
+                   f"?valid_time=gte.{urllib.parse.quote(day_start_utc.isoformat())}"
+                   f"&valid_time=lte.{urllib.parse.quote(day_end_utc.isoformat())}"
                    f"&order=valid_time.asc"
                    f"&select=valid_time,gti_adj,cloud_cover")
             req = urllib.request.Request(url, headers=_sb_headers())
@@ -624,8 +621,8 @@ def _fetch_gti_forecast(d: date) -> tuple:
                 cloud_h = {}
                 for row in rows:
                     dt_utc  = datetime.fromisoformat(row["valid_time"].replace("Z", "+00:00"))
-                    dt_cest = dt_utc.astimezone(cest)
-                    h = dt_cest.hour
+                    dt_local = dt_utc.astimezone(STHLM)
+                    h = dt_local.hour
                     gti_h[h]   = float(row["gti_adj"] or 0)
                     cloud_h[h] = float(row["cloud_cover"] or 0) if row.get("cloud_cover") is not None else 50.0
                 print(f"[tou_suggest] GTI+cloud loaded from Supabase for {d} ({len(gti_h)} hours)")
@@ -824,8 +821,8 @@ def _fetch_solar_forecast_days(n_days: int = 5) -> list:
     Returns a list of floats, index 0 = D+1, index 1 = D+2, …
     On any error returns an empty list (caller must handle gracefully).
     """
-    from datetime import timezone as _tz
-    today   = date.today()
+    from _tz import local_today as _local_today
+    today   = _local_today()
     PANEL_KWP = 11.7
 
     # Load model ratios once (used to convert GTI → kW)
@@ -848,13 +845,12 @@ def _fetch_solar_forecast_days(n_days: int = 5) -> list:
     # --- Try Supabase weather_forecast ---
     if SUPABASE_URL and SUPABASE_KEY:
         try:
-            cest = _tz(timedelta(hours=2))
             start_dt = datetime(today.year, today.month, today.day,
-                                0, 0, 0, tzinfo=cest) + timedelta(days=1)
+                                0, 0, 0, tzinfo=STHLM) + timedelta(days=1)
             end_dt   = start_dt + timedelta(days=n_days)
             url = (f"{SUPABASE_URL}/rest/v1/weather_forecast"
-                   f"?valid_time=gte.{urllib.parse.quote(start_dt.astimezone(_tz.utc).isoformat())}"
-                   f"&valid_time=lt.{urllib.parse.quote(end_dt.astimezone(_tz.utc).isoformat())}"
+                   f"?valid_time=gte.{urllib.parse.quote(start_dt.astimezone(timezone.utc).isoformat())}"
+                   f"&valid_time=lt.{urllib.parse.quote(end_dt.astimezone(timezone.utc).isoformat())}"
                    f"&order=valid_time.asc"
                    f"&select=valid_time,gti_adj")
             req = urllib.request.Request(url, headers=_sb_headers())
@@ -862,14 +858,14 @@ def _fetch_solar_forecast_days(n_days: int = 5) -> list:
                 rows = json.loads(r.read())
 
             if rows:
-                # Bucket into days (CEST local date)
+                # Bucket into days (local Stockholm date)
                 from collections import defaultdict as _dd
                 by_day: dict = _dd(dict)
                 for row in rows:
-                    dt_utc  = datetime.fromisoformat(row["valid_time"].replace("Z", "+00:00"))
-                    dt_cest = dt_utc.astimezone(cest)
-                    d_key   = dt_cest.date()
-                    by_day[d_key][dt_cest.hour] = float(row["gti_adj"] or 0)
+                    dt_utc   = datetime.fromisoformat(row["valid_time"].replace("Z", "+00:00"))
+                    dt_local = dt_utc.astimezone(STHLM)
+                    d_key    = dt_local.date()
+                    by_day[d_key][dt_local.hour] = float(row["gti_adj"] or 0)
 
                 result = []
                 for offset in range(1, n_days + 1):
@@ -1232,16 +1228,12 @@ def _build_suggestion(for_date: date) -> dict:
     # uses local time (CEST = UTC+2 in summer, CET = UTC+1 in winter). We must
     # convert to local time before extracting the hour or every segment ends up
     # 2 hours early.
-    _month = for_date.month
-    _utc_off = 2 if 3 < _month < 11 else 1   # CEST Apr–Oct, CET Nov–Mar (approx)
-    _tz_local = timezone(timedelta(hours=_utc_off))
-
     price_by_hour = {}
     for row in prices_raw:
         t = row.get("time_start", "")
         try:
             dt_utc = datetime.fromisoformat(t.replace("Z", "+00:00"))
-            h = dt_utc.astimezone(_tz_local).hour
+            h = dt_utc.astimezone(STHLM).hour
         except (ValueError, TypeError):
             continue
         price_by_hour[h] = float(row.get("SEK_per_kWh", 0))
@@ -1382,14 +1374,13 @@ def _build_suggestion(for_date: date) -> dict:
             "stop":       f"{eh:02d}:00",
         })
 
-    # Clip segments that start before "now" when building for today in CEST.
+    # Clip segments that start before "now" when building for today, local time.
     # A segment can't be applied retroactively, so trim the start to the next
     # 15-min boundary and drop any segment whose window has already closed.
-    tz_cest = timezone(timedelta(hours=2))
-    today_cest = datetime.now(tz_cest).date()
-    if for_date == today_cest:
-        now_cest  = datetime.now(tz_cest)
-        now_min   = now_cest.hour * 60 + now_cest.minute
+    today_local = datetime.now(STHLM).date()
+    if for_date == today_local:
+        now_local = datetime.now(STHLM)
+        now_min   = now_local.hour * 60 + now_local.minute
         clip_min  = ((now_min // 15) + 1) * 15   # round up to next 15-min slot
         clip_h, clip_m = divmod(clip_min, 60)
         clipped = []
@@ -1657,23 +1648,20 @@ class handler(BaseHTTPRequestHandler):
 
         if action == "suggest":
             # Return today's saved suggestion.
-            # Use CEST date (UTC+2), not UTC — between 00:00–02:00 CEST the UTC
+            # Use local date, not UTC — between 00:00–02:00 local the UTC
             # date is still yesterday, which would return the wrong suggestion.
-            from datetime import datetime as _dt, timezone as _tz, timedelta as _td
-            _tz_cest = _tz(timedelta(hours=2))
-            today_cest = _dt.now(timezone.utc).astimezone(_tz_cest).date()
-            self._send(_load_suggestion(today_cest))
+            self._send(_load_suggestion(local_today()))
             return
 
         if action == "build_suggest":
             # cron-job.org sends GET — build TOU suggestion for tomorrow.
-            # Optional ?date=YYYY-MM-DD overrides the default (tomorrow UTC).
+            # Optional ?date=YYYY-MM-DD overrides the default (tomorrow, local date).
             try:
                 date_param = params.get("date", "")
                 if date_param:
                     for_date = date.fromisoformat(date_param)
                 else:
-                    for_date = date.today() + timedelta(days=1)
+                    for_date = local_today() + timedelta(days=1)
                 # Skip if a fresh suggestion already exists (idempotent)
                 if _suggestion_is_fresh(for_date):
                     print(f"[tou build_suggest] suggestion for {for_date} already fresh — skipping")
@@ -1733,7 +1721,7 @@ class handler(BaseHTTPRequestHandler):
             # Schedule runs at "10 22,23 * * *" (22:10 + 23:10) so the second fire
             # is a free safety net without double-building.
             try:
-                tomorrow = date.today() + timedelta(days=1)
+                tomorrow = local_today() + timedelta(days=1)
                 if _suggestion_is_fresh(tomorrow):
                     print(f"[tou build_suggest] suggestion for {tomorrow} already fresh — skipping")
                     self._send({"ok": True, "skipped": True, "for_date": tomorrow.isoformat()})

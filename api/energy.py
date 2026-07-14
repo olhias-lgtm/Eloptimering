@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone, timedelta
 from http.server import BaseHTTPRequestHandler
 
 from _schema import DAILY_TOTALS_FIELDS, ROW_TYPE_PRIORITY, row_type
+from _tz import STHLM, local_today, local_day_bounds_utc
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
@@ -23,19 +24,17 @@ def _sb_headers():
 
 
 def _fetch_readings(date_str: str) -> list:
-    """Fetch all energy_readings rows for a given date (CEST = UTC+2)."""
+    """Fetch all energy_readings rows for a given local (Stockholm) date."""
     if not SUPABASE_URL or not SUPABASE_KEY:
         return []
     try:
-        # CEST day boundaries in UTC
-        day   = date.fromisoformat(date_str)
-        start = datetime(day.year, day.month, day.day, 0, 0, 0,
-                         tzinfo=timezone(timedelta(hours=2))).isoformat()
-        # Extend end by 5 min: the cron fired at 00:00–00:04 CEST of the next day
+        # Local day boundaries in UTC
+        day = date.fromisoformat(date_str)
+        start_utc, end_utc = local_day_bounds_utc(day)
+        start = start_utc.isoformat()
+        # Extend end by 5 min: the cron fired at 00:00–00:04 local of the next day
         # represents the 23:55 slot of this day (after the -5 min lag correction).
-        end   = (datetime(day.year, day.month, day.day, 23, 59, 59,
-                          tzinfo=timezone(timedelta(hours=2)))
-                 + timedelta(minutes=5)).isoformat()
+        end   = (end_utc + timedelta(minutes=5)).isoformat()
         url = (
             f"{SUPABASE_URL}/rest/v1/energy_readings"
             f"?ts=gte.{urllib.parse.quote(start)}"
@@ -77,12 +76,11 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
     # Within same source type, row closest to the 5-min boundary wins.
     priority = {label: (-1, float("inf")) for label in buckets}  # (is_live, offset_s)
 
-    tz_cest = timezone(timedelta(hours=2))
     for row in rows:
         ts_str = row["ts"]
         ts_str = ts_str.replace("Z", "+00:00")
         try:
-            ts = datetime.fromisoformat(ts_str).astimezone(tz_cest)
+            ts = datetime.fromisoformat(ts_str).astimezone(STHLM)
         except Exception:
             continue
         # Live rows: Growatt API has ~5-min data lag — cron fires at :30 but
@@ -145,11 +143,11 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
             buckets[label]["soc"] = soc_values[before_i]   # trailing gap: hold last known
         # leading gap (no before): leave null — no anchor to extrapolate from
 
-    # Truncate future slots when viewing today (CEST date — Vercel runs UTC)
-    today_str = datetime.now(timezone.utc).astimezone(tz_cest).date().isoformat()
+    # Truncate future slots when viewing today (local date — Vercel runs UTC)
+    today_str = local_today().isoformat()
     if date_str == today_str:
-        cest_now = datetime.now(timezone.utc).astimezone(tz_cest)
-        cutoff   = cest_now.hour * 60 + cest_now.minute + SLOT_MIN  # grace of one slot
+        local_now = datetime.now(timezone.utc).astimezone(STHLM)
+        cutoff   = local_now.hour * 60 + local_now.minute + SLOT_MIN  # grace of one slot
         for label in list(buckets.keys()):
             h, m = map(int, label.split(":"))
             if h * 60 + m > cutoff:
@@ -158,10 +156,10 @@ def _bucket_readings(rows: list, date_str: str) -> dict:
     return buckets
 
 
-def _row_cest_date(row: dict, tz_cest) -> str:
+def _row_local_date(row: dict) -> str:
     ts_str = row.get("ts", "").replace("Z", "+00:00")
     try:
-        return datetime.fromisoformat(ts_str).astimezone(tz_cest).date().isoformat()
+        return datetime.fromisoformat(ts_str).astimezone(STHLM).date().isoformat()
     except Exception:
         return ""
 
@@ -174,14 +172,13 @@ def _daily_totals(rows: list, date_str: str) -> dict | None:
     excluded at the schema level, not here.
 
     The _fetch_readings window extends 5 minutes past midnight to catch late
-    cron rows. We filter to the target CEST date so that the next-day midnight
+    cron rows. We filter to the target local date so that the next-day midnight
     reset (epv_today drops back to 0) does not wipe the correct end-of-day value.
 
-    The inverter resets epv_today at midnight CEST (within the first 5-10 min).
+    The inverter resets epv_today at local midnight (within the first 5-10 min).
     The single pre-reset row (00:00–00:05, still carrying yesterday's counter)
     is detected via the >1 kWh drop and discarded.
     """
-    tz_cest = timezone(timedelta(hours=2))
     anchor_col = DAILY_TOTALS_FIELDS.get("solar_kwh", "epv_today")
     best = None
     prev_val = None
@@ -189,13 +186,9 @@ def _daily_totals(rows: list, date_str: str) -> dict | None:
     for row in rows:
         if row_type(row) != "live":
             continue
-        # Restrict to the target CEST date — the query window extends 5 min
+        # Restrict to the target local date — the query window extends 5 min
         # into the next day; those rows belong to tomorrow, not today.
-        ts_str = row.get("ts", "").replace("Z", "+00:00")
-        try:
-            if datetime.fromisoformat(ts_str).astimezone(tz_cest).date().isoformat() != date_str:
-                continue
-        except Exception:
+        if _row_local_date(row) != date_str:
             continue
         val = row.get(anchor_col)
         if val is None:
@@ -219,7 +212,7 @@ def _daily_totals(rows: list, date_str: str) -> dict | None:
     if not reset_detected:
         live_today = [
             r for r in rows if row_type(r) == "live"
-            and _row_cest_date(r, tz_cest) == date_str
+            and _row_local_date(r) == date_str
         ]
         if live_today and all(float(r.get("ppv_kw") or 0) == 0 for r in live_today):
             return None
@@ -234,8 +227,7 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed   = urllib.parse.urlparse(self.path)
         params   = dict(urllib.parse.parse_qsl(parsed.query))
-        tz_cest  = timezone(timedelta(hours=2))
-        today    = datetime.now(timezone.utc).astimezone(tz_cest).date().isoformat()
+        today    = local_today().isoformat()
         date_str = params.get("date", today)
         is_today = (date_str == today)
 

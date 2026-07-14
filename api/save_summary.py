@@ -15,24 +15,18 @@ import urllib.request
 from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler
 
+from _tz import is_past_local_day
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 
 
 def _is_past_day(date_str: str) -> bool:
-    """Return True only if date_str is strictly before today in CEST (Stockholm)."""
+    """Return True only if date_str is strictly before today in Stockholm local time."""
     try:
-        target = date.fromisoformat(date_str)
+        return is_past_local_day(date_str)
     except (ValueError, TypeError):
         return False
-    tz_cest = timezone(timedelta(hours=2))  # close enough; DST handled below
-    # Use Europe/Stockholm via a fixed +2/+1 offset based on month (approximate)
-    # For precision: DST in effect March last Sunday → October last Sunday
-    now_utc = datetime.now(timezone.utc)
-    month = now_utc.month
-    offset = 2 if 3 < month < 11 or (month == 3 and now_utc.day >= 25) or (month == 10 and now_utc.day < 25) else 1
-    today_local = now_utc.astimezone(timezone(timedelta(hours=offset))).date()
-    return target < today_local
 
 
 def _upsert(payload: dict):
