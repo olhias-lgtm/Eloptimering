@@ -23,10 +23,19 @@ def _sb_headers():
     }
 
 
+class SupabaseFetchError(Exception):
+    """Raised when the Supabase query itself fails (network, HTTP, parse error) —
+    distinct from a query that succeeds and simply returns zero rows. Callers
+    must not treat this the same as "no data yet" (e.g. early morning before
+    any readings have landed)."""
+
+
 def _fetch_readings(date_str: str) -> list:
-    """Fetch all energy_readings rows for a given local (Stockholm) date."""
+    """Fetch all energy_readings rows for a given local (Stockholm) date.
+    Raises SupabaseFetchError on any failure — an empty list only ever means
+    "the query succeeded and there are genuinely no rows for this date"."""
     if not SUPABASE_URL or not SUPABASE_KEY:
-        return []
+        raise SupabaseFetchError("Supabase env vars not set")
     try:
         # Local day boundaries in UTC
         day = date.fromisoformat(date_str)
@@ -46,9 +55,11 @@ def _fetch_readings(date_str: str) -> list:
         req = urllib.request.Request(url, headers=_sb_headers())
         with urllib.request.urlopen(req, timeout=8) as r:
             return json.loads(r.read())
+    except SupabaseFetchError:
+        raise
     except Exception as e:
         print(f"[energy] supabase fetch error: {e}")
-        return []
+        raise SupabaseFetchError(str(e)) from e
 
 
 def _bucket_readings(rows: list, date_str: str) -> dict:
@@ -239,7 +250,21 @@ class handler(BaseHTTPRequestHandler):
                 self._send(cached["data"])
                 return
 
-        rows = _fetch_readings(date_str)
+        try:
+            rows = _fetch_readings(date_str)
+        except SupabaseFetchError as e:
+            print(f"[energy] fetch failed for {date_str}: {e}")
+            if cached:
+                # Serve the last good response rather than a fake "zero solar"
+                # chart — a brief Supabase blip should not look like a real
+                # zero-production day on the dashboard.
+                stale = dict(cached["data"])
+                stale["stale"] = True
+                stale["source"] = "stale_cache"
+                self._send(stale)
+                return
+            self._send({"error": f"Supabase unavailable: {e}"}, 503)
+            return
 
         if not rows:
             if is_today:
